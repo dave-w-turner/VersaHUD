@@ -90,6 +90,17 @@ public class TelemetryForegroundService : Service
             ? new Notification.Builder(this, CHANNEL_ID)
             : new Notification.Builder(this);
 
+        Intent launchAppIntent = new Intent(this, typeof(MainActivity));
+        launchAppIntent.SetFlags(ActivityFlags.ClearTop | ActivityFlags.SingleTop);
+
+        PendingIntent pendingContentIntent = PendingIntent.GetActivity(
+            this,
+            0,
+            launchAppIntent,
+            PendingIntentFlags.UpdateCurrent | PendingIntentFlags.Immutable);
+
+        builder.SetContentIntent(pendingContentIntent);
+
         bool isBluetoothRadioPoweredOn = Plugin.BLE.CrossBluetoothLE.Current.IsOn;
         bool isDeviceLinkGenuinelyActive = App.BluetoothService != null && App.BluetoothService.IsBluetoothConnected;
 

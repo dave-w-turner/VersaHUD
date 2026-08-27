@@ -7,7 +7,6 @@ namespace VersaHUD;
 
 public partial class MainPage : ContentPage
 {
-    // 🚀 THE SECURE STATIC KEY MAPS: Centralizes preference string keys globally
     public const string SavedDeviceMacKey = "LastConnectedDeviceMac";
     public const string SavedDeviceNameKey = "LastConnectedBleId";
         
@@ -37,52 +36,44 @@ public partial class MainPage : ContentPage
         }
     }
 
-    // 🌐 ASYNCHRONOUS LOCAL SUBNET REST API TELEMETRY POLLER (ENCRYPTION FIXED)
     private void ManageWifiTelemetryPollingLifecycle(bool startWorker)
     {
-        // Cancel and wipe out any existing active background network worker loops first
         _wifiTelemetryCancelSource?.Cancel();
         _wifiTelemetryCancelSource = null;
 
         if (!startWorker)
         {
-            System.Diagnostics.Debug.WriteLine("--> [UI NETWORK ENGINE]: Competing HTTP background task loops cleanly suspended.");
+            Debug.WriteLine("--> [UI NETWORK ENGINE]: Competing HTTP background task loops cleanly suspended.");
             return;
         }
 
-        System.Diagnostics.Debug.WriteLine("--> [UI NETWORK ENGINE]: Wi-Fi link active. Network traffic consolidated cleanly to your background service pipeline channel.");
+        Debug.WriteLine("--> [UI NETWORK ENGINE]: Wi-Fi link active. Network traffic consolidated cleanly to your background service pipeline channel.");
     }
 
-    // REAL-TIME REGEX STRIP ENGINE LOOP 🧠
-    // 🧠 UNIVERSAL DUAL-TRANSPORT TELEMETRY DATA STRIP ENGINE (BLE + REST API) [INDEX_0.1.23]
     private void ParseVehicleTelemetryStream(string rawDataPacket)
     {
         if (string.IsNullOrEmpty(rawDataPacket)) return;
 
         if (!rawDataPacket.Trim().StartsWith("{") && App.BluetoothService.IsUsingWifiTransportMode)
         {
-            System.Diagnostics.Debug.WriteLine("--> [TRANSPORTS HARDWARE INTELLIGENCE]: Valid BLE string stream caught. Forcefully overriding stuck Wi-Fi preferences!");
+            Debug.WriteLine("--> [TRANSPORTS HARDWARE INTELLIGENCE]: Valid BLE string stream caught. Forcefully overriding stuck Wi-Fi preferences!");
 
-            //App.BluetoothService.IsUsingWifiTransportMode = false;
-
-            // Force your connection status badges to repaint to your nominal Emerald Green BLE layout immediately!
             UpdateBluetoothStatusBadge(isConnected: true);
         }
 
         if (rawDataPacket.Contains("SECURITY WARN") || rawDataPacket.Contains("Hash mismatch") || rawDataPacket.Contains("401") || rawDataPacket.Contains("Unauthorized"))
         {
-            System.Diagnostics.Debug.WriteLine("--> [PARSER SECURITY RADAR]: Encryption key mismatch caught over radio waves! Enforcing passcode input overlay rendering pass...");
+            Debug.WriteLine("--> [PARSER SECURITY RADAR]: Encryption key mismatch caught over radio waves! Enforcing passcode input overlay rendering pass...");
 
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                // Forcefully slide your initialization password card overlay onto the screen view viewport panel!
                 if (layoutPasswordInitShell != null && !layoutPasswordInitShell.IsVisible)
                 {
                     layoutPasswordInitShell.IsVisible = true;
-                    System.Diagnostics.Debug.WriteLine("--> [UI FORCED STATE]: Onboarding password mask deployed successfully via telemetry interceptor.");
+                    Debug.WriteLine("--> [UI FORCED STATE]: Onboarding password mask deployed successfully via telemetry interceptor.");
                 }
             });
-            return; // 💥 Crash the feedback loop execution row and exit early!
+            return;
         }
 
         if (!rawDataPacket.Trim().StartsWith("{") &&
@@ -93,16 +84,12 @@ public partial class MainPage : ContentPage
 
         try
         {
-            // =====================================================
-            // 🌐 ROUTE A: INTERCEPT AND PARSE ARDUINO JSON WEB TELEMETRY OVER WI-FI [INDEX_1.2.2]
-            // =====================================================
             if (rawDataPacket.Trim().StartsWith("{"))
             {
                 using (JsonDocument jsonDoc = JsonDocument.Parse(rawDataPacket))
                 {
                     var root = jsonDoc.RootElement;
 
-                    // Extract your exact battery primitives safely off the JSON object tree [INDEX_1.2.6]
                     float frontVolts = root.TryGetProperty("front_v", out JsonElement fv) ? (float)fv.GetDouble() : 0f;
                     int frontPercent = root.TryGetProperty("front_p", out JsonElement fp) ? fp.GetInt32() : 0;
 
@@ -118,13 +105,11 @@ public partial class MainPage : ContentPage
                     {
                         var logBuilder = new System.Text.StringBuilder();
 
-                        // Loop through each element physically inside the JSON array tracks
                         foreach (JsonElement individualLine in logsNode.EnumerateArray())
                         {
                             string logText = individualLine.GetString() ?? string.Empty;
                             if (!string.IsNullOrEmpty(logText))
                             {
-                                // Append the raw text row followed cleanly by a standard line break
                                 logBuilder.AppendLine(logText);
                             }
                         }
@@ -138,20 +123,15 @@ public partial class MainPage : ContentPage
                         }
                     }
 
-                    // 🚀 THE WI-FI IP PILL UPDATER: 
-                    // Pull your active connection IP straight out of your persistent local disk storage cache [INDEX_1.2.6]
                     string activeNetworkIP = Preferences.Default.Get("LastKnownVehicleIP", string.Empty);
 
-                    // Dispatch straight down to your native layout UI elements [INDEX_0.1.24]
                     MainThread.BeginInvokeOnMainThread(() =>
                     {
-                        // A: Repaint your front and back workstation dials live on your console [INDEX_0.1.24]
                         UpdateDashboardMetrics(
                             frontVolts, frontPercent, frontIsCharging,
                             backVolts, backPercent, backIsCharging
                         );
 
-                        // B: Ensure your Tech-Blue Station IP Pill stays completely visible and populated over Wi-Fi!
                         if (!string.IsNullOrEmpty(activeNetworkIP) && activeNetworkIP != "0.0.0.0")
                         {
                             if (lblVehicleIPText != null) lblVehicleIPText.Text = activeNetworkIP;
@@ -159,15 +139,11 @@ public partial class MainPage : ContentPage
                         }
                     });
                 }
-                return; // Complete parsing path pass and exit early!
+                return;
             }
 
-            // =====================================================
-            // 🔵 ROUTE B: NATIVE RAW STRING REGEX STRIP CHANNELS OVER BLUETOOTH [INDEX_0.1.23]
-            // =====================================================
             Debug.WriteLine($"--> [DASHBOARD PARSER INPUT]: Processing BLE Text: {rawDataPacket}");
 
-            // Intercept and cache your physical network router IP changes over BLE [INDEX_0.1.32]
             if (rawDataPacket.Contains("IP:"))
             {
                 int ipStartIndex = rawDataPacket.IndexOf("IP:") + 3;
@@ -179,35 +155,21 @@ public partial class MainPage : ContentPage
 
                     MainThread.BeginInvokeOnMainThread(() =>
                     {
-                        // 🚀 THE BULLETPROOF FALLBACK ENGINE REFIX:
-                        // Only step inside this configuration reset block if we haven't already wiped our cache registers to "0.0.0.0"!
                         if (extractedVehicleIP == "STA_HOTSPOT" && Preferences.Default.Get("LastKnownVehicleIP", string.Empty) != "0.0.0.0")
                         {
-                            System.Diagnostics.Debug.WriteLine("--> [FALLBACK ENGINE]: Standalone hotspot detected. Force-aligning UI structures to BLE mode lanes...");
+                            Debug.WriteLine("--> [FALLBACK ENGINE]: Standalone hotspot detected. Force-aligning UI structures to BLE mode lanes...");
 
-                            // 1. Reset your local preference keys to a zero state to block background HTTP pollers
-                            //Preferences.Default.Set("LastKnownVehicleIP", "0.0.0.0");
-
-                            // 2. Forcefully clean up your Tech-Blue Station IP Pill label element properties
                             if (lblVehicleIPText != null)
                             {
                                 lblVehicleIPText.Text = "OFFLINE (Standalone AP Mode)";
                             }
                             if (borderNetworkStatus != null)
                             {
-                                borderNetworkStatus.IsVisible = false; // Hide network pill entirely over BLE
+                                borderNetworkStatus.IsVisible = false;
                             }
-
-                            // 3. Force-shift the active transport preference routing keys back to low-energy radio channels!
-                            // App.BluetoothService.IsUsingWifiTransportMode = false;
-
-                            // 4. Halt your background web server telemetry pollers instantly
+                            
                             ManageWifiTelemetryPollingLifecycle(startWorker: false);
 
-                            // 🚀 5. HARD-BREAK THE UI RENDERING DEADLOCK:
-                            // Because the service layers are cycling states, we forcefully paint your nominal, 
-                            // healthy Emerald Green BLE badge layout onto the screen console viewport manually right now!
-                            // This instantly strips away the frozen "Reconnecting" text block.
                             string currentBleName = Preferences.Default.Get(MainPage.SavedDeviceNameKey, "VersaHub_BLE");
                             if (Guid.TryParse(currentBleName, out _) || currentBleName.Contains("-"))
                             {
@@ -216,7 +178,7 @@ public partial class MainPage : ContentPage
 
                             if (borderBleStatus != null)
                             {
-                                borderBleStatus.BackgroundColor = Color.Parse("#1A2D20"); // Emerald Green
+                                borderBleStatus.BackgroundColor = Color.Parse("#1A2D20");
                                 borderBleStatus.Stroke = Color.Parse("#10B981");
                             }
 
@@ -239,7 +201,6 @@ public partial class MainPage : ContentPage
                         }
                         else if (!string.IsNullOrEmpty(extractedVehicleIP) && extractedVehicleIP != "STA_HOTSPOT")
                         {
-                            // Nominal Route: Stored station IP discovered on home router network lanes
                             if (lblVehicleIPText != null) lblVehicleIPText.Text = extractedVehicleIP;
                             if (borderNetworkStatus != null) borderNetworkStatus.IsVisible = true;
 
@@ -249,7 +210,6 @@ public partial class MainPage : ContentPage
                 }
             }
 
-            // Scan and parse your Front Starter Battery parameter strings [INDEX_0.1.23]
             Match frontMatch = FrontBatteryRegex.Match(rawDataPacket);
             float currentFrontVolts = 0;
             int currentFrontPercent = 0;
@@ -261,7 +221,6 @@ public partial class MainPage : ContentPage
                 currentFrontPercent = int.Parse(frontMatch.Groups["percent"].Value);
             }
 
-            // Scan and parse your Trunk Workstation Battery parameter strings [INDEX_0.1.24]
             Match backMatch = BackBatteryRegex.Match(rawDataPacket);
             float currentBackVolts = 0;
             int currentBackPercent = 0;
@@ -287,25 +246,22 @@ public partial class MainPage : ContentPage
         }
     }
 
-    // UNIFIED MASTER INITIALIZATION LIFE CYCLE HOOK 🏎
     protected override void OnAppearing()
     {
         base.OnAppearing();
 
-        // 1. PRESERVE CORE LINK: Fire your vital signal and listener tracking workers instantly!
         KickstartWirelessCockpitSync();
 
         Debug.WriteLine("--> [DASHBOARD LANDING]: Repainting master layout frames...");
 
-        // 2. REBOOT WATCHDOG EVALUATION SHIELD: 🛡
         if (App.BluetoothService != null && App.BluetoothService.IsRebootingWatchdogActive)
         {
-            borderBleStatus.BackgroundColor = Color.Parse("#2D1A1A"); // Safe Ruby Red
+            borderBleStatus.BackgroundColor = Color.Parse("#2D1A1A");
             borderBleStatus.Stroke = Color.Parse("#EF4444");
             lblBleDot.Text = "🔴";
             lblBleStatusText.Text = "VEHICLE MODULE REBOOTING...";
             lblBleStatusText.TextColor = Color.Parse("#EF4444");
-            lblBleSignal.Text = string.Empty; // Zero out signal arrays
+            lblBleSignal.Text = string.Empty;
 
             Debug.WriteLine("--> [UI STATE ALIGNMENT]: Dashboard badge force-shifted to REBOOTING tracking state.");
         }
@@ -322,40 +278,31 @@ public partial class MainPage : ContentPage
         });
     }
 
-    // DYNAMIC BACKGROUND INITIALIZATION INTERCEPTOR (AUTHENTICATION MATCHED) 📡
-    // ====================================================================
-    // 📡 DYNAMIC BACKGROUND INITIALIZATION INTERCEPTOR (HARDWARE GATED)
-    // ====================================================================
     private void KickstartWirelessCockpitSync()
     {
         if (App.BluetoothService != null && App.BluetoothService.IsRebootingWatchdogActive)
         {
-            System.Diagnostics.Debug.WriteLine("--> [BOOT SYNC GUARD]: Active reboot watchdog detected. Standing down dashboard autoconnect tasks.");
+            Debug.WriteLine("--> [BOOT SYNC GUARD]: Active reboot watchdog detected. Standing down dashboard autoconnect tasks.");
             return;
         }
 
-        // THE ULTIMATE PRE-FLIGHT HARDWARE DIAGNOSTIC CHECK: 🚀 [INDEX_4]
         bool isBluetoothHardwareOff = !Plugin.BLE.CrossBluetoothLE.Current.IsOn;
         string storedVehicleIP = Preferences.Default.Get("LastKnownVehicleIP", "0.0.0.0");
         bool hasNoValidWifiRouteYet = string.IsNullOrEmpty(storedVehicleIP) || storedVehicleIP.Equals("0.0.0.0") || storedVehicleIP.Equals("STA_HOTSPOT");
 
         if (isBluetoothHardwareOff && hasNoValidWifiRouteYet)
         {
-            System.Diagnostics.Debug.WriteLine("--> [CRITICAL OVERRIDE CAUGHT]: Bluetooth hardware is OFF and zero Wi-Fi network routing maps exist on launch!");
+            Debug.WriteLine("--> [CRITICAL OVERRIDE CAUGHT]: Bluetooth hardware is OFF and zero Wi-Fi network routing maps exist on launch!");
 
             MainThread.BeginInvokeOnMainThread(async () =>
             {
-                // Forcefully slide your overlay picker list up to give the user a clear baseline target area [INDEX_4]
                 if (layoutOverlayShell != null) layoutOverlayShell.IsVisible = true;
 
-                // 🎯 THE BOOT-STATE RESET INJECTION:
-                // Forcefully paint the crimson OFFLINE layout directly onto the canvas on startup, 
-                // preventing the UI from falling through to legacy connection rendering states!
                 if (borderNetworkStatus != null) borderNetworkStatus.IsVisible = false;
 
                 if (borderBleStatus != null)
                 {
-                    borderBleStatus.BackgroundColor = Color.Parse("#2D1A1A"); // Safe Ruby Red Warning [INDEX_4]
+                    borderBleStatus.BackgroundColor = Color.Parse("#2D1A1A");
                     borderBleStatus.Stroke = Color.Parse("#EF4444");
                 }
 
@@ -363,7 +310,6 @@ public partial class MainPage : ContentPage
                 if (lblBleSignal != null) lblBleSignal.Text = "SIGNAL DISCONNECTED";
                 if (lblBleSignal != null) lblBleSignal.TextColor = Color.Parse("#EF4444");
 
-                // 🎯 THE CLEAN NATIVE LAYOUT SLUSH BLOCK:
                 if (lblBleStatusText != null)
                 {
                     lblBleStatusText.Text = "OFFLINE — RADIO LINK OFF";
@@ -377,7 +323,6 @@ public partial class MainPage : ContentPage
 
                 if (btnManualScanTrigger != null) btnManualScanTrigger.IsVisible = true;
 
-                // Force fully drop your front-end gauges down to zero immediately on launch failure!
                 lblFrontVolts.Text = "0.00 V";
                 lblFrontPercent.Text = "0%";
                 progressFront.Progress = 0.0f;
@@ -390,24 +335,21 @@ public partial class MainPage : ContentPage
                 progressBack.ProgressColor = Colors.DarkSlateGray;
                 lblBackIcon.Text = "❌";
 
-                // Dispatch your blocking alert popup box last [INDEX_4]
                 await DisplayAlertAsync(
                     "RADIO RECEIVERS OFF",
                     "VersaHUD cannot locate your vehicle because your phone's Bluetooth is turned OFF and no local vehicle Wi-Fi route has been established yet.\n\nPlease enable Bluetooth in your settings or connect to the console's local network hotspot to start telemetry tracks.",
                     "OK");
             });
 
-            return; // 💥 Master return constraint: Hard exit the initialization sequence right here! [INDEX_4]
+            return;
         }
 
-        // Proceed to launch your background dual-transport evaluation scan thread normally...
         Task.Run(async () =>
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine("--> [BOOT LINK INTERCEPT]: Launching parallel network transport evaluation scan...");
+                Debug.WriteLine("--> [BOOT LINK INTERCEPT]: Launching parallel network transport evaluation scan...");
 
-                // STEP 1: PARALLEL WI-FI ROUTE PROBE [PDF: 0.1.26]
                 string cachedVehicleIP = Preferences.Default.Get("LastKnownVehicleIP", string.Empty);
                 bool wifiRouteIsAvailable = false;
 
@@ -457,18 +399,17 @@ public partial class MainPage : ContentPage
                                 if (networkResponse.IsSuccessStatusCode)
                                 {
                                     wifiRouteIsAvailable = true;
-                                    System.Diagnostics.Debug.WriteLine($"--> [BOOT LINK SUCCESS]: Vehicle node discovered live over Wi-Fi Subnet at http://{cachedVehicleIP}!");
+                                    Debug.WriteLine($"--> [BOOT LINK SUCCESS]: Vehicle node discovered live over Wi-Fi Subnet at http://{cachedVehicleIP}!");
                                 }
                             }
                         }
                         catch (Exception ex)
                         {
-                            System.Diagnostics.Debug.WriteLine($"--> [BOOT WI-FI PROBE EXCEPTION]: Sockets handled dropout cleanly: {ex.Message}");
+                            Debug.WriteLine($"--> [BOOT WI-FI PROBE EXCEPTION]: Sockets handled dropout cleanly: {ex.Message}");
                         }
                     }
                 }
 
-                // STEP 2: EVALUATE SCENARIOS BASED ON PARALLEL RESULTS [PDF: 0.1.27]
                 if (wifiRouteIsAvailable)
                 {
                     MainThread.BeginInvokeOnMainThread(async () =>
@@ -480,8 +421,7 @@ public partial class MainPage : ContentPage
                     return;
                 }
 
-                // If Wi-Fi fails but Bluetooth is active, fall back cleanly to auto-connect routine tracks [PDF: 0.1.27]
-                System.Diagnostics.Debug.WriteLine("--> [BOOT LINK FALLBACK]: Wi-Fi path silent or rejected. Proceeding down native Bluetooth radio channels...");
+                Debug.WriteLine("--> [BOOT LINK FALLBACK]: Wi-Fi path silent or rejected. Proceeding down native Bluetooth radio channels...");
                 bool isReconnected = await App.BluetoothService.AutoConnectAsync();
 
                 if (!isReconnected)
@@ -492,19 +432,21 @@ public partial class MainPage : ContentPage
                     {
                         if (string.IsNullOrEmpty(targetedMacAddress))
                         {
-                            System.Diagnostics.Debug.WriteLine("--> [BOOT SYNC]: Zero historical pairings found. Revealing manual picker container.");
+                            Debug.WriteLine("--> [BOOT SYNC]: Zero historical pairings found. Revealing manual picker container.");
                             layoutOverlayShell.IsVisible = true;
                             if (btDevicePicker != null)
                             {
+                                if (btnLock != null) btnLock.IsEnabled = false;
+                                if (btnUnlock != null) btnUnlock.IsEnabled = false;
                                 await btDevicePicker.InitializePickerLifecycleAsync();
                             }
                         }
                         else
                         {
-                            System.Diagnostics.Debug.WriteLine("--> [BOOT SYNC]: Historical device found. Suppressing popup and launching background tracking...");
+                            Debug.WriteLine("--> [BOOT SYNC]: Historical device found. Suppressing popup and launching background tracking...");
                             layoutOverlayShell.IsVisible = false;
 
-                            borderBleStatus.BackgroundColor = Color.Parse("#2D1A1A"); // Safe Ruby Red
+                            borderBleStatus.BackgroundColor = Color.Parse("#2D1A1A");
                             borderBleStatus.Stroke = Color.Parse("#EF4444");
                             lblBleDot.Text = "🔴";
                             lblBleStatusText.Text = "RECONNECTING TO VEHICLE CORES...";
@@ -539,24 +481,18 @@ public partial class MainPage : ContentPage
         });
     }
 
-    // ====================================================================
-    // 🔐 HARDWARE AUTHENTICATION GATEWAY (DE-DUPLICATED PACKET PASS)
-    // ====================================================================
     public async Task VerifyPasswordAgainstHardwareAsync()
     {
         string savedPass = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
 
-        // Define our localized anonymous event tracking gatekeeper
         Action<string> temporaryAuthHandler = null;
         temporaryAuthHandler = (fullTelemetryMessage) =>
         {
             if (string.IsNullOrEmpty(fullTelemetryMessage)) return;
             Debug.WriteLine($"--> [SINGLE-STREAM AUTH INTERCEPTOR]: {fullTelemetryMessage}");
 
-            // SUCCESS HANDLING: Hands over clean dashboard metric renders on approval pass
             if (fullTelemetryMessage.Contains("AUTH_SUCCESS") || fullTelemetryMessage.Contains("\"front_v\":") || fullTelemetryMessage.Contains("\"charging\":"))
             {
-                // 🚀 UNBIND MASTER: Decouple cleanly off the single registration track immediately
                 App.BluetoothService.OnTelemetryReceived -= temporaryAuthHandler;
 
                 Debug.WriteLine("--> [HANDSHAKE SECURED]: Auth validation state cleared successfully!");
@@ -571,11 +507,8 @@ public partial class MainPage : ContentPage
                     fullTelemetryMessage = string.Empty;
                 });
             }
-            // FAILURE HANDLING: Re-architected to trip the circuit breaker EXACTLY ONCE
             else if (fullTelemetryMessage.Contains("AUTH_FAILED") || fullTelemetryMessage.Contains("ROUTER_ERROR") || fullTelemetryMessage.Contains("401") || fullTelemetryMessage.Contains("Unauthorized"))
             {
-                // 🚀 UNBIND MASTER: Kill the tracking listener immediately right here on line 1!
-                // This stops any secondary parallel event frames from executing duplicate popups!
                 App.BluetoothService.OnTelemetryReceived -= temporaryAuthHandler;
 
                 Debug.WriteLine("--> [HANDSHAKE REJECTED]: Auth failed token caught. Displaying single alert prompt...");
@@ -593,31 +526,23 @@ public partial class MainPage : ContentPage
                         if (entryField != null)
                         {
                             entryField.Text = string.Empty;
-                            entryField.Focus(); // Force-focus native software keyboards
+                            entryField.Focus();
                         }
                     }
 
-                    // 🏁 Master alert display fires cleanly exactly once
                     await DisplayAlertAsync("ACCESS DENIED", "The passcode signature you entered does not match your vehicle module's secure vaults.", "TRY AGAIN");
                     fullTelemetryMessage = string.Empty;
                 });
             }
         };
 
-        // 🚀 THE DE-DUPLICATION WIRING CONSTRAINT:
-        // We completely remove registrations from 'this.OnWifiTelemetryParsed' inside this method!
-        // Because your foreground service channel already forward-routes its parsed Wi-Fi frames smoothly
-        // straight onto the 'OnTelemetryReceived' pipeline bus, listening exclusively to this single 
-        // stream completely stops duplicate handshakes while catching 100% of network payloads!
         App.BluetoothService.OnTelemetryReceived -= temporaryAuthHandler;
         App.BluetoothService.OnTelemetryReceived += temporaryAuthHandler;
 
-        // DISPATCH SECURE PAYLOAD COMMAND
         bool isSentSuccessfully = await App.BluetoothService.SendSecureCommandAsync(savedPass, "VERIFYPASS");
 
         if (isSentSuccessfully && App.BluetoothService.IsUsingWifiTransportMode)
         {
-            // If the local REST API returns a direct, synchronized receipt, unbind on the spot
             App.BluetoothService.OnTelemetryReceived -= temporaryAuthHandler;
 
             MainThread.BeginInvokeOnMainThread(async () =>
@@ -631,35 +556,25 @@ public partial class MainPage : ContentPage
         }
     }
 
-    // ====================================================================
-    // MASTER WIRELESS TRANSMISSION TELEMETRY STATUS BADGE PAINTER 🏎️ [INDEX_0.1.40]
-    // ====================================================================
     private void UpdateBluetoothStatusBadge(bool isConnected)
     {
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            // Extract your live running signal decibel metrics out of your background service [INDEX_0.1.40]
             int currentRssiValue = App.BluetoothService.ActiveRssi;
 
-            // STEP 1: QUERY THE PHONE'S PHYSICAL NETWORK CARD HARDWARE SENSORS! [INDEX_0.1.40]
             var activeNetworkProfileAccess = Connectivity.Current.NetworkAccess;
             bool phoneHasActiveWifiRadioLink = activeNetworkProfileAccess == NetworkAccess.Internet &&
                                                Connectivity.Current.ConnectionProfiles.Contains(ConnectionProfile.WiFi);
 
-            // 🚀 RECURSION CIRCUIT BREAKER 1:
-            // If the physical Wi-Fi radio is off, safely turn off transport mode.
-            // We NO LONGER call ManageWifiTelemetryPollingLifecycle here to avoid event loops!
             if (!phoneHasActiveWifiRadioLink && App.BluetoothService.IsUsingWifiTransportMode)
             {
-                System.Diagnostics.Debug.WriteLine("--> [HARDWARE RADAR RECOVERY]: Phone Wi-Fi adapter disabled. Force-dropping transport lane preferences back to BLE...");
+                Debug.WriteLine("--> [HARDWARE RADAR RECOVERY]: Phone Wi-Fi adapter disabled. Force-dropping transport lane preferences back to BLE...");
                 App.BluetoothService.IsUsingWifiTransportMode = false;
             }
 
-            // 🚀 THE CONNECTED COCKPIT CIRCUIT BREAKER OVERSIGHT:
-            // Stripping away the rogue lblOrderStatusText condition clears out your CS0103 property compiler chokes!
             if (!isConnected && !App.BluetoothService.IsUsingWifiTransportMode)
             {
-                System.Diagnostics.Debug.WriteLine("--> [DASHBOARD COCKPIT DETACH]: Both transport networks are completely OFFLINE. Initializing absolute zero-out reset passes...");
+                Debug.WriteLine("--> [DASHBOARD COCKPIT DETACH]: Both transport networks are completely OFFLINE. Initializing absolute zero-out reset passes...");
 
                 ManageWifiTelemetryPollingLifecycle(startWorker: false);
 
@@ -675,7 +590,6 @@ public partial class MainPage : ContentPage
                 if (lblBleSignal != null) lblBleSignal.Text = "SIGNAL DISCONNECTED";
                 if (lblBleSignal != null) lblBleSignal.TextColor = Color.Parse("#EF4444");
 
-                // 🎯 THE CLEAN NATIVE LAYOUT SLUSH BLOCK:
                 if (lblBleStatusText != null)
                 {
                     lblBleStatusText.Text = "OFFLINE - LINK LOST";
@@ -689,7 +603,9 @@ public partial class MainPage : ContentPage
 
                 if (btnManualScanTrigger != null) btnManualScanTrigger.IsVisible = true;
 
-                // Force fully drop your front-end gauges down to zero!
+                if (btnLock != null) btnLock.IsEnabled = false;
+                if (btnUnlock != null) btnUnlock.IsEnabled = false;
+
                 lblFrontVolts.Text = "0.00 V";
                 lblFrontPercent.Text = "0%";
                 progressFront.Progress = 0.0f;
@@ -705,10 +621,6 @@ public partial class MainPage : ContentPage
                 return;
             }
 
-            // STEP 2: EVALUATE TRANS-LINK THEMES
-            // 🚀 RECURSION CIRCUIT BREAKER 2: 
-            // We evaluate transport mode preferences strictly driven by your background service.
-            // If it says Wi-Fi is active, draw the tech blue panel layout, otherwise draw BLE!
             if (phoneHasActiveWifiRadioLink && App.BluetoothService.IsUsingWifiTransportMode)
             {
                 string cachedIP = Preferences.Default.Get("LastKnownVehicleIP", "0.0.0.0");
@@ -724,7 +636,7 @@ public partial class MainPage : ContentPage
 
                     if (borderBleStatus != null)
                     {
-                        borderBleStatus.BackgroundColor = Color.Parse("#1A242D"); // Tech Subnet Blue [INDEX_0.1.42]
+                        borderBleStatus.BackgroundColor = Color.Parse("#1A242D");
                         borderBleStatus.Stroke = Color.Parse("#3B82F6");
                     }
 
@@ -740,11 +652,14 @@ public partial class MainPage : ContentPage
                     {
                         lblActiveTransportChannel.Text = $"TRANSPORT MODE: REST API LINK ({cachedIP})";
                     }
-                    return; // Complete Wi-Fi theme render pass safely! [INDEX_0.1.42]
+
+                    if (btnLock != null) btnLock.IsEnabled = true;
+                    if (btnUnlock != null) btnUnlock.IsEnabled = true;
+
+                    return;
                 }
             }
 
-            // NOMINAL BLUETOOTH LOW ENERGY CONNECTION RENDER (IF NOT IN WI-FI MODE) [INDEX_0.1.42]
             if (isConnected && !App.BluetoothService.IsUsingWifiTransportMode)
             {
                 string currentBleName = Preferences.Default.Get(MainPage.SavedDeviceNameKey, "VersaHub_BLE");
@@ -754,7 +669,7 @@ public partial class MainPage : ContentPage
 
                 if (borderBleStatus != null)
                 {
-                    borderBleStatus.BackgroundColor = Color.Parse("#1A2D20"); // Emerald Green [INDEX_0.1.42]
+                    borderBleStatus.BackgroundColor = Color.Parse("#1A2D20");
                     borderBleStatus.Stroke = Color.Parse("#10B981");
                 }
 
@@ -770,6 +685,9 @@ public partial class MainPage : ContentPage
                 {
                     lblActiveTransportChannel.Text = $"TRANSPORT MODE: Low-Latency Bluetooth Channel (BLE) | Signal: {currentRssiValue} dBm";
                 }
+
+                if (btnLock != null) btnLock.IsEnabled = true;
+                if (btnUnlock != null) btnUnlock.IsEnabled = true;
 
                 if (btnManualScanTrigger != null) btnManualScanTrigger.IsVisible = false;
                 if (lblBleSignal != null) lblBleSignal.IsVisible = true;
@@ -811,19 +729,13 @@ public partial class MainPage : ContentPage
         });
     }
 
-    // DASHBOARD ACTUATOR TRIGGER: LOCK SWITCH 🕹 
     private async void OnLockClicked(object sender, EventArgs e)
     {
         try
         {
             string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-            System.Diagnostics.Debug.WriteLine("--> [UI CONTROL]: Dispatching secure over-the-air LOCK token packet...");
+            Debug.WriteLine("--> [UI CONTROL]: Dispatching secure over-the-air LOCK token packet...");
 
-            // 🚀 THE ASYNC ISOLATION REFIX: 
-            // We dispatch the secure command task to run independently in the background. 
-            // We strip away the rigid 'if (!transmissionSuccess)' alert popup check block here entirely!
-            // Your Arduino web server and BLE loops will catch the request and return verification 
-            // live to your packet terminal logs smoothly without triggering false signal fault overlays.
             _ = Task.Run(async () =>
             {
                 await App.BluetoothService.SendSecureCommandAsync(activeKey, "LOCK");
@@ -831,19 +743,17 @@ public partial class MainPage : ContentPage
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"--> [LOCK UI CHOKE]: {ex.Message}");
+            Debug.WriteLine($"--> [LOCK UI CHOKE]: {ex.Message}");
         }
     }
 
-    // DASHBOARD ACTUATOR TRIGGER: UNLOCK SWITCH 🕹 
     private async void OnUnlockClicked(object sender, EventArgs e)
     {
         try
         {
             string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-            System.Diagnostics.Debug.WriteLine("--> [UI CONTROL]: Dispatching secure over-the-air UNLOCK token packet...");
+            Debug.WriteLine("--> [UI CONTROL]: Dispatching secure over-the-air UNLOCK token packet...");
 
-            // 🚀 THE ASYNC ISOLATION REFIX:
             _ = Task.Run(async () =>
             {
                 await App.BluetoothService.SendSecureCommandAsync(activeKey, "UNLOCK");
@@ -851,14 +761,12 @@ public partial class MainPage : ContentPage
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"--> [UNLOCK UI CHOKE]: {ex.Message}");
+            Debug.WriteLine($"--> [UNLOCK UI CHOKE]: {ex.Message}");
         }
     }
 
-    // 📊 REAL-TIME COCKPIT TELEMETRY DATA REPAINT ENGINE
     private void UpdateDashboardMetrics(float frontVolts, int frontPercent, bool frontIsCharging, float backVolts, int backPercent, bool backIsCharging)
     {
-        // 1. UPDATE FRONT STARTER BATTERY GAUGES
         lblFrontVolts.Text = $"{frontVolts:F2} V";
         lblFrontPercent.Text = $"{frontPercent}%";
         progressFront.Progress = frontPercent / 100.0f;
@@ -878,11 +786,10 @@ public partial class MainPage : ContentPage
         else
         {
             lblFrontIcon.Text = "🔋";
-            progressFront.ProgressColor = Color.Parse("#10B981"); // Nominal Emerald Green
+            progressFront.ProgressColor = Color.Parse("#10B981");
             lblFrontVolts.TextColor = Color.Parse("#10B981");
         }
 
-        // 2. UPDATE TRUNK WORKSTATION BATTERY GAUGES
         lblBackVolts.Text = $"{backVolts:F2} V";
         lblBackPercent.Text = $"{backPercent}%";
         progressBack.Progress = backPercent / 100.0f;
@@ -902,7 +809,7 @@ public partial class MainPage : ContentPage
         else
         {
             lblBackIcon.Text = "🔋";
-            progressBack.ProgressColor = Color.Parse("#3B82F6"); // Workstation Tech Blue
+            progressBack.ProgressColor = Color.Parse("#3B82F6");
             lblBackVolts.TextColor = Color.Parse("#3B82F6");
         }
     }
@@ -928,41 +835,32 @@ public partial class MainPage : ContentPage
                     if (entryField != null) entryField.Text = string.Empty;
                 }
                 layoutOverlayShell.IsVisible = true;
+                if (btnLock != null) btnLock.IsEnabled = false;
+                if (btnUnlock != null) btnUnlock.IsEnabled = false;
                 if (btDevicePicker != null) _ = btDevicePicker.InitializePickerLifecycleAsync();
             });
         }
         catch (Exception ex) { Debug.WriteLine($"--> [RECOVERY EXCEPTION SHIELD]: {ex.Message}"); }
     }
 
-    // ====================================================================
-    // 🎯 THE PICKER EXIT ROUTINE ACTION
-    // ====================================================================
     private void OnClosePickerOverlayClicked(object sender, EventArgs e)
     {
         MainThread.BeginInvokeOnMainThread(() =>
         {
             if (layoutOverlayShell != null)
             {
-                // Forcefully drop the dark mask container overlay window out of view!
                 layoutOverlayShell.IsVisible = false;
-                System.Diagnostics.Debug.WriteLine("--> [UI CONTROL]: Device selection picker overlay hidden cleanly.");
+                Debug.WriteLine("--> [UI CONTROL]: Device selection picker overlay hidden cleanly.");
             }
         });
     }
 
-    // ====================================================================
-    // DASHBOARD MANUAL REFRESH SEARCH DISCOVERY TRIGGER 🕹️
-    // ====================================================================
     private async void OnManualScanTriggerClicked(object sender, EventArgs e)
     {
         try
         {
-            System.Diagnostics.Debug.WriteLine("--> [UI CONTROL]: User requested manual scan refresh pass...");
+            Debug.WriteLine("--> [UI CONTROL]: User requested manual scan refresh pass...");
 
-            // 🚀 THE UNCONDITIONAL HARDWARE RE-ARM GATEWAY:
-            // Instead of trusting your picker control's internal memory state tracking,
-            // we forcefully request the Android security kernel to refresh its active hardware links!
-            // This ensures that turning Bluetooth back on right before tapping refresh will re-index your frequencies instantly.
             bool isPermissionApproved = false;
 
 #if ANDROID
@@ -972,7 +870,7 @@ public partial class MainPage : ContentPage
 
             if (!hasNativeScanClearance || !hasNativeConnectClearance)
             {
-                System.Diagnostics.Debug.WriteLine("--> [WATCHDOG]: System token validation missing. Requesting dynamic hardware tracking permissions...");
+                Debug.WriteLine("--> [WATCHDOG]: System token validation missing. Requesting dynamic hardware tracking permissions...");
                 var forcedStatus = await Permissions.RequestAsync<Permissions.Bluetooth>();
                 isPermissionApproved = (forcedStatus == PermissionStatus.Granted);
             }
@@ -985,7 +883,6 @@ public partial class MainPage : ContentPage
             isPermissionApproved = (fallbackStatus == PermissionStatus.Granted);
 #endif
 
-            // Verify if your phone's physical wireless adapter chips are turned on right now
             bool isRadioHardwareActive = Plugin.BLE.CrossBluetoothLE.Current.IsOn;
 
             if (isPermissionApproved && isRadioHardwareActive)
@@ -996,15 +893,16 @@ public partial class MainPage : ContentPage
 
                     if (btDevicePicker != null)
                     {
-                        System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR]: Forcing active device list reset sweep over radio waves...");
-                        // Hard reset your picker list collections and invoke a fresh frequency look up pass!
+                        Debug.WriteLine("--> [HARDWARE MONITOR]: Forcing active device list reset sweep over radio waves...");
+                        if (btnLock != null) btnLock.IsEnabled = false;
+                        if (btnUnlock != null) btnUnlock.IsEnabled = false;
                         await btDevicePicker.InitializePickerLifecycleAsync();
                     }
                 });
             }
             else
             {
-                System.Diagnostics.Debug.WriteLine("--> [CRITICAL SELECTION BLOCK]: Refresh scan blocked. Permission Approved: " + isPermissionApproved + " | Radio Active: " + isRadioHardwareActive);
+                Debug.WriteLine("--> [CRITICAL SELECTION BLOCK]: Refresh scan blocked. Permission Approved: " + isPermissionApproved + " | Radio Active: " + isRadioHardwareActive);
                 await DisplayAlertAsync("BLUETOOTH REQUIRED", "VersaHUD cannot execute a visual radar refresh scan because your phone's Bluetooth radio switch is turned OFF or permissions were denied.\n\nPlease ensure Bluetooth is active in your drop-down panel and try again.", "OK");
             }
         }
@@ -1014,34 +912,26 @@ public partial class MainPage : ContentPage
         }
     }
 
-    // 🚀 THE BACKGROUND FRAME PROXY TUNNEL
-    // Allows your background service channel to cleanly forward parsed Wi-Fi packets 
-    // straight to your screen views without spawning duplicate network sockets!
     public void RaiseWifiTelemetryParsedEventProxy(string synchronizedPacketText)
     {
         if (string.IsNullOrEmpty(synchronizedPacketText)) return;
 
-        // Feed the string data cleanly down into your dual-transport regex strip engines!
         ParseVehicleTelemetryStream(synchronizedPacketText);
     }
 
     private void OnTransportChannelShiftRepaint(bool isWifiActive)
     {
-        // Force the execution pass back onto the master visual UI thread layer instantly
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            System.Diagnostics.Debug.WriteLine($"--> [UI INTENT OVERRIDE]: Transport event captured. Wi-Fi Active: {isWifiActive}. Repainting console cluster panels...");
+            Debug.WriteLine($"--> [UI INTENT OVERRIDE]: Transport event captured. Wi-Fi Active: {isWifiActive}. Repainting console cluster panels...");
 
             if (isWifiActive)
             {
-                // 1. Force fully collapse your dark bottom drawer selection sheets out of view!
                 if (layoutOverlayShell != null) layoutOverlayShell.IsVisible = false;
 
-                // 2. Force fully trigger your master status badge method to draw your tech-blue gauges!
-                // Passing a false flag here is now completely safe because your guard rules are bypassed!
                 UpdateBluetoothStatusBadge(isConnected: false);
 
-                System.Diagnostics.Debug.WriteLine("--> [UI INTENT OVERRIDE SUCCESS]: Cockpit interface successfully unlocked over local Wi-Fi subnet!");
+                Debug.WriteLine("--> [UI INTENT OVERRIDE SUCCESS]: Cockpit interface successfully unlocked over local Wi-Fi subnet!");
             }
         });
     }

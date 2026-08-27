@@ -1,4 +1,5 @@
 ﻿using Android.Content;
+using System.Diagnostics;
 
 namespace VersaHUD;
 
@@ -9,13 +10,10 @@ public class NotificationActionReceiver : BroadcastReceiver
     {
         string action = intent.Action;
         if (string.IsNullOrEmpty(action)) return;
-
         string preferencesFileName = $"{context.PackageName}.preferences";
         var nativePreferences = context.GetSharedPreferences(preferencesFileName, FileCreationMode.Private);
 
         string activeKey = nativePreferences?.GetString("MasterPasswordKey", "VersaPasscode99") ?? "VersaPasscode99";
-
-        System.Diagnostics.Debug.WriteLine($"--> [SYSTEM PANEL RECEIVER]: Intercepted native widget trigger: {action}");
 
         if (action == "VERSAHUD_ACTION_LOCK")
         {

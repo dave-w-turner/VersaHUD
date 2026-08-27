@@ -2,10 +2,8 @@ namespace VersaHUD.Controls;
 
 public partial class InitMasterPassword : ContentView
 {
-    // The key value used to save the password securely in your app's local memory registry [BUILD]
     public const string MasterPasswordKey = "CachedVehicleMasterPass";
 
-    // 🚀 THE MESSENGER EVENT: Fires straight up to your MainPage once registration succeeds! [BUILD]
     public event EventHandler OnPasswordInitialized;
     public event EventHandler OnWrongDeviceRequested;
 
@@ -14,7 +12,6 @@ public partial class InitMasterPassword : ContentView
         InitializeComponent();
     }
 
-    // 🔓 INITIALIZATION REGISTER TRIGGER ACTION
     private async void OnInitializePasswordClicked(object sender, EventArgs e)
     {
         string enteredPasscode = entryInitialPass.Text;
@@ -32,8 +29,23 @@ public partial class InitMasterPassword : ContentView
         {
             System.Diagnostics.Debug.WriteLine("--> [VAULT CORES]: Synchronizing master preference keys globally...");
 
-            // Commit your correct configuration password straight to your persistent preferences storage cache
-            Preferences.Default.Set(InitMasterPassword.MasterPasswordKey, enteredPasscode);
+            Preferences.Default.Set(MasterPasswordKey, enteredPasscode);
+
+#if ANDROID
+            var nativeContext = Android.App.Application.Context;
+            string preferencesFileName = $"{nativeContext.PackageName}.preferences";
+            var nativePreferences = nativeContext.GetSharedPreferences(preferencesFileName, Android.Content.FileCreationMode.Private);
+
+            using (var storageEditor = nativePreferences.Edit())
+            {
+                // We write using your exact, clean string literal key matching your firmware firmware variables!
+                storageEditor.PutString("MasterPasswordKey", enteredPasscode);
+                storageEditor.Apply(); // Flash the update securely down to the physical silicon chip
+            }
+            System.Diagnostics.Debug.WriteLine($"--> [NATIVE STORAGE LINK]: Master password token saved cleanly: {enteredPasscode}");
+#else
+            Preferences.Default.Set("MasterPasswordKey", enteredPasscode);
+#endif
 
             entryInitialPass.Text = string.Empty; // Wipe out input text properties
 
@@ -50,13 +62,9 @@ public partial class InitMasterPassword : ContentView
                         layoutContainerShell.IsVisible = false; // Hide the onboarding panel
                     }
 
-                    // 🚀 LEAVE IT TO THE WATCHDOG: Fire the over-the-air verification pass 
-                    // and let the true hardware receipt determine the next screen message! [INDEX_1.3.2]
                     await currentMainPage.VerifyPasswordAgainstHardwareAsync();
                 });
             }
-
-            // 🚀 FIXED: Completely stripped the premature "VAULT COMPLETED" prompt out of here!
         }
         catch (Exception ex)
         {
@@ -66,7 +74,6 @@ public partial class InitMasterPassword : ContentView
 
     private void OnWrongDeviceClicked(object sender, EventArgs e)
     {
-        // Fire the event channel upward to tell MainPage to drop the password modal! [BUILD]
         OnWrongDeviceRequested?.Invoke(this, EventArgs.Empty);
     }
 }

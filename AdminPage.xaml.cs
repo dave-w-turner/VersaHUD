@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
 namespace VersaHUD;
@@ -12,7 +13,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
     private CancellationTokenSource? _adminWifiWatchdogCancelSource;
 
-    // PROPERTY BLOCK REPOSITORIES BOUND NATIVELY TO XAML TILES
     public string WifiApName
     {
         get => _wifiApName;
@@ -43,22 +43,15 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
-    // =====================================================
-    // 🏗️ INITIALIZATION CONSTRUCTOR
-    // =====================================================
     public AdminPage()
     {
         InitializeComponent();
 
-        // 🚀 DUAL-CHANNEL BINDING START: Connect terminal logging to native Bluetooth immediately
         App.BluetoothService.OnTelemetryReceived += LogIncomingStreamToTerminal;
         App.BluetoothService.OnConnectionStateChanged += OnVehicleLinkStateChanged;
         this.BindingContext = this;
     }
 
-    // =====================================================
-    // 🌐 SEAMLESS ENTRY HANDSHAKE Llifecycle PIPELINES
-    // =====================================================
     protected override async void OnAppearing()
     {
         base.OnAppearing();
@@ -73,14 +66,13 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             if (layoutRebootLockoutShell != null) layoutRebootLockoutShell.IsVisible = false;
         }
 
-        await Task.Delay(300); // GATT / Socket stabilization pad
+        await Task.Delay(300);
 
         if (App.BluetoothService != null && !App.BluetoothService.IsRebootingWatchdogActive)
         {
-            // 🌐 TRANSPORT ROUTE A: HIGH-BANDWIDTH CLEAN WI-FI REST API PULL LANES
             if (App.BluetoothService.IsUsingWifiTransportMode)
             {
-                System.Diagnostics.Debug.WriteLine("--> [ADMIN CONTROL HUB]: Fetching clean configuration matrices straight from API...");
+                Debug.WriteLine("--> [ADMIN CONTROL HUB]: Fetching clean configuration matrices straight from API...");
 
                 var (wifiAp, bleName, routerSsid, isOk) = await App.BluetoothService.FetchWifiAdminParametersAsync();
 
@@ -88,7 +80,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                 {
                     MainThread.BeginInvokeOnMainThread(() =>
                     {
-                        // Safely bind primitives straight onto your UI tile tracking variables with ZERO regex string scraping noise!
                         this.WifiApName = wifiAp;
                         this.BleBroadcastName = bleName;
 
@@ -107,12 +98,11 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                             layoutConfiguredRouter.IsVisible = true;
                         }
                     });
-                    return; // 🚀 Complete Wi-Fi extraction cleanly and bypass old legacy BLE text parser commands entirely!
+                    return;
                 }
             }
 
-            // 🔵 TRANSPORT ROUTE B: FALLBACK NATIVE BLUETOOTH LOW ENERGY STRING COMMAND HOOKS
-            System.Diagnostics.Debug.WriteLine("--> [ADMIN CONTROL HUB]: Fetching parameters over-the-air via serial text scraping...");
+            Debug.WriteLine("--> [ADMIN CONTROL HUB]: Fetching parameters over-the-air via serial text scraping...");
             string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
 
             await App.BluetoothService.SendSecureCommandAsync(activeKey, "GETWIFINAME");
@@ -127,20 +117,15 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
     {
         base.OnDisappearing();
 
-        // 🚀 THE LIFECYCLE CLEANUP SAFETY ENVELOPE:
-        // Force-kill and cancel your local background Wi-Fi watchdogs instantly if the user 
-        // backs out of this console screen view, preventing thread memory leaks or duplicate pops!
         _adminWifiWatchdogCancelSource?.Cancel();
         _adminWifiWatchdogCancelSource = null;
     }
 
-    // Proxy pass helper converts the MainPage's Wi-Fi network updates straight to your shared terminal logging processor
     private void OnMainPageWifiTelemetryParsed(string unifiedWifiDataPacket)
     {
         LogIncomingStreamToTerminal(unifiedWifiDataPacket);
     }
 
-    // AUTOMATED BLUETOOTH OVERLAY DISMISSAL & HARDWARE STATE REFRESH 🔵 [INDEX_0.1.44]
     private void OnVehicleLinkStateChanged(bool isConnected)
     {
         if (isConnected)
@@ -150,7 +135,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                 if (layoutRebootLockoutShell != null && layoutRebootLockoutShell.IsVisible)
                 {
                     layoutRebootLockoutShell.IsVisible = false;
-                    System.Diagnostics.Debug.WriteLine("--> [LOCKOUT SHIELD]: Native BLE connection restored. Dismissing blocker.");
+                    Debug.WriteLine("--> [LOCKOUT SHIELD]: Native BLE connection restored. Dismissing blocker.");
                 }
 
                 await Task.Delay(400);
@@ -158,7 +143,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                 if (App.BluetoothService != null && !App.BluetoothService.IsRebootingWatchdogActive)
                 {
                     string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-                    System.Diagnostics.Debug.WriteLine("--> [ADMIN CONTROL HUB]: Executing post-reboot automated BLE serial command sync pass...");
+                    Debug.WriteLine("--> [ADMIN CONTROL HUB]: Executing post-reboot automated BLE serial command sync pass...");
 
                     await App.BluetoothService.SendSecureCommandAsync(activeKey, "GETROUTER");
                     await Task.Delay(150);
@@ -168,9 +153,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         }
     }
 
-    // =====================================================
-    // 🔄 USER CLICK ACTUATORS: INTERFACE COMMAND ACTIONS
-    // =====================================================
     private async void OnRotateMasterPassClicked(object sender, EventArgs e)
     {
         string newPassInput = entryNewMasterPass.Text;
@@ -194,7 +176,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         telemetryVerificationHandler = (incomingStreamMessage) =>
         {
-            System.Diagnostics.Debug.WriteLine($"--> [ADMIN ROTATION INSPECTOR]: {incomingStreamMessage}");
+            Debug.WriteLine($"--> [ADMIN ROTATION INSPECTOR]: {incomingStreamMessage}");
             if (incomingStreamMessage.Contains("Master Cryptographic Token Rotated"))
             {
                 App.BluetoothService.OnTelemetryReceived -= telemetryVerificationHandler;
@@ -223,7 +205,20 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
             if (completedGateTask == rotationCompletedSource.Task && await rotationCompletedSource.Task)
             {
-                Preferences.Default.Set(Controls.InitMasterPassword.MasterPasswordKey, newPassInput);
+#if ANDROID
+                var nativeContext = Android.App.Application.Context;
+                string preferencesFileName = $"{nativeContext.PackageName}.preferences";
+                var nativePreferences = nativeContext.GetSharedPreferences(preferencesFileName, Android.Content.FileCreationMode.Private);
+
+                using (var storageEditor = nativePreferences.Edit())
+                {
+                    // We write using your exact, clean string literal key matching your firmware firmware variables!
+                    storageEditor.PutString("MasterPasswordKey", newPassInput);
+                    storageEditor.Apply(); // Flash the update securely down to the physical silicon chip
+                }
+#else
+                Preferences.Default.Set("MasterPasswordKey", newPassInput);
+#endif
                 entryNewMasterPass.Text = string.Empty;
                 await DisplayAlertAsync("ROTATION SUCCESSFUL", "The vehicle module registers and your mobile app preferences have been successfully synchronized under your new master key!", "OK");
             }
@@ -236,7 +231,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         catch (Exception ex)
         {
             App.BluetoothService.OnTelemetryReceived -= telemetryVerificationHandler;
-            System.Diagnostics.Debug.WriteLine($"--> [ADMIN SYNC CRASH SHIELD]: {ex.Message}");
+            Debug.WriteLine($"--> [ADMIN SYNC CRASH SHIELD]: {ex.Message}");
         }
     }
 
@@ -247,9 +242,8 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         string targetNewAPId = entryWifiAP.Text.Trim();
         string currentActiveKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
 
-        System.Diagnostics.Debug.WriteLine($"--> [ADMIN CONTROL HUB]: Dispatching secure over-the-air Wifi AP ID swap to '{targetNewAPId}'...");
+        Debug.WriteLine($"--> [ADMIN CONTROL HUB]: Dispatching secure over-the-air Wifi AP ID swap to '{targetNewAPId}'...");
 
-        // Fire your payload-encrypted instruction down your current active transport path safely
         bool commandWasDelivered = await App.BluetoothService.SendSecureCommandAsync(currentActiveKey, $"SETWIFINAME={targetNewAPId}");
 
         if (commandWasDelivered)
@@ -270,7 +264,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         }
     }
 
-    // TWO-WAY WIRELESS CHANNEL BROADCAST IDENTITY ROTATOR
     private async void OnUpdateBleNameClicked(object sender, EventArgs e)
     {
         if (string.IsNullOrWhiteSpace(entryBleName.Text)) return;
@@ -278,9 +271,8 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         string targetNewBleId = entryBleName.Text.Trim();
         string currentActiveKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
 
-        System.Diagnostics.Debug.WriteLine($"--> [ADMIN CONTROL HUB]: Dispatching secure over-the-air BLE ID swap to '{targetNewBleId}'...");
+        Debug.WriteLine($"--> [ADMIN CONTROL HUB]: Dispatching secure over-the-air BLE ID swap to '{targetNewBleId}'...");
 
-        // Fire your payload-encrypted instruction down your current active transport path safely
         bool commandWasDelivered = await App.BluetoothService.SendSecureCommandAsync(currentActiveKey, $"SETBLENAME={targetNewBleId}");
 
         if (commandWasDelivered)
@@ -329,12 +321,11 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         btnLinkToRouter.IsEnabled = false;
     }
 
-    // REAL-TIME OVER-THE-AIR WI-FI ENVIRONMENT LOOKUP RADAR 🔍 
     private async void OnScanWifiNetworksClicked(object sender, EventArgs e)
     {
         try
         {
-            System.Diagnostics.Debug.WriteLine("--> [WIFI RADAR]: Initializing live vehicle airwave scan pass...");
+            Debug.WriteLine("--> [WIFI RADAR]: Initializing live vehicle airwave scan pass...");
             string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
 
             bool transmitted = await App.BluetoothService.SendSecureCommandAsync(activeKey, "SCANWIFI");
@@ -389,11 +380,10 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"--> [WIFI SCAN CHOKE]: {ex.Message}");
+            Debug.WriteLine($"--> [WIFI SCAN CHOKE]: {ex.Message}");
         }
     }
 
-    // FORGET ROUTER AND RESTORE FACTORY ACCESS POINT (DUAL-TRANSPORT SECURED)
     private async void OnForgetRouterClicked(object sender, EventArgs e)
     {
         bool doubleCheck = await DisplayAlertAsync("PURGE ROUTER PROFILE",
@@ -439,9 +429,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         }
     }
 
-    // =====================================================
-    // 📊 MASTER STREAM PACKET INTERCEPTOR TERMINAL PARSER
-    // =====================================================
     private static void LogIncomingStreamToTerminal(string rawPacket)
     {
         if (string.IsNullOrEmpty(rawPacket)) return;
@@ -453,7 +440,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         if (activePageInstance == null) return;
 
-        // TRIGGER 1: REBOOT CONTROLLER INTERCEPT 🛑
         if (rawPacket.Contains("Rebooting controller..."))
         {
             MainThread.BeginInvokeOnMainThread(async () =>
@@ -470,7 +456,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             });
         }
 
-        // TRIGGER 2: ROUTER HANDSHAKE VERIFICATION ERROR INTERCEPT 🚀
         if (rawPacket.Contains("ROUTER_ERROR"))
         {
             MainThread.BeginInvokeOnMainThread(async () =>
@@ -493,7 +478,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             return;
         }
 
-        // TRIGGER 3: ROUTER STORAGE SUCCESS CAPTURE 🟢
         if (rawPacket.Contains("[ADMIN_SUCCESS]: Router credentials stored."))
         {
             MainThread.BeginInvokeOnMainThread(async () =>
@@ -510,7 +494,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             });
         }
 
-        // TRIGGER 4: REBOOT LOCKOUT SHEET AUTO-DISMISSAL OVERRIDES 📡
         if (activePageInstance.layoutRebootLockoutShell != null && activePageInstance.layoutRebootLockoutShell.IsVisible)
         {
             if (rawPacket.Contains("[SYS]") || rawPacket.Contains("AP_NAME:") || rawPacket.Contains("BLE_NAME:") || rawPacket.Contains("ROUTER_SSID:"))
@@ -522,7 +505,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             }
         }
 
-        // TRIGGER 5: LIVE RAW DEBUG TERMINAL LOG BUFFER PRINTING 📊
         MainThread.BeginInvokeOnMainThread(async () =>
         {
             if (activePageInstance.lblDebugTerminal != null)
@@ -546,7 +528,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         if (activePageInstance.WifiApName == "Loading..." || activePageInstance.BleBroadcastName == "Loading..." || activePageInstance.RouterBridgeSSID == "Loading...")
         {
-            // Fallback text scraping handles natively for BLE mode channels safely below [INDEX_0.1.43]
             int apIndex = rawPacket.IndexOf("AP_NAME:");
             int bleIndex = rawPacket.IndexOf("BLE_NAME:");
             int routerIndex = rawPacket.IndexOf("ROUTER_SSID:");
@@ -589,9 +570,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         }
     }
 
-    // =====================================================
-    // 💀 DESTRUCTOR LIFECYCLE CLEANUP
-    // =====================================================
     ~AdminPage()
     {
         App.BluetoothService.OnConnectionStateChanged -= OnVehicleLinkStateChanged;

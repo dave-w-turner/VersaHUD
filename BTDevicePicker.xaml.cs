@@ -163,7 +163,7 @@ public partial class BTDevicePicker : ContentView
                 var structuralShellPage = Application.Current?.MainPage;
                 if (structuralShellPage != null)
                 {
-                    await structuralShellPage.DisplayAlert("PERMISSIONS REQUIRED", "VersaHUD cannot execute its scanning radar because the application lacks active hardware Bluetooth permissions.", "OK");
+                    await structuralShellPage.DisplayAlertAsync("PERMISSIONS REQUIRED", "VersaHUD cannot execute its scanning radar because the application lacks active hardware Bluetooth permissions.", "OK");
                 }
             });
             return;
@@ -200,7 +200,7 @@ public partial class BTDevicePicker : ContentView
 }
 
 #if ANDROID
-public class ModernBluetooth : Microsoft.Maui.ApplicationModel.Permissions.BasePlatformPermission
+public class ModernBluetooth : Permissions.BasePlatformPermission
 {
     public override (string androidPermission, bool isRuntime)[] RequiredPermissions =>
         new (string, bool)[]
@@ -211,5 +211,5 @@ public class ModernBluetooth : Microsoft.Maui.ApplicationModel.Permissions.BaseP
         };
 }
 #else
-    public class ModernBluetooth : Microsoft.Maui.ApplicationModel.Permissions.BasePlatformPermission { }
+    public class ModernBluetooth : Permissions.BasePlatformPermission { }
 #endif

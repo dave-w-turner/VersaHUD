@@ -1,0 +1,54 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="com.raddevelopment.versahub">
+ 
+  <!-- 🚀 PRODUCTION-READY PRIVACY & FOREGROUND SERVICE AUTHORIZATIONS -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+  <!-- Modern Bluetooth Low Energy Wireless Radio Channel Clearances -->
+  <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+  <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+  <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+
+  <!-- Backward Compatibility Legacy Hardware Fallback Permissions -->
+  <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+  <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+
+  <application android:allowBackup="true"
+               android:icon="@mipmap/appicon"
+               android:roundIcon="@mipmap/appicon_round"
+               android:supportsRtl="true"
+               android:label="Versa HUD">
+
+    <!-- 🏎️ PERSISTENT AUTOMOTIVE TELEMETRY SERVICE CONTAINER -->
+    <!-- Enforcing plain-text keyword 'specialUse' ensures perfect layout alignment! -->
+    <service android:name="com.raddevelopment.versahub.TelemetryForegroundService"
+             android:foregroundServiceType="specialUse"
+             android:enabled="true"
+             android:exported="false">
+      <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Automotive cockpit instrumentation display link tracking panel cluster." />
+    </service>
+
+    <!-- 🔄 SYMMETRICAL ON-BOOT BACKGROUND STARTUP WATCHDOG RECEIVER -->
+    <!-- Keeps your custom notification dashboard tray alive permanently even after phone restarts -->
+    <receiver android:name="com.raddevelopment.versahub.BootReceiver"
+              android:enabled="true"
+              android:exported="true"
+              android:directBootAware="true">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED" />
+        <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+        <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+        <!-- 🎯 MANDATORY NATIVE PACKAGING BITWISE REGISTRY -->
+      </intent-filter>
+    </receiver>
+
+  </application>
+</manifest>

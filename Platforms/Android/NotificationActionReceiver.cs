@@ -1,0 +1,35 @@
+﻿using Android.Content;
+
+namespace VersaHUD;
+
+[BroadcastReceiver(Name = "com.raddevelopment.versahub.NotificationActionReceiver", Enabled = true, Exported = false)]
+public class NotificationActionReceiver : BroadcastReceiver
+{
+    public override void OnReceive(Context context, Intent intent)
+    {
+        string action = intent.Action;
+        if (string.IsNullOrEmpty(action)) return;
+
+        string preferencesFileName = $"{context.PackageName}.preferences";
+        var nativePreferences = context.GetSharedPreferences(preferencesFileName, FileCreationMode.Private);
+
+        string activeKey = nativePreferences?.GetString("MasterPasswordKey", "VersaPasscode99") ?? "VersaPasscode99";
+
+        System.Diagnostics.Debug.WriteLine($"--> [SYSTEM PANEL RECEIVER]: Intercepted native widget trigger: {action}");
+
+        if (action == "VERSAHUD_ACTION_LOCK")
+        {
+            _ = Task.Run(async () =>
+            {
+                await App.BluetoothService.SendSecureCommandAsync(activeKey, "LOCK");
+            });
+        }
+        else if (action == "VERSAHUD_ACTION_UNLOCK")
+        {
+            _ = Task.Run(async () =>
+            {
+                await App.BluetoothService.SendSecureCommandAsync(activeKey, "UNLOCK");
+            });
+        }
+    }
+}

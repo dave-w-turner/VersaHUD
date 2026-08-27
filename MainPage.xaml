@@ -1,0 +1,251 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:controls="clr-namespace:VersaHUD.Controls"
+             x:Class="VersaHUD.MainPage"
+             BackgroundColor="#121212">
+
+    <Grid RowDefinitions="*, Auto" Margin="0" Padding="0">
+        <ScrollView Grid.Row="0" VerticalOptions="Fill">
+            <VerticalStackLayout Padding="20,10,20,10" Spacing="15" VerticalOptions="Start">
+
+                <AbsoluteLayout HorizontalOptions="Fill" 
+                    HeightRequest="170"
+                    Margin="10,15,10,10"
+                    BackgroundColor="Transparent">
+
+                    <Image Source="versahud_cockpit_badge.png"
+                       AbsoluteLayout.LayoutBounds="0.5, -1.5, 260, 180"
+                       AbsoluteLayout.LayoutFlags="PositionProportional"
+                       Aspect="AspectFit"/>
+
+                    <Button x:Name="btnAdminNavigation"
+                        Text="SETUP"
+                        Clicked="OnAdminNavigationClicked"
+                        AbsoluteLayout.LayoutBounds="1.05, -0.05, 90, 36"
+                        AbsoluteLayout.LayoutFlags="PositionProportional"
+                        FontSize="11"
+                        FontAttributes="Bold"
+                        CornerRadius="4"
+                        BackgroundColor="#2A2A2D"
+                        TextColor="White"/>
+                </AbsoluteLayout>
+
+                <BoxView HeightRequest="1.5" BackgroundColor="#2D2D2D" Margin="0,2,0,5" />
+
+                <Border x:Name="borderBleStatus" 
+                        BackgroundColor="#2B221A" 
+                        Stroke="#F59E0B" 
+                        StrokeThickness="1" 
+                        Margin="0,2" 
+                        Padding="10,0"
+                        HorizontalOptions="Center"
+                        WidthRequest="340">
+                    <Border.StrokeShape>
+                        <RoundRectangle CornerRadius="20"/>
+                    </Border.StrokeShape>
+
+                    <Grid ColumnDefinitions="Auto, *, Auto" ColumnSpacing="8" HorizontalOptions="Fill">
+                        <Label Grid.Column="0" x:Name="lblBleDot" Text="🟡" FontSize="14" VerticalOptions="Center"/>
+
+                        <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
+                            <Label x:Name="lblBleStatusText" 
+                                   Text="SEARCHING FOR VEHICLE MODULE..." 
+                                   TextColor="#F59E0B" 
+                                   FontSize="11" 
+                                   FontAttributes="Bold" 
+                                   CharacterSpacing="0.5"/>
+
+                            <Label x:Name="lblActiveTransportChannel" 
+                                   Text="INITIALIZING NETWORK POOLS..." 
+                                   TextColor="#8E8E93" 
+                                   FontSize="9" 
+                                   FontAttributes="Bold" 
+                                   CharacterSpacing="0.5"/>
+                        </VerticalStackLayout>
+
+                        <VerticalStackLayout Grid.Column="2" 
+                                             VerticalOptions="Start" 
+                                             HorizontalOptions="End" 
+                                             Padding="0,6,0,0">
+
+                            <Label x:Name="lblBleSignal" 
+                                   Text="" 
+                                   TextColor="#8E8E93" 
+                                   FontSize="11" 
+                                   FontAttributes="Bold" 
+                                   HorizontalTextAlignment="End"
+                                   IsVisible="False"
+                                   Margin="0,12,0,0"/>
+
+                            <Button x:Name="btnManualScanTrigger" 
+                                    Text="🔄 CHANGE" 
+                                    FontSize="9" 
+                                    FontAttributes="Bold" 
+                                    TextColor="#3B82F6" 
+                                    BackgroundColor="Transparent" 
+                                    BorderColor="Transparent" 
+                                    BorderWidth="0" 
+                                    Padding="5,0" 
+                                    HeightRequest="30" 
+                                    HorizontalOptions="End"
+                                    IsVisible="True" 
+                                    Clicked="OnManualScanTriggerClicked" />
+                        </VerticalStackLayout>
+
+                    </Grid>
+                </Border>
+
+
+                <Border x:Name="borderNetworkStatus" 
+                        IsVisible="False"
+                        BackgroundColor="#1A242D" 
+                        Stroke="#3B82F6" 
+                        StrokeThickness="1" 
+                        Margin="0,4,0,2" 
+                        Padding="14,6"
+                        HorizontalOptions="Center"
+                        WidthRequest="340">
+                    <Border.StrokeShape>
+                        <RoundRectangle CornerRadius="20"/>
+                    </Border.StrokeShape>
+
+                    <HorizontalStackLayout Spacing="8" HorizontalOptions="Center" VerticalOptions="Center">
+                        <Label Text="🌐" FontSize="12" VerticalOptions="Center"/>
+                        <Label Text="STATION IP:" TextColor="#8E8E93" FontSize="11" FontAttributes="Bold" VerticalOptions="Center"/>
+                        <Label x:Name="lblVehicleIPText" 
+                               Text="0.0.0.0" 
+                               TextColor="#3B82F6" 
+                               FontSize="12" 
+                               FontAttributes="Bold" 
+                               CharacterSpacing="0.5"
+                               VerticalOptions="Center"/>
+                    </HorizontalStackLayout>
+                </Border>
+
+                <Grid ColumnDefinitions="*, *" Margin="0,15,0,0">
+                    <VerticalStackLayout Grid.Column="0" Spacing="10" HorizontalOptions="Center">
+                        <HorizontalStackLayout Spacing="8" HorizontalOptions="Center">
+                            <Label x:Name="lblFrontIcon" Text="❌" FontSize="28" VerticalOptions="Center"/>
+                            <Label x:Name="lblFrontPercent" Text="0%" TextColor="#FFFFFF" FontSize="24" FontAttributes="Bold" VerticalOptions="Center"/>
+                        </HorizontalStackLayout>
+
+                        <ProgressBar x:Name="progressFront" Progress="0" ProgressColor="#10B981" BackgroundColor="#2D2D2D" WidthRequest="130" HeightRequest="10"/>
+
+                        <Label Text="FRONT BATTERY" TextColor="#8E8E93" FontSize="11" FontAttributes="Bold" HorizontalOptions="Center" CharacterSpacing="1"/>
+                        <Label x:Name="lblFrontVolts" Text="0.00 V" TextColor="#10B981" FontSize="20" FontAttributes="Bold" HorizontalOptions="Center"/>
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout Grid.Column="1" Spacing="10" HorizontalOptions="Center">
+                        <HorizontalStackLayout Spacing="8" HorizontalOptions="Center">
+                            <Label x:Name="lblBackIcon" Text="❌" FontSize="28" VerticalOptions="Center"/>
+                            <Label x:Name="lblBackPercent" Text="0%" TextColor="#FFFFFF" FontSize="24" FontAttributes="Bold" VerticalOptions="Center"/>
+                        </HorizontalStackLayout>
+
+                        <ProgressBar x:Name="progressBack" Progress="0" ProgressColor="#3B82F6" BackgroundColor="#2D2D2D" WidthRequest="130" HeightRequest="10"/>
+
+                        <Label Text="BACK BATTERY" TextColor="#8E8E93" FontSize="11" FontAttributes="Bold" HorizontalOptions="Center" CharacterSpacing="1"/>
+                        <Label x:Name="lblBackVolts" Text="0.00 V" TextColor="#3B82F6" FontSize="20" FontAttributes="Bold" HorizontalOptions="Center"/>
+                    </VerticalStackLayout>
+                </Grid>
+
+                <BoxView HeightRequest="2" BackgroundColor="#2D2D2D" Margin="0,10" />
+
+            </VerticalStackLayout>
+        </ScrollView>
+
+        <Border Grid.Row="1" 
+                BackgroundColor="#121212" 
+                StrokeThickness="0" 
+                Padding="20,15,20,25" 
+                VerticalOptions="End">
+            <Grid ColumnDefinitions="*, *" ColumnSpacing="20">
+                <Button Grid.Column="0" 
+                        x:Name="btnLock" 
+                        Text="🔒 LOCK" 
+                        TextColor="#FFFFFF" 
+                        BackgroundColor="#EF4444" 
+                        FontSize="18" 
+                        FontAttributes="Bold" 
+                        CornerRadius="10" 
+                        HeightRequest="65" 
+                        Clicked="OnLockClicked" />
+
+                <Button Grid.Column="1" 
+                        x:Name="btnUnlock" 
+                        Text="🔓 UNLOCK" 
+                        TextColor="#FFFFFF" 
+                        BackgroundColor="#10B981" 
+                        FontSize="18" 
+                        FontAttributes="Bold" 
+                        CornerRadius="10" 
+                        HeightRequest="65" 
+                        Clicked="OnUnlockClicked" />
+            </Grid>
+        </Border>
+
+        <ContentView x:Name="layoutOverlayShell"
+             IsVisible="False"
+             BackgroundColor="#B3000000"
+             AbsoluteLayout.LayoutBounds="0,0,1,1"
+             AbsoluteLayout.LayoutFlags="All">
+
+            <Border VerticalOptions="End" 
+                HorizontalOptions="Fill" 
+                Margin="0" 
+                Padding="20,15,20,30"
+                BackgroundColor="#1C1C1E"
+                Stroke="Transparent"
+                StrokeThickness="0"
+                HeightRequest="300">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="16,16,0,0"/>
+                </Border.StrokeShape>
+
+                <Grid RowDefinitions="Auto, Auto, *" RowSpacing="12">
+                    <Grid Grid.Row="0" ColumnDefinitions="*, Auto">
+                        <Label Grid.Column="0" 
+                           Text="SELECT COCKPIT NODE" 
+                           TextColor="White" 
+                           FontAttributes="Bold" 
+                           FontSize="12" 
+                           VerticalOptions="Center"
+                           CharacterSpacing="0.5"/>
+
+                        <Button Grid.Column="1" 
+                            Text="✕ CLOSE" 
+                            TextColor="#8E8E93" 
+                            FontSize="10" 
+                            FontAttributes="Bold"
+                            BackgroundColor="Transparent"
+                            BorderColor="Transparent"
+                            Padding="5"
+                            HeightRequest="30"
+                            Clicked="OnClosePickerOverlayClicked"/>
+                    </Grid>
+
+                    <Button Grid.Row="1"
+                        x:Name="btnOverlayRefreshScan"
+                        Text="🔄 REFRESH DEVICE SCAN"
+                        FontSize="10"
+                        FontAttributes="Bold"
+                        TextColor="White"
+                        BackgroundColor="#3B82F6"
+                        CornerRadius="8"
+                        HeightRequest="36"
+                        HorizontalOptions="Fill"
+                        VerticalOptions="Center"
+                        Clicked="OnManualScanTriggerClicked" />
+
+                    <ScrollView Grid.Row="2" VerticalOptions="Fill">
+                        <controls:BTDevicePicker x:Name="btDevicePicker" HorizontalOptions="Fill" VerticalOptions="Fill" />
+                    </ScrollView>
+                </Grid>
+            </Border>
+        </ContentView>
+
+        <Grid x:Name="layoutPasswordInitShell" Grid.RowSpan="2" IsVisible="False" ZIndex="100" BackgroundColor="#E6000000">
+            <controls:InitMasterPassword x:Name="initMasterPasswordControl" VerticalOptions="Center" HorizontalOptions="Fill" />
+        </Grid>
+    </Grid>
+</ContentPage>

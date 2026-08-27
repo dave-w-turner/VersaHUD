@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="VersaHUD.csproj">
+    <Deploy Solution="Debug|*" />
+  </Project>
+</Solution>

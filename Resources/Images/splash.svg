@@ -1,0 +1,191 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <!-- Background Gradient -->
+    <radialGradient id="bgGlow" cx="50%" cy="45%" r="65%">
+      <stop offset="0%" stop-color="#0a192f" />
+      <stop offset="60%" stop-color="#050b14" />
+      <stop offset="100%" stop-color="#020408" />
+    </radialGradient>
+
+    <!-- Metallic/Chrome Gradients -->
+    <linearGradient id="chromeOuter" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8a9ba8"/>
+      <stop offset="25%" stop-color="#d8e3ec"/>
+      <stop offset="50%" stop-color="#405060"/>
+      <stop offset="75%" stop-color="#b0c0d0"/>
+      <stop offset="100%" stop-color="#1a2530"/>
+    </linearGradient>
+
+    <linearGradient id="chromeText" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="40%" stop-color="#cbdbe8"/>
+      <stop offset="50%" stop-color="#607890"/>
+      <stop offset="80%" stop-color="#a8c0d8"/>
+      <stop offset="100%" stop-color="#304558"/>
+    </linearGradient>
+
+    <!-- Cyan HUD Glow Gradients -->
+    <linearGradient id="cyanGlow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00f0ff" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#00f0ff" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#00f0ff" stop-opacity="0"/>
+    </linearGradient>
+
+    <radialGradient id="centerCyanGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#00f0ff" stop-opacity="0.4"/>
+      <stop offset="60%" stop-color="#0080ff" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Grid / Horizon Masking -->
+    <linearGradient id="fadeHorizon" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#000000" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="1"/>
+    </linearGradient>
+
+    <!-- Hexagon Pattern -->
+    <pattern id="hexPattern" width="40" height="69.282" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 20 11.547 L 0 0 L 0 23.094 L 20 34.641 L 40 23.094 Z M 0 34.641 L 20 46.188 L 0 57.735 L 0 80.829 L 20 92.376 L 40 80.829 L 40 57.735 L 20 46.188 Z" fill="none" stroke="#00f0ff" stroke-width="0.75" stroke-opacity="0.12"/>
+    </pattern>
+
+    <!-- Filters for High-Tech Glows -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="intenseGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="15" result="blur1" />
+      <feGaussianBlur stdDeviation="30" result="blur2" />
+      <feMerge>
+        <feMergeNode in="blur2" />
+        <feMergeNode in="blur1" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1080" height="1920" fill="url(#bgGlow)" />
+
+  <!-- Hexagonal Tech Grid Overlay -->
+  <rect width="1080" height="1920" fill="url(#hexPattern)" opacity="0.7" />
+
+  <!-- Central Ambient Light -->
+  <circle cx="540" cy="850" r="450" fill="url(#centerCyanGlow)" filter="url(#intenseGlow)" />
+
+  <!-- HUD Road / Perspective Lines (Bottom Half) -->
+  <g opacity="0.6">
+    <!-- Horizon Line -->
+    <line x1="100" y1="1250" x2="980" y2="1250" stroke="#00f0ff" stroke-width="2" opacity="0.5" filter="url(#glow)"/>
+
+    <!-- Perspective Grid Lines -->
+    <line x1="540" y1="1250" x2="100" y2="1920" stroke="#00f0ff" stroke-width="2" stroke-dasharray="10 15" opacity="0.4"/>
+    <line x1="540" y1="1250" x2="320" y2="1920" stroke="#00f0ff" stroke-width="3" opacity="0.7"/>
+    <line x1="540" y1="1250" x2="470" y2="1920" stroke="#00f0ff" stroke-width="2" opacity="0.5"/>
+    <line x1="540" y1="1250" x2="610" y2="1920" stroke="#00f0ff" stroke-width="2" opacity="0.5"/>
+    <line x1="540" y1="1250" x2="760" y2="1920" stroke="#00f0ff" stroke-width="3" opacity="0.7"/>
+    <line x1="540" y1="1250" x2="980" y2="1920" stroke="#00f0ff" stroke-width="2" stroke-dasharray="10 15" opacity="0.4"/>
+
+    <!-- Horizon Fade Overlay -->
+    <rect x="0" y="1200" width="1080" height="720" fill="url(#fadeHorizon)" />
+  </g>
+
+  <!-- MAIN HUD BADGE CONTAINER -->
+  <g transform="translate(0, -30)">
+
+    <!-- Outer Shield Halo Glow -->
+    <path d="M 200 780 Q 540 620 880 780 Q 980 920 880 1020 Q 540 1140 200 1020 Q 100 920 200 780 Z"
+          fill="none" stroke="#00f0ff" stroke-width="4" opacity="0.6" filter="url(#intenseGlow)"/>
+
+    <!-- Metallic Wing Frame Backing -->
+    <path d="M 160 810 L 320 740 L 540 700 L 760 740 L 920 810 L 960 910 L 860 1010 L 540 1110 L 220 1010 L 120 910 Z"
+          fill="#0c1622" stroke="url(#chromeOuter)" stroke-width="6" filter="url(#glow)"/>
+
+    <!-- Cybernetic Ring / Battery Gauge Arc Left -->
+    <path d="M 230 830 A 260 260 0 0 1 450 680" fill="none" stroke="#00f0ff" stroke-width="8" stroke-linecap="round" filter="url(#glow)"/>
+    <path d="M 200 860 A 280 280 0 0 1 420 650" fill="none" stroke="#00f0ff" stroke-width="3" stroke-dasharray="6 10" opacity="0.7"/>
+
+    <!-- Navigation Arc Right -->
+    <path d="M 630 680 A 260 260 0 0 1 850 830" fill="none" stroke="#00f0ff" stroke-width="8" stroke-linecap="round" filter="url(#glow)"/>
+    <path d="M 660 650 A 280 280 0 0 1 880 860" fill="none" stroke="#00f0ff" stroke-width="3" stroke-dasharray="6 10" opacity="0.7"/>
+
+    <!-- HUD Telemetry Elements Inside Badge -->
+    <!-- Left: Battery Percentage Indicator -->
+    <g transform="translate(240, 780)">
+      <text x="0" y="0" font-family="'Segoe UI', Roboto, sans-serif" font-weight="900" font-size="50" fill="#ffffff" filter="url(#glow)">78%</text>
+      <text x="0" y="24" font-family="'Segoe UI', Roboto, sans-serif" font-weight="700" font-size="18" fill="#00f0ff" letter-spacing="2">BATTERY</text>
+      <!-- Mini Battery Level Segment Bars -->
+      <line x1="-10" y1="-60" x2="40" y2="-60" stroke="#00f0ff" stroke-width="4"/>
+      <line x1="-10" y1="-50" x2="60" y2="-50" stroke="#00f0ff" stroke-width="3" opacity="0.8"/>
+      <line x1="-10" y1="-40" x2="30" y2="-40" stroke="#00f0ff" stroke-width="2" opacity="0.5"/>
+    </g>
+
+    <!-- Right: Navigation Indicator -->
+    <g transform="translate(800, 780)">
+      <!-- Turn Arrow -->
+      <path d="M -20 10 L -20 -20 L 10 -20 M 10 -20 L -5 -35 M 10 -20 L -5 -5" fill="none" stroke="#00f0ff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+      <text x="-20" y="30" font-family="'Segoe UI', Roboto, sans-serif" font-weight="700" font-size="20" fill="#ffffff">250 m</text>
+      <!-- Compass / Waypoint -->
+      <text x="15" y="-30" font-family="'Segoe UI', Roboto, sans-serif" font-weight="900" font-size="16" fill="#00f0ff">NW</text>
+    </g>
+
+    <!-- CENTER NISSAN EMBLEM RING -->
+    <g transform="translate(540, 720)">
+      <!-- Glowing Background Circle -->
+      <circle cx="0" cy="0" r="150" fill="#06121e" stroke="url(#chromeOuter)" stroke-width="12" filter="url(#glow)"/>
+      <circle cx="0" cy="0" r="125" fill="none" stroke="#00f0ff" stroke-width="3" opacity="0.8" stroke-dasharray="120 10 40 10"/>
+      <circle cx="0" cy="0" r="115" fill="#030a14"/>
+
+      <!-- NISSAN Metallic Center Bar -->
+      <rect x="-140" y="-30" width="280" height="60" rx="6" fill="#0a1622" stroke="url(#chromeOuter)" stroke-width="5"/>
+      <text x="0" y="12" font-family="'Arial Black', Gadget, sans-serif" font-weight="900" font-size="38" fill="url(#chromeText)" text-anchor="middle" letter-spacing="8">NISSAN</text>
+    </g>
+
+    <!-- MAIN BRANDING TEXT: VERSA HUD -->
+    <!-- VERSA Chrome Text -->
+    <text x="540" y="970" font-family="'Arial Black', Impact, sans-serif" font-weight="900" font-size="110" fill="url(#chromeText)" text-anchor="middle" letter-spacing="18" filter="url(#glow)">VERSA</text>
+
+    <!-- Cyan HUD Text -->
+    <g transform="translate(540, 1035)">
+      <!-- Glow Underlay -->
+      <text x="0" y="0" font-family="'Segoe UI', Roboto, sans-serif" font-weight="900" font-size="55" fill="#00f0ff" text-anchor="middle" letter-spacing="26" filter="url(#intenseGlow)" opacity="0.9">HUD</text>
+      <!-- Front Crisp Text -->
+      <text x="0" y="0" font-family="'Segoe UI', Roboto, sans-serif" font-weight="900" font-size="55" fill="#ffffff" text-anchor="middle" letter-spacing="26">HUD</text>
+
+      <!-- Wings side lines for HUD -->
+      <line x1="-240" y1="-18" x2="-130" y2="-18" stroke="url(#cyanGlow)" stroke-width="5" stroke-linecap="round" filter="url(#glow)"/>
+      <line x1="130" y1="-18" x2="240" y2="-18" stroke="url(#cyanGlow)" stroke-width="5" stroke-linecap="round" filter="url(#glow)"/>
+    </g>
+
+    <!-- Lower Apex Accent Glow -->
+    <path d="M 440 1085 L 540 1120 L 640 1085" fill="none" stroke="#00f0ff" stroke-width="4" filter="url(#glow)"/>
+  </g>
+
+  <!-- LOADING / SYSTEM STATUS UI (Bottom Section) -->
+  <g transform="translate(540, 1620)">
+    <!-- Progress Bar Track -->
+    <rect x="-200" y="0" width="400" height="6" rx="3" fill="#0d2030" stroke="#00f0ff" stroke-width="1" opacity="0.6"/>
+    <!-- Progress Bar Fill -->
+    <rect x="-200" y="0" width="280" height="6" rx="3" fill="#00f0ff" filter="url(#glow)"/>
+
+    <!-- Status Text -->
+    <text x="0" y="45" font-family="'Segoe UI', Roboto, sans-serif" font-weight="600" font-size="20" fill="#7a9bb0" text-anchor="middle" letter-spacing="6">CONNECTING TO VERSA HUB...</text>
+
+    <!-- Technical Corner Accents for Loading -->
+    <path d="M -220 -15 L -230 -15 L -230 20" fill="none" stroke="#00f0ff" stroke-width="2" opacity="0.5"/>
+    <path d="M 220 -15 L 230 -15 L 230 20" fill="none" stroke="#00f0ff" stroke-width="2" opacity="0.5"/>
+  </g>
+
+  <!-- TOP HUD HEADER DECORATIONS -->
+  <g transform="translate(540, 120)">
+    <!-- Top Arc Light -->
+    <path d="M -300 0 Q 0 -40 300 0" fill="none" stroke="url(#cyanGlow)" stroke-width="3" filter="url(#glow)"/>
+    <text x="0" y="30" font-family="'Segoe UI', Roboto, sans-serif" font-weight="700" font-size="16" fill="#00f0ff" text-anchor="middle" letter-spacing="8" opacity="0.7">PERFORMANCE COCKPIT SYSTEM</text>
+  </g>
+
+</svg>

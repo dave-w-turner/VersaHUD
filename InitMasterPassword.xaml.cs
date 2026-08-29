@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace VersaHUD.Controls;
 
 public partial class InitMasterPassword : ContentView
@@ -27,7 +29,7 @@ public partial class InitMasterPassword : ContentView
 
         try
         {
-            System.Diagnostics.Debug.WriteLine("--> [VAULT CORES]: Synchronizing master preference keys globally...");
+            Debug.WriteLine("--> [VAULT CORES]: Synchronizing master preference keys globally...");
 
             Preferences.Default.Set(MasterPasswordKey, enteredPasscode);
 
@@ -42,7 +44,7 @@ public partial class InitMasterPassword : ContentView
                 storageEditor.PutString("MasterPasswordKey", enteredPasscode);
                 storageEditor.Apply(); // Flash the update securely down to the physical silicon chip
             }
-            System.Diagnostics.Debug.WriteLine($"--> [NATIVE STORAGE LINK]: Master password token saved cleanly: {enteredPasscode}");
+            Debug.WriteLine($"--> [NATIVE STORAGE LINK]: Master password token saved cleanly: {enteredPasscode}");
 #else
             Preferences.Default.Set("MasterPasswordKey", enteredPasscode);
 #endif
@@ -68,7 +70,7 @@ public partial class InitMasterPassword : ContentView
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"--> [INITIALIZATION FAULT SHIELD]: {ex.Message}");
+            Debug.WriteLine($"--> [INITIALIZATION FAULT SHIELD]: {ex.Message}");
         }
     }
 

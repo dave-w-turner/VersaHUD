@@ -32,10 +32,10 @@ public class BootReceiver : BroadcastReceiver
                     {
                         await Task.Delay(500);
 
-                        if (App.BluetoothService != null)
+                        if (App.NetworkService != null)
                         {
                             System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR]: Invoking AutoConnectAsync dynamically over active radio waves...");
-                            await App.BluetoothService.AutoConnectAsync();
+                            await App.NetworkService.AutoConnectAsync();
                         }
                     }
                     catch (System.Exception ex)
@@ -48,9 +48,9 @@ public class BootReceiver : BroadcastReceiver
             {
                 System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR]: Physical Bluetooth radio switch toggled OFF. Verifying active transport channels...");
 
-                if (App.BluetoothService != null)
+                if (App.NetworkService != null)
                 {
-                    if (App.BluetoothService.IsUsingWifiTransportMode)
+                    if (App.NetworkService.IsUsingWifiTransportMode)
                     {
                         System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR RADAR]: Bluetooth radio severed, but active Wi-Fi transport link is live! Suppressing disconnect alert.");
                         return;
@@ -58,10 +58,10 @@ public class BootReceiver : BroadcastReceiver
 
                     System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR CRITICAL]: Both networks dead. Purging residual wireless cache properties...");
 
-                    App.BluetoothService.ActiveRssi = 0;
+                    App.NetworkService.ActiveRssi = 0;
 
-                    App.BluetoothService.IsUsingWifiTransportMode = false;
-                    App.BluetoothService.RaiseConnectionStateChangedProxy(false);
+                    App.NetworkService.IsUsingWifiTransportMode = false;
+                    App.NetworkService.RaiseConnectionStateChangedProxy(false);
                 }
             }
             return;

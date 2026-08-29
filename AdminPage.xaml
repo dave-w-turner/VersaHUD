@@ -82,6 +82,61 @@
                     </VerticalStackLayout>
                 </Border>
 
+                <Border BackgroundColor="#1A1A1A" Stroke="#3D3D3D" StrokeThickness="1">
+                    <Border.StrokeShape>
+                        <RoundRectangle CornerRadius="12"/>
+                    </Border.StrokeShape>
+                    <VerticalStackLayout Padding="15" Spacing="15">
+                        <Label Text="CLOUDFLARE ZERO-TRUST ACCESS COCKPIT" 
+                               TextColor="#F59E0B" 
+                               FontSize="11" 
+                               FontAttributes="Bold" 
+                               CharacterSpacing="0.5"/>
+                        <Label Text="Securely route vehicle telemetry data frames across the global internet by synchronizing your automated machine passports." 
+                               TextColor="#8E8E93" 
+                               FontSize="11"/>
+
+                        <VerticalStackLayout Spacing="5">
+                            <Label Text="CLOUDFLARE WORKER ENDPOINT HOSTNAME" TextColor="#8E8E93" FontSize="10" FontAttributes="Bold"/>
+                            <Entry x:Name="entryCfHost" 
+                                   Placeholder="e.g. silent-bird-d9c0.taigon1984.workers.dev" 
+                                   PlaceholderColor="#555555" 
+                                   TextColor="#FFFFFF" 
+                                   BackgroundColor="#2D2D2D" 
+                                   HeightRequest="45"/>
+                        </VerticalStackLayout>
+
+                        <VerticalStackLayout Spacing="5">
+                            <Label Text="ZERO-TRUST SERVICE CLIENT ID" TextColor="#8E8E93" FontSize="10" FontAttributes="Bold"/>
+                            <Entry x:Name="entryCfClientId" 
+                                   Placeholder="Enter CF-Access-Client-Id" 
+                                   PlaceholderColor="#555555" 
+                                   TextColor="#FFFFFF" 
+                                   BackgroundColor="#2D2D2D" 
+                                   HeightRequest="45"/>
+                        </VerticalStackLayout>
+
+                        <VerticalStackLayout Spacing="5">
+                            <Label Text="ZERO-TRUST SERVICE CLIENT SECRET" TextColor="#8E8E93" FontSize="10" FontAttributes="Bold"/>
+                            <Entry x:Name="entryCfClientSecret" 
+                                   Placeholder="Enter CF-Access-Client-Secret" 
+                                   PlaceholderColor="#555555" 
+                                   IsPassword="True"
+                                   TextColor="#FFFFFF" 
+                                   BackgroundColor="#2D2D2D" 
+                                   HeightRequest="45"/>
+                        </VerticalStackLayout>
+
+                        <Button x:Name="btnUpdateCloudflare"
+                                Text="⚡ SYNC SECURE CLOUD TUNNEL" 
+                                BackgroundColor="#F59E0B" 
+                                TextColor="#000000" 
+                                FontAttributes="Bold"
+                                HeightRequest="45"
+                                Clicked="OnUpdateCloudflareCredentialsClicked"/>
+                    </VerticalStackLayout>
+                </Border>
+
                 <Border BackgroundColor="#0A0A0A" Stroke="#3D3D3D" StrokeThickness="1" Margin="0,10,0,0">
                     <Border.StrokeShape>
                         <RoundRectangle CornerRadius="8"/>

@@ -69,17 +69,17 @@ public class TelemetryForegroundService : Service
             System.Diagnostics.Debug.WriteLine($"--> [SERVICE LAUNCH WARNING]: Runtime receiver registry bypassed: {rxEx.Message}");
         }
 
-        App.BluetoothService.OnConnectionStateChanged += (isConnected) =>
+        App.NetworkService.OnConnectionStateChanged += (isConnected) =>
         {
             _notificationManager.Notify(NOTIFICATION_ID, BuildTelemetryStatusNotification());
         };
 
-        App.BluetoothService.OnTransportModeChanged += (isWifiActive) =>
+        App.NetworkService.OnTransportModeChanged += (isWifiActive) =>
         {
             _notificationManager.Notify(NOTIFICATION_ID, BuildTelemetryStatusNotification());
         };
 
-        App.BluetoothService.OnTelemetryReceived += OnTelemetryReceivedUpdateWidget;
+        App.NetworkService.OnTelemetryReceived += OnTelemetryReceivedUpdateWidget;
 
         return StartCommandResult.Sticky;
     }
@@ -102,10 +102,10 @@ public class TelemetryForegroundService : Service
         builder.SetContentIntent(pendingContentIntent);
 
         bool isBluetoothRadioPoweredOn = Plugin.BLE.CrossBluetoothLE.Current.IsOn;
-        bool isDeviceLinkGenuinelyActive = App.BluetoothService != null && App.BluetoothService.IsBluetoothConnected;
+        bool isDeviceLinkGenuinelyActive = App.NetworkService != null && App.NetworkService.IsBluetoothConnected;
 
         bool isBluetoothConnected = isBluetoothRadioPoweredOn && isDeviceLinkGenuinelyActive;
-        bool isSystemTotallyOffline = !isBluetoothConnected && !App.BluetoothService.IsUsingWifiTransportMode;
+        bool isSystemTotallyOffline = !isBluetoothConnected && !App.NetworkService.IsUsingWifiTransportMode;
 
         var multiLineTextStyle = new Notification.BigTextStyle();
 
@@ -290,7 +290,7 @@ public class TelemetryForegroundService : Service
         }
         catch { }
 
-        App.BluetoothService.OnTelemetryReceived -= OnTelemetryReceivedUpdateWidget;
+        App.NetworkService.OnTelemetryReceived -= OnTelemetryReceivedUpdateWidget;
         StopForeground(true);
         base.OnDestroy();
     }

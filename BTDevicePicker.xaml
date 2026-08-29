@@ -3,66 +3,62 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="VersaHUD.Controls.BTDevicePicker">
 
-    <Grid HorizontalOptions="Fill" VerticalOptions="Fill">
-
-        <Border BackgroundColor="#1E1E1E" 
+    <ScrollView HorizontalOptions="Fill" VerticalOptions="Fill">
+        <Grid HorizontalOptions="Fill" VerticalOptions="Fill">
+            <ScrollView VerticalOptions="Fill" Grid.Row="2">
+                <Border BackgroundColor="#1E1E1E" 
                 Stroke="#2D2D2D"
                 StrokeThickness="1"
-                Margin="30" 
+                Margin="20" 
                 VerticalOptions="Center" 
                 HorizontalOptions="Fill">
-            <Border.StrokeShape>
-                <RoundRectangle CornerRadius="15"/>
-            </Border.StrokeShape>
+                    <Border.StrokeShape>
+                        <RoundRectangle CornerRadius="15"/>
+                    </Border.StrokeShape>
 
-            <VerticalStackLayout Spacing="15" Padding="15">
-                <Label Text="SELECT COCKPIT NODE" 
+                    <VerticalStackLayout Spacing="15" Padding="15">
+                        <Label Text="SELECT COCKPIT NODE" 
                        TextColor="#FFFFFF" 
                        FontSize="18" 
                        FontAttributes="Bold" 
                        HorizontalOptions="Center" 
                        CharacterSpacing="1"/>
 
-                <Label Text="Tap your custom automation module name below to link devices:" 
+                        <Label Text="Tap your custom automation module name below to link devices:" 
                        TextColor="#8E8E93" 
                        FontSize="13" 
                        HorizontalOptions="Center" 
                        HorizontalTextAlignment="Center"/>
 
-                <CollectionView x:Name="listBleDevices" HeightRequest="200" SelectionMode="Single" SelectionChanged="OnBleDeviceSelected">
-                    <CollectionView.ItemTemplate>
-                        <DataTemplate>
-                            <Border BackgroundColor="#2D2D2D" Stroke="#3D3D3D" StrokeThickness="1" Margin="0,5" Padding="15,10">
-                                <Border.StrokeShape>
-                                    <RoundRectangle CornerRadius="8"/>
-                                </Border.StrokeShape>
-                                <HorizontalStackLayout Spacing="15">
-                                    <Label Text="📡" FontSize="20" VerticalOptions="Center"/>
-                                    <VerticalStackLayout VerticalOptions="Center">
-                                        <Label Text="{Binding Name}" TextColor="#FFFFFF" FontSize="16" FontAttributes="Bold"/>
-                                        <Label Text="{Binding Id}" TextColor="#8E8E93" FontSize="11"/>
-                                    </VerticalStackLayout>
-                                </HorizontalStackLayout>
-                            </Border>
-                        </DataTemplate>
-                    </CollectionView.ItemTemplate>
-                </CollectionView>
+                        <CollectionView x:Name="listBleDevices" HeightRequest="200" SelectionMode="Single" SelectionChanged="OnBleDeviceSelected">
+                            <CollectionView.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BackgroundColor="#2D2D2D" Stroke="#3D3D3D" StrokeThickness="1" Margin="0,5" Padding="15,10">
+                                        <Border.StrokeShape>
+                                            <RoundRectangle CornerRadius="8"/>
+                                        </Border.StrokeShape>
+                                        <HorizontalStackLayout Spacing="15">
+                                            <Label Text="📡" FontSize="20" VerticalOptions="Center"/>
+                                            <VerticalStackLayout VerticalOptions="Center">
+                                                <Label Text="{Binding Name}" TextColor="#FFFFFF" FontSize="16" FontAttributes="Bold"/>
+                                                <Label Text="{Binding Id}" TextColor="#8E8E93" FontSize="11"/>
+                                            </VerticalStackLayout>
+                                        </HorizontalStackLayout>
+                                    </Border>
+                                </DataTemplate>
+                            </CollectionView.ItemTemplate>
+                        </CollectionView>
 
-                <ActivityIndicator x:Name="indicatorScanning"
+                        <ActivityIndicator x:Name="indicatorScanning"
                                    Color="#10B981"
                                    HorizontalOptions="Center"
                                    HeightRequest="40"
                                    WidthRequest="40"
                                    IsRunning="False" 
                                    IsVisible="False"/>
-
-                <Button Text="🔄 REFRESH SCAN" 
-                        BackgroundColor="#2D2D2D" 
-                        TextColor="#FFFFFF" 
-                        Clicked="OnRefreshScanClicked" 
-                        CornerRadius="8" 
-                        HeightRequest="45"/>
-            </VerticalStackLayout>
-        </Border>
-    </Grid>
+                    </VerticalStackLayout>
+                </Border>
+            </ScrollView>
+        </Grid>
+    </ScrollView>
 </ContentView>

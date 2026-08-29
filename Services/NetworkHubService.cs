@@ -75,6 +75,12 @@ public class NetworkHubService
 
     public async Task<bool> AutoConnectAsync()
     {
+        if (IsRebootingWatchdogActive)
+        {
+            Debug.WriteLine("--> [AUTO-CONNECT]: Stuck reboot watchdog flag detected. Force-clearing recovery states to allow standard hardware handshakes!");
+            IsRebootingWatchdogActive = false;
+        }
+
         try
         {
             if (!(_ble?.IsOn ?? false))
@@ -84,7 +90,6 @@ public class NetworkHubService
                 string lastKnownIp = Preferences.Default.Get("LastKnownVehicleIP", "0.0.0.0");
                 if (!string.IsNullOrEmpty(lastKnownIp) && !lastKnownIp.Equals("0.0.0.0") && !lastKnownIp.Equals("STA_HOTSPOT"))
                 {
-                    // Run a direct, non-blocking check against your local vehicle subnet server access point
                     bool isWifiServerActive = await VerifyWifiHealthWithDebounceAsync(lastKnownIp);
 
                     if (isWifiServerActive)
@@ -196,32 +201,50 @@ public class NetworkHubService
 
         _ = Task.Run(async () =>
         {
-            while (!_rssiCancelSource.Token.IsCancellationRequested &&
-                   _targetDevice.State == Plugin.BLE.Abstractions.DeviceState.Connected)
+            int consecutiveFailureCount = 0;
+
+            while (!_rssiCancelSource.Token.IsCancellationRequested)
             {
+                // Verify our active hardware state contract cleanly on every iteration pass
+                bool isDevicePhysicallyConnected = _targetDevice != null &&
+                    _targetDevice.State == Plugin.BLE.Abstractions.DeviceState.Connected;
+
+                if (!isDevicePhysicallyConnected)
+                {
+                    Debug.WriteLine("--> [WATCHDOG CRITICAL]: Device link disconnected natively. Tripping failover tracking circuits...");
+                    break; // 💥 Break out of the loop cleanly to trigger the offline recovery sequence below!
+                }
+
                 try
                 {
+                    // Maintain your active signal strength metrics for your front-end signal bars
                     await _targetDevice.UpdateRssiAsync();
                     ActiveRssi = _targetDevice.Rssi;
                     OnRssiUpdated?.Invoke(ActiveRssi);
+                    consecutiveFailureCount = 0; // Clear failure tracking history on success
 
                     string lastKnownIp = Preferences.Default.Get("LastKnownVehicleIP", "0.0.0.0");
                     bool isWifiNetworkServerGenuinelyAlive = false;
 
+                    // STEP 1: DYNAMIC ASYNC HEALTH INQUIRY
                     if (!lastKnownIp.Equals("0.0.0.0") && !lastKnownIp.Equals("STA_HOTSPOT"))
                     {
                         isWifiNetworkServerGenuinelyAlive = await VerifyWifiHealthWithDebounceAsync(lastKnownIp);
                     }
 
+                    // STEP 2: THE PRIORITIZED AFFINITY ROUTING DECISION LAYER
                     if (isWifiNetworkServerGenuinelyAlive)
                     {
                         if (!IsUsingWifiTransportMode)
                         {
                             IsUsingWifiTransportMode = true;
+                            Debug.WriteLine($"--> [NETWORK SELECTION]: Local Wi-Fi network server detected active. Switching transport pathways to Wi-Fi!");
 
-                            Debug.WriteLine($"--> [NETWORK SELECTION]: Local Wi-Fi network server verified active. Transport flag successfully set to TRUE!");
-
-                            OnConnectionStateChanged?.Invoke(false);
+                            MainThread.BeginInvokeOnMainThread(() =>
+                            {
+                                OnTransportModeChanged?.Invoke(true);
+                                OnConnectionStateChanged?.Invoke(false);
+                            });
                         }
                     }
                     else
@@ -229,17 +252,41 @@ public class NetworkHubService
                         if (IsUsingWifiTransportMode)
                         {
                             IsUsingWifiTransportMode = false;
-
                             Debug.WriteLine("--> [NETWORK SELECTION]: Wi-Fi link silent or unavailable. Hard-locking transport channels back to stable BLE!");
 
-                            OnConnectionStateChanged?.Invoke(true);
+                            MainThread.BeginInvokeOnMainThread(() =>
+                            {
+                                OnConnectionStateChanged?.Invoke(true);
+                            });
                         }
                     }
                 }
-                catch (Exception) { }
+                catch (Exception ex)
+                {
+                    consecutiveFailureCount++;
+                    Debug.WriteLine($"--> [WATCHDOG EXCEPTION]: Hardware signal query pass failed ({consecutiveFailureCount}/3): {ex.Message}");
+
+                    if (consecutiveFailureCount >= 3)
+                    {
+                        Debug.WriteLine("--> [WATCHDOG CRITICAL]: Link drops verified constant. Terminating stale radio loop thread...");
+                        break;
+                    }
+                }
 
                 await Task.Delay(3000);
             }
+
+            Debug.WriteLine("--> [WATCHDOG TURN-OVER]: Radio loop thread exited. Cleaning workspace state preferences and initiating automated background reconnects...");
+
+            IsUsingWifiTransportMode = false;
+            ActiveRssi = 0;
+
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                OnConnectionStateChanged?.Invoke(false);
+            });
+
+            await AutoConnectAsync();
         }, _rssiCancelSource.Token);
     }
 
@@ -530,16 +577,16 @@ public class NetworkHubService
         Debug.WriteLine("--> [WATCHDOG CRITICAL FAILURE]: Both communication channels are exhausted.");
     }
 
-    public async Task<(string wifiAp, string bleName, string routerSsid, bool isOk)> FetchWifiAdminParametersAsync()
+    public async Task<(string wifiAp, string bleName, string routerSsid, string cfHost, string cfId, bool isOk)> FetchWifiAdminParametersAsync()
     {
         try
         {
             string cachedVehicleIP = Preferences.Default.Get("LastKnownVehicleIP", string.Empty);
-            if (string.IsNullOrEmpty(cachedVehicleIP) || cachedVehicleIP == "0.0.0.0") return (string.Empty, string.Empty, string.Empty, false);
+            if (string.IsNullOrEmpty(cachedVehicleIP) || cachedVehicleIP == "0.0.0.0") return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
 
-            using (var localWebClient = new System.Net.Http.HttpClient())
+            using (var localWebClient = new HttpClient())
             {
-                localWebClient.Timeout = TimeSpan.FromMilliseconds(1500);
+                localWebClient.Timeout = TimeSpan.FromMilliseconds(3000);
 
                 var apiResponse = await localWebClient.GetAsync($"http://{cachedVehicleIP}/api/admin");
 
@@ -554,8 +601,10 @@ public class NetworkHubService
                         string wifiAp = root.TryGetProperty("wifi_ap", out JsonElement apNode) ? apNode.GetString() ?? "Error" : "Loading...";
                         string bleName = root.TryGetProperty("ble_name", out JsonElement bleNode) ? bleNode.GetString() ?? "Error" : "Loading...";
                         string routerSsid = root.TryGetProperty("router_ssid", out JsonElement ssidNode) ? ssidNode.GetString() ?? "NONE" : "NONE";
+                        string cfHost = root.TryGetProperty("cf_host", out JsonElement hProp) ? hProp.GetString() ?? "Error" : "Loading...";
+                        string cfId = root.TryGetProperty("cf_id", out JsonElement idProp) ? idProp.GetString() ?? "Error" : "Loading...";
 
-                        return (wifiAp, bleName, routerSsid, true);
+                        return (wifiAp, bleName, routerSsid, cfHost, cfId, true);
                     }
                 }
             }
@@ -564,7 +613,8 @@ public class NetworkHubService
         {
             Debug.WriteLine($"--> [API PROFILE EXCEPTION]: Fallback to scraping: {ex.Message}");
         }
-        return (string.Empty, string.Empty, string.Empty, false);
+
+        return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
     }
 
     public void RaiseTelemetryReceived(string simulatedRawPacketText)

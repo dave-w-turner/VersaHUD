@@ -8,7 +8,7 @@ public class CockpitTelemetryModule
     public void Initialize()
     {
         Debug.WriteLine("--> [TELEMETRY MODULE]: Ground systems initialized. Registering event pipelines...");
-        App.BluetoothService.OnTelemetryReceived += ProcessIncomingAirwavesFrame;
+        App.NetworkService.OnTelemetryReceived += ProcessIncomingAirwavesFrame;
     }
 
     public async Task StartAsync()
@@ -58,7 +58,7 @@ public class CockpitTelemetryModule
 
     public void Shutdown()
     {
-        App.BluetoothService.OnTelemetryReceived -= ProcessIncomingAirwavesFrame;
+        App.NetworkService.OnTelemetryReceived -= ProcessIncomingAirwavesFrame;
         _isModuleRunning = false;
         Debug.WriteLine("--> [TELEMETRY MODULE]: Channels safely de-provisioned.");
     }

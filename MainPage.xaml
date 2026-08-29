@@ -224,7 +224,8 @@
                             Clicked="OnClosePickerOverlayClicked"/>
                     </Grid>
 
-                    <Button Grid.Row="1"
+                    <Button
+                        Grid.Row="1"
                         x:Name="btnOverlayRefreshScan"
                         Text="🔄 REFRESH DEVICE SCAN"
                         FontSize="10"
@@ -235,11 +236,9 @@
                         HeightRequest="36"
                         HorizontalOptions="Fill"
                         VerticalOptions="Center"
-                        Clicked="OnManualScanTriggerClicked" />
-
-                    <ScrollView Grid.Row="2" VerticalOptions="Fill">
-                        <controls:BTDevicePicker x:Name="btDevicePicker" HorizontalOptions="Fill" VerticalOptions="Fill" />
-                    </ScrollView>
+                        Clicked="OnRefreshScanClicked" />
+                    
+                    <controls:BTDevicePicker Grid.Row="2" x:Name="btDevicePicker" VerticalOptions="Fill" HorizontalOptions="Fill" />
                 </Grid>
             </Border>
         </ContentView>

@@ -66,6 +66,21 @@
 	</ItemGroup>
 
 	<ItemGroup>
+	  <AndroidResource Remove="Arduino Controller Sketch\**" />
+	  <AndroidResource Remove="Cloudflared Worker\**" />
+	  <Compile Remove="Arduino Controller Sketch\**" />
+	  <Compile Remove="Cloudflared Worker\**" />
+	  <EmbeddedResource Remove="Arduino Controller Sketch\**" />
+	  <EmbeddedResource Remove="Cloudflared Worker\**" />
+	  <MauiCss Remove="Arduino Controller Sketch\**" />
+	  <MauiCss Remove="Cloudflared Worker\**" />
+	  <MauiXaml Remove="Arduino Controller Sketch\**" />
+	  <MauiXaml Remove="Cloudflared Worker\**" />
+	  <None Remove="Arduino Controller Sketch\**" />
+	  <None Remove="Cloudflared Worker\**" />
+	</ItemGroup>
+
+	<ItemGroup>
     <MauiImage Update="Resources\Images\splash.svg" BaseSize="1080,1920" Resize="true" />
 	</ItemGroup>
 

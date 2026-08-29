@@ -8,7 +8,7 @@ namespace VersaHUD
         public static NetworkHubService? _bluetoothService { get; private set; }
         public static Services.CockpitTelemetryModule TelemetryModule { get; private set; } = new();
 
-        public static NetworkHubService BluetoothService =>
+        public static NetworkHubService NetworkService =>
             _bluetoothService ??= new NetworkHubService();
 
         public App()

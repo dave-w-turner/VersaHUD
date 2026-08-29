@@ -19,14 +19,14 @@ public class NotificationActionReceiver : BroadcastReceiver
         {
             _ = Task.Run(async () =>
             {
-                await App.BluetoothService.SendSecureCommandAsync(activeKey, "LOCK");
+                await App.NetworkService.SendSecureCommandAsync(activeKey, "LOCK");
             });
         }
         else if (action == "VERSAHUD_ACTION_UNLOCK")
         {
             _ = Task.Run(async () =>
             {
-                await App.BluetoothService.SendSecureCommandAsync(activeKey, "UNLOCK");
+                await App.NetworkService.SendSecureCommandAsync(activeKey, "UNLOCK");
             });
         }
     }

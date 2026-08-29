@@ -24,6 +24,7 @@
                android:icon="@mipmap/appicon"
                android:roundIcon="@mipmap/appicon_round"
                android:supportsRtl="true"
+               android:usesCleartextTraffic="true"
                android:label="Versa HUD">
 
     <!-- 🏎️ PERSISTENT AUTOMOTIVE TELEMETRY SERVICE CONTAINER -->

@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace VersaHUD.Controls;
 
 public partial class BTDevicePicker : ContentView
@@ -6,7 +8,7 @@ public partial class BTDevicePicker : ContentView
 	{
 		InitializeComponent();
 
-        listBleDevices.ItemsSource = App.BluetoothService?.DiscoveredDevices;
+        listBleDevices.ItemsSource = App.NetworkService?.DiscoveredDevices;
     }
 
     public async Task InitializePickerLifecycleAsync()
@@ -14,7 +16,7 @@ public partial class BTDevicePicker : ContentView
         try
         {
 #if ANDROID
-            System.Diagnostics.Debug.WriteLine("--> [PICKER WATCHDOG]: Resolving custom ModernBluetooth runtime permissions matrix...");
+            Debug.WriteLine("--> [PICKER WATCHDOG]: Resolving custom ModernBluetooth runtime permissions matrix...");
 
             var scanStatus = await Permissions.CheckStatusAsync<ModernBluetooth>();
 
@@ -33,7 +35,7 @@ public partial class BTDevicePicker : ContentView
             await Task.Delay(300);
 #endif
 
-            bool isReconnected = await App.BluetoothService.AutoConnectAsync(); 
+            bool isReconnected = await App.NetworkService.AutoConnectAsync(); 
             
             if (!isReconnected)
             {
@@ -47,7 +49,7 @@ public partial class BTDevicePicker : ContentView
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"--> [PICKER RUNTIME CRASH SHIELD]: {ex.Message}");
+            Debug.WriteLine($"--> [PICKER RUNTIME CRASH SHIELD]: {ex.Message}");
         }
     }
 
@@ -58,7 +60,7 @@ public partial class BTDevicePicker : ContentView
         indicatorScanning.IsRunning = false;
         indicatorScanning.IsVisible = false;
 
-        System.Diagnostics.Debug.WriteLine($"--> [PICKER ACTION]: Staging persistent storage commit for ID: {selectedDevice.Id}");
+        Debug.WriteLine($"--> [PICKER ACTION]: Staging persistent storage commit for ID: {selectedDevice.Id}");
 
         Preferences.Default.Set(MainPage.SavedDeviceMacKey, selectedDevice.Id.ToString());
         Preferences.Default.Set(MainPage.SavedDeviceNameKey, selectedDevice.Name ?? "VersaHub_BLE");
@@ -77,27 +79,27 @@ public partial class BTDevicePicker : ContentView
                 }
                 else throw new Exception("Failed to acquire native shared preferences editor for disk commit.");
             }
-            System.Diagnostics.Debug.WriteLine("--> [PICKER SUCCESS]: Hard disk serialization finalized cleanly.");
+            Debug.WriteLine("--> [PICKER SUCCESS]: Hard disk serialization finalized cleanly.");
         }
 #endif
         if (this.Parent is Grid parentGrid) parentGrid.IsVisible = false;
 
-        bool pairingSuccess = await App.BluetoothService.PairAndConnectDeviceAsync(selectedDevice);
+        bool pairingSuccess = await App.NetworkService.PairAndConnectDeviceAsync(selectedDevice);
         
         if (!pairingSuccess)
         {
-            System.Diagnostics.Debug.WriteLine("--> [PICKER WATCHDOG]: First clean-install handshake timed out. Initializing silent stabilization retry...");
+            Debug.WriteLine("--> [PICKER WATCHDOG]: First clean-install handshake timed out. Initializing silent stabilization retry...");
 
             await Task.Delay(500);
 
-            pairingSuccess = await App.BluetoothService.PairAndConnectDeviceAsync(selectedDevice);
+            pairingSuccess = await App.NetworkService.PairAndConnectDeviceAsync(selectedDevice);
         }
 
         if (!pairingSuccess)
         {
             listBleDevices.SelectedItem = null;
 
-            System.Diagnostics.Debug.WriteLine("--> [PICKER CRITICAL FAULT]: Second connection pass failed. Restoring view radar states...");
+            Debug.WriteLine("--> [PICKER CRITICAL FAULT]: Second connection pass failed. Restoring view radar states...");
 
             if (this.Parent is Grid pGrid) pGrid.IsVisible = true;
             await ExecuteVisualRadarScanAsync();
@@ -106,7 +108,7 @@ public partial class BTDevicePicker : ContentView
         }
         else
         {
-            System.Diagnostics.Debug.WriteLine("--> [PICKER SUCCESS]: Handshake established successfully over stabilized channel lanes!");
+            Debug.WriteLine("--> [PICKER SUCCESS]: Handshake established successfully over stabilized channel lanes!");
 
             if (this.Parent is Grid pGrid) pGrid.IsVisible = false;
 
@@ -131,7 +133,7 @@ public partial class BTDevicePicker : ContentView
 
         if (!hasNativeScanClearance || !hasNativeConnectClearance)
         {
-            System.Diagnostics.Debug.WriteLine("--> [RADAR SECURITY INTERCEPT]: Hardware tokens flushed out via radio cycle. Forcing native re-request...");
+            Debug.WriteLine("--> [RADAR SECURITY INTERCEPT]: Hardware tokens flushed out via radio cycle. Forcing native re-request...");
 
             var forcedStatus = await MainThread.InvokeOnMainThreadAsync(async () =>
             {
@@ -150,7 +152,7 @@ public partial class BTDevicePicker : ContentView
 
         if (!isPermissionApproved)
         {
-            System.Diagnostics.Debug.WriteLine("--> [RADAR HALTED]: Missing Bluetooth security permissions to communicate with physical antennas.");
+            Debug.WriteLine("--> [RADAR HALTED]: Missing Bluetooth security permissions to communicate with physical antennas.");
 
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
@@ -178,7 +180,7 @@ public partial class BTDevicePicker : ContentView
             }
         });
 
-        await App.BluetoothService.StartDiscoveryScanAsync();
+        await App.NetworkService.StartDiscoveryScanAsync();
 
         int activeScanTimeoutMs = 6000;
         await Task.Delay(activeScanTimeoutMs);
@@ -191,6 +193,11 @@ public partial class BTDevicePicker : ContentView
                 indicatorScanning.IsVisible = false;
             }
         });
+    }
+
+    public void TriggerRefreshScan()
+    {
+        OnRefreshScanClicked(this, EventArgs.Empty);
     }
 
     private async void OnRefreshScanClicked(object sender, EventArgs e)

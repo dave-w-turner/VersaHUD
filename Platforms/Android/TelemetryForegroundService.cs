@@ -15,10 +15,10 @@ public class TelemetryForegroundService : Service
     private static readonly Regex FrontRegex = new Regex(@"Front:\s*(?:\[[^\]]+\]\s*)?(?<volts>[\d.]+)\s*V\s*\((?<percent>\d+)%\)", RegexOptions.Compiled);
     private static readonly Regex BackRegex = new Regex(@"Back:\s*(?:\[[^\]]+\]\s*)?(?<volts>[\d.]+)\s*V\s*\((?<percent>\d+)%\)", RegexOptions.Compiled);
 
-    private float _frontVolts = 13.2f;
-    private int _frontPercent = 100;
-    private float _backVolts = 12.6f;
-    private int _backPercent = 85;
+    private float _frontVolts = 0f;
+    private int _frontPercent = 0;
+    private float _backVolts = 0f;
+    private int _backPercent = 0;
     private bool _isFrontCharging = false;
     private bool _isTrunkCharging = false;
 
@@ -148,10 +148,10 @@ public class TelemetryForegroundService : Service
             string fChargingFlag = _isFrontCharging ? "⚡ [ CHARGING ]" : "🔋 [ IDLE ] ";
             string bSystemFlag = _isTrunkCharging ? "⚡ [ CHARGING ]" : "🔋 [ IDLE ] ";
 
-            float fDisplayVolts = _frontVolts == 0 ? 13.2f : _frontVolts;
-            float bDisplayVolts = _backVolts == 0 ? 12.6f : _backVolts;
-            int fDisplayPercent = _frontPercent == 0 ? 100 : _frontPercent;
-            int bDisplayPercent = _backPercent == 0 ? 85 : _backPercent;
+            float fDisplayVolts = _frontVolts;
+            float bDisplayVolts = _backVolts;
+            int fDisplayPercent = _frontPercent;
+            int bDisplayPercent = _backPercent;
 
             multiLineTextStyle.BigText(
                 $"FRONT BATTERY   ::   {fDisplayVolts:F1}V  ({fDisplayPercent,3}%)   {fProgressIndicator}   {fChargingFlag}\n" +
@@ -212,17 +212,15 @@ public class TelemetryForegroundService : Service
         {
             try
             {
-                using (var doc = System.Text.Json.JsonDocument.Parse(rawPacket))
-                {
-                    var root = doc.RootElement;
-                    _frontVolts = root.TryGetProperty("front_v", out var fv) ? (float)fv.GetDouble() : 0f;
-                    _frontPercent = root.TryGetProperty("front_p", out var fp) ? fp.GetInt32() : 0;
-                    _backVolts = root.TryGetProperty("background_v", out var bv) ? (float)bv.GetDouble() : 0f;
-                    _backPercent = root.TryGetProperty("back_p", out var bp) ? bp.GetInt32() : 0;
+                using var doc = System.Text.Json.JsonDocument.Parse(rawPacket);
+                var root = doc.RootElement;
+                _frontVolts = root.TryGetProperty("front_v", out var fv) ? (float)fv.GetDouble() : 0f;
+                _frontPercent = root.TryGetProperty("front_p", out var fp) ? fp.GetInt32() : 0;
+                _backVolts = root.TryGetProperty("background_v", out var bv) ? (float)bv.GetDouble() : 0f;
+                _backPercent = root.TryGetProperty("back_p", out var bp) ? bp.GetInt32() : 0;
 
-                    _isFrontCharging = root.TryGetProperty("charging_f", out var cf) && cf.GetBoolean();
-                    _isTrunkCharging = root.TryGetProperty("charging_b", out var cb) && cb.GetBoolean();
-                }
+                _isFrontCharging = root.TryGetProperty("charging_f", out var cf) && cf.GetBoolean();
+                _isTrunkCharging = root.TryGetProperty("charging_b", out var cb) && cb.GetBoolean();
             }
             catch { return; }
         }

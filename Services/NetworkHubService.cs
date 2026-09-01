@@ -14,6 +14,8 @@ public class NetworkHubService
     private ICharacteristic? _rxCharacteristic;
     private ICharacteristic? _txCharacteristic;
 
+    private CancellationTokenSource? _wifiTelemetryCancelSource;
+
     private const string DeviceCacheKey = "LastConnectedBleId";
 
     private readonly Guid ServiceUuid = Guid.Parse("19B10000-E8F2-537E-4F1D-223A12345678");
@@ -985,5 +987,143 @@ public class NetworkHubService
             Debug.WriteLine($"--> [WAN RADAR CRITICAL]: Host route dead or blocked by firewall: {ex.Message}");
             return false;
         }
+    }
+
+    public void ManageWifiTelemetryPollingLifecycle(bool startWorker)
+    {
+        _wifiTelemetryCancelSource?.Cancel();
+        _wifiTelemetryCancelSource = null;
+
+        if (!startWorker)
+        {
+            Debug.WriteLine("--> [UI NETWORK ENGINE]: Competing HTTP background task loops cleanly suspended.");
+            return;
+        }
+
+        _wifiTelemetryCancelSource = new CancellationTokenSource();
+        var executionPassToken = _wifiTelemetryCancelSource.Token;
+
+        Debug.WriteLine("--> [UI NETWORK ENGINE]: Wi-Fi/Cloud link active. Spawning localized high-speed background HTTP polling thread...");
+
+        Task.Run(async () =>
+        {
+            var localSocketHandler = new SocketsHttpHandler()
+            {
+                AllowAutoRedirect = true,
+                UseCookies = false
+            };
+
+            using (var telemetryClient = new HttpClient(localSocketHandler))
+            {
+                telemetryClient.Timeout = TimeSpan.FromMilliseconds(2500);
+
+                string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
+                string encryptedBase64PayloadString = NetworkHubService.EncryptLocalPayloadAES128CBC(activeKey);
+
+                while (!executionPassToken.IsCancellationRequested)
+                {
+                    if (App.NetworkService.IsUsingCloudWanMode && !(App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsBluetoothConnected))
+                    {
+                        try
+                        {
+                            string cfHost = Preferences.Default.Get("CloudflareHostKey", "versahub.taigon1984.workers.dev");
+                            string cfId = Preferences.Default.Get("CloudflareClientIdKey", string.Empty);
+                            string cfSecret = Preferences.Default.Get("CloudflareClientSecretKey", string.Empty);
+
+                            if (!string.IsNullOrEmpty(cfHost) && !string.IsNullOrEmpty(cfId) && !string.IsNullOrEmpty(cfSecret))
+                            {
+                                using var wanRequest = new HttpRequestMessage(HttpMethod.Post, $"https://{cfHost}/api/telemetry");
+
+                                wanRequest.Headers.Add("CF-Access-Client-Id", cfId);
+                                wanRequest.Headers.Add("CF-Access-Client-Secret", cfSecret);
+                                wanRequest.Content = new StringContent(encryptedBase64PayloadString, Encoding.UTF8, "text/plain");
+
+                                var wanResponse = await telemetryClient.SendAsync(wanRequest, executionPassToken);
+                                if (wanResponse.IsSuccessStatusCode)
+                                {
+                                    string rawCloudJson = await wanResponse.Content.ReadAsStringAsync(executionPassToken);
+                                    if (!string.IsNullOrEmpty(rawCloudJson))
+                                    {
+                                        OnTelemetryReceived?.Invoke(rawCloudJson);
+                                    }
+                                }
+                                else
+                                {
+                                    App.NetworkService.IsUsingCloudWanMode = false;
+                                    Debug.WriteLine($"--> [UI CLOUD POLLING ERROR]: Edge gateway returned error code: {wanResponse.StatusCode}");
+                                }
+                            }
+                        }
+                        catch (Exception wanEx)
+                        {
+                            Debug.WriteLine($"--> [UI CLOUD POLLING DROPOUT]: {wanEx.Message}");
+                        }
+
+                        int sleepDelayMs = Preferences.Default.Get("AppForegroundActive", true) ? 5000 : 30000;
+                        try { await Task.Delay(sleepDelayMs, executionPassToken); } catch (TaskCanceledException) { break; }
+                        continue;
+                    }
+
+                    string targetIP = Preferences.Default.Get("LastKnownVehicleIP", "0.0.0.0");
+
+                    if (string.IsNullOrEmpty(targetIP) || targetIP == "0.0.0.0" || targetIP == "STA_HOTSPOT")
+                    {
+                        try { await Task.Delay(2000, executionPassToken); } catch (TaskCanceledException) { break; }
+                        continue;
+                    }
+
+                    try
+                    {
+                        var httpPasscodeContent = new StringContent(encryptedBase64PayloadString, Encoding.UTF8, "text/plain");
+
+                        var networkResponse = await telemetryClient.PostAsync($"http://{targetIP}/api/telemetry", httpPasscodeContent, executionPassToken);
+
+                        if (networkResponse.IsSuccessStatusCode)
+                        {
+                            string inboundNetworkString = await networkResponse.Content.ReadAsStringAsync(executionPassToken);
+
+                            if (!string.IsNullOrEmpty(inboundNetworkString))
+                            {
+                                string cleanJsonDataPayload = inboundNetworkString.Trim();
+
+                                if (!cleanJsonDataPayload.StartsWith('{'))
+                                {
+                                    cleanJsonDataPayload = DecryptLocalPayloadAES128CBC(cleanJsonDataPayload);
+                                }
+
+                                if (!string.IsNullOrWhiteSpace(cleanJsonDataPayload))
+                                {
+                                    try
+                                    {
+                                        OnTelemetryReceived?.Invoke(cleanJsonDataPayload);
+                                    }
+                                    catch (Exception parseEx)
+                                    {
+                                        Debug.WriteLine($"--> [UI PARSER CHOKE]: String exception handled safely: {parseEx.Message}");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch (TaskCanceledException cancelEx)
+                    {
+                        if (!cancelEx.Message.Contains("The request was canceled due to the configured HttpClient.Timeout"))
+                            break;
+
+                        _wifiTelemetryCancelSource = new CancellationTokenSource();
+                        executionPassToken = _wifiTelemetryCancelSource.Token;
+                    }
+                    catch (Exception loopEx)
+                    {
+                        Debug.WriteLine($"--> [UI POLLING ENGINE DROPOUT]: Sockets handled connection lag safely: {loopEx.Message}");
+                    }
+
+                    try { await Task.Delay(1000, executionPassToken); } catch (TaskCanceledException) { break; }
+                }
+            }
+
+            Debug.WriteLine("--> [UI NETWORK ENGINE]: Background HTTP data polling task thread closed down cleanly.");
+
+        }, executionPassToken);
     }
 }

@@ -59,7 +59,6 @@ public class TelemetryForegroundService : Service
 
                 var bluetoothToggleFilter = new IntentFilter(Android.Bluetooth.BluetoothAdapter.ActionStateChanged);
 
-                // Register the listener receiver directly onto the active application lifecycle thread
                 RegisterReceiver(_dynamicBluetoothStateReceiver, bluetoothToggleFilter);
                 System.Diagnostics.Debug.WriteLine("--> [SERVICE LAUNCH]: Programmatic Runtime Bluetooth State Receiver successfully injected into Android kernel.");
             }
@@ -105,7 +104,7 @@ public class TelemetryForegroundService : Service
         bool isDeviceLinkGenuinelyActive = App.NetworkService != null && App.NetworkService.IsBluetoothConnected;
 
         bool isBluetoothConnected = isBluetoothRadioPoweredOn && isDeviceLinkGenuinelyActive;
-        bool isSystemTotallyOffline = !isBluetoothConnected && !App.NetworkService.IsUsingWifiTransportMode;
+        bool isSystemTotallyOffline = !isBluetoothConnected && !App.NetworkService.IsUsingWifiTransportMode && !App.NetworkService.IsUsingCloudWanMode;
 
         var multiLineTextStyle = new Notification.BigTextStyle();
 
@@ -195,14 +194,12 @@ public class TelemetryForegroundService : Service
 
     private string GenerateVisualProgressIndicatorMeter(int percentageValue)
     {
-        // 🚀 SLICK MICRO-SEGMENTED DIGITAL FLIGHT DECK GAUGE
-        // Compiles 15 clean solid bars (❚) and trace grid tracks (┄) into a uniform instrument strip.
         int totalSegments = 15;
         int activeSegments = (int)Math.Round((percentageValue / 100.0) * totalSegments);
         activeSegments = Math.Clamp(activeSegments, 0, totalSegments);
 
-        string filledTrack = new string('❚', activeSegments);
-        string emptyTrack = new string('┄', totalSegments - activeSegments);
+        string filledTrack = new('❚', activeSegments);
+        string emptyTrack = new('┄', totalSegments - activeSegments);
 
         return $"⦗{filledTrack}{emptyTrack}⦘";
     }
@@ -211,7 +208,7 @@ public class TelemetryForegroundService : Service
     {
         if (string.IsNullOrEmpty(rawPacket)) return;
 
-        if (rawPacket.Trim().StartsWith("{"))
+        if (rawPacket.Trim().StartsWith('{'))
         {
             try
             {
@@ -270,7 +267,7 @@ public class TelemetryForegroundService : Service
 
             channel.SetSound(null, null);
             channel.EnableVibration(false);
-            channel.LockscreenVisibility = NotificationVisibility.Public; // Allow passthrough viewing hooks
+            channel.LockscreenVisibility = NotificationVisibility.Public;
 
             var manager = (NotificationManager)GetSystemService(NotificationService);
             manager?.CreateNotificationChannel(channel);

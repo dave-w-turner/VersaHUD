@@ -28,7 +28,7 @@ public class CockpitTelemetryModule
         {
             var androidContext = Android.App.Application.Context;
 
-            var serviceIntent = new Android.Content.Intent(androidContext, typeof(VersaHUD.TelemetryForegroundService));
+            var serviceIntent = new Android.Content.Intent(androidContext, typeof(TelemetryForegroundService));
 
             if (Android.OS.Build.VERSION.SdkInt >= Android.OS.BuildVersionCodes.O)
             {

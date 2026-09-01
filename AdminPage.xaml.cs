@@ -59,17 +59,21 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
     }
 
     public new event PropertyChangedEventHandler PropertyChanged;
-    protected new void OnPropertyChanged([CallerMemberName] string propertyName = null)
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
+
 
     public AdminPage()
     {
         InitializeComponent();
 
+        App.NetworkService.OnTelemetryReceived -= LogIncomingStreamToTerminal;
         App.NetworkService.OnTelemetryReceived += LogIncomingStreamToTerminal;
+
+        App.NetworkService.OnConnectionStateChanged -= OnVehicleLinkStateChanged;
         App.NetworkService.OnConnectionStateChanged += OnVehicleLinkStateChanged;
+
+        MainPage.CurrentInstance?.OnWifiTelemetryParsed -= OnMainPageWifiTelemetryParsed;
+        MainPage.CurrentInstance?.OnWifiTelemetryParsed += OnMainPageWifiTelemetryParsed;
+
         this.BindingContext = this;
 
         string runningHost = Preferences.Default.Get("CloudflareHostKey", "silent-bird-d9c0.taigon1984.workers.dev");
@@ -87,47 +91,49 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         if (App.NetworkService != null && App.NetworkService.IsRebootingWatchdogActive)
         {
-            if (layoutRebootLockoutShell != null) layoutRebootLockoutShell.IsVisible = true;
+            layoutRebootLockoutShell?.IsVisible = true;
             return;
         }
         else
-        {
-            if (layoutRebootLockoutShell != null) layoutRebootLockoutShell.IsVisible = false;
-        }
+            layoutRebootLockoutShell?.IsVisible = false;
+
+        if (App.NetworkService != null && App.NetworkService.IsUsingCloudWanMode)
+            _ = App.NetworkService.ExecuteCloudflareTelemetryScrapeAsync();
 
         await Task.Delay(300);
 
         if (App.NetworkService != null && !App.NetworkService.IsRebootingWatchdogActive)
         {
-            if (App.NetworkService.IsUsingWifiTransportMode)
+            if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingCloudWanMode)
             {
                 Debug.WriteLine("--> [ADMIN CONTROL HUB]: Fetching clean configuration matrices straight from API...");
 
-                var (wifiAp, bleName, routerSsid, cfHost, cfId, isOk) = await App.NetworkService.FetchWifiAdminParametersAsync();
+                var (wifiAp, bleName, routerSsid, cfHost, cfId, isOk) = App.NetworkService.IsUsingWifiTransportMode ?
+                    await Services.NetworkHubService.FetchWifiAdminParametersAsync() : await Services.NetworkHubService.FetchCloudAdminParametersAsync();
 
                 if (isOk)
                 {
                     MainThread.BeginInvokeOnMainThread(() =>
                     {
-                        this.WifiApName = wifiAp;
-                        this.BleBroadcastName = bleName;
-                        this.CloudflareHost = cfHost.Equals("silent-bird-d9c0.taigon1984.workers.dev") ? string.Empty : cfHost;
-                        this.CloudflareClientId = cfId.Equals("NONE") ? string.Empty : cfId;
+                        WifiApName = wifiAp;
+                        BleBroadcastName = bleName;
+                        CloudflareHost = cfHost.Equals("silent-bird-d9c0.taigon1984.workers.dev") ? string.Empty : cfHost;
+                        CloudflareClientId = cfId.Equals("NONE") ? string.Empty : cfId;
 
-                        if (entryCfHost != null) entryCfHost.Text = CloudflareHost;
-                        if (entryCfClientId != null) entryCfClientId.Text = CloudflareClientId;
+                        entryCfHost?.Text = CloudflareHost;
+                        entryCfClientId?.Text = CloudflareClientId;
 
                         if (routerSsid == "NONE" || string.IsNullOrEmpty(routerSsid))
                         {
-                            this.RouterBridgeSSID = string.Empty;
-                            this.IsRouterConfigured = false;
+                            RouterBridgeSSID = string.Empty;
+                            IsRouterConfigured = false;
                             layoutUnconfiguredRouter.IsVisible = true;
                             layoutConfiguredRouter.IsVisible = false;
                         }
                         else
                         {
-                            this.RouterBridgeSSID = routerSsid;
-                            this.IsRouterConfigured = true;
+                            RouterBridgeSSID = routerSsid;
+                            IsRouterConfigured = true;
                             layoutUnconfiguredRouter.IsVisible = false;
                             layoutConfiguredRouter.IsVisible = true;
                         }
@@ -144,6 +150,8 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             await App.NetworkService.SendSecureCommandAsync(activeKey, "GETBLENAME");
             await Task.Delay(150);
             await App.NetworkService.SendSecureCommandAsync(activeKey, "GETROUTER");
+            await Task.Delay(150);
+            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
         }
     }
 
@@ -179,13 +187,19 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                     string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
                     Debug.WriteLine("--> [ADMIN CONTROL HUB]: Executing post-reboot automated BLE serial command sync pass...");
 
+                    App.NetworkService.OnTelemetryReceived -= LogIncomingStreamToTerminal;
+                    App.NetworkService.OnTelemetryReceived += LogIncomingStreamToTerminal;
+
                     await App.NetworkService.SendSecureCommandAsync(activeKey, "GETROUTER");
                     await Task.Delay(150);
                     await App.NetworkService.SendSecureCommandAsync(activeKey, "GETWIFINAME");
                     await Task.Delay(150);
-                    await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFHOST");
-                    await Task.Delay(150);
-                    await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFID");
+                    await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
+                }
+
+                if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsBluetoothConnected)
+                {
+                    App.NetworkService.IsUsingCloudWanMode = false;
                 }
             });
         }
@@ -250,9 +264,8 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
                 using (var storageEditor = nativePreferences.Edit())
                 {
-                    // We write using your exact, clean string literal key matching your firmware firmware variables!
                     storageEditor.PutString("MasterPasswordKey", newPassInput);
-                    storageEditor.Apply(); // Flash the update securely down to the physical silicon chip
+                    storageEditor.Apply();
                 }
 #else
                 Preferences.Default.Set("MasterPasswordKey", newPassInput);
@@ -442,12 +455,29 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                 await App.NetworkService.ForceProactiveRebootRecoveryAsync();
             });
 
-            await DisplayAlertAsync("Wi-Fi SETTINGS SAVED", "The parameter update was delivered successfully. System reboot initiated.", "OK");
+            RouterBridgeSSID = string.Empty;
+            IsRouterConfigured = false;
+            layoutUnconfiguredRouter.IsVisible = true;
+            layoutConfiguredRouter.IsVisible = false;
+
+            await DisplayAlertAsync("WIPE COMMAND FIRED", "The vehicle module is erasing credentials and performing a clean reboot now.", "OK");
         }
         else
         {
             await DisplayAlertAsync("LINK FAULT", "Could not deliver the parameters update packet. Verify your active communication transport channels are clear and try again.", "OK");
         }
+    }
+
+    private async void OnRebootControllerClicked(object sender, EventArgs e)
+    {
+        bool doubleCheck = await DisplayAlertAsync("REBOOT CONTROLLER",
+            "This will force a hard reboot of the vehicle module. Proceed?",
+            "REBOOT", "CANCEL");
+
+        if (!doubleCheck) return;
+
+        string currentActiveKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
+        bool commandWasDelivered = await App.NetworkService.SendSecureCommandAsync(currentActiveKey, "REBOOT");
 
         if (commandWasDelivered)
         {
@@ -465,11 +495,18 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
             await DisplayAlertAsync("WIPE COMMAND FIRED", "The vehicle module is erasing credentials and performing a clean reboot now.", "OK");
         }
+        else
+        {
+            await DisplayAlertAsync("LINK FAULT", "Could not deliver the parameters update packet. Verify your active communication transport channels are clear and try again.", "OK");
+        }
     }
 
     private static void LogIncomingStreamToTerminal(string rawPacket)
     {
         if (string.IsNullOrEmpty(rawPacket)) return;
+
+        if ((App.NetworkService.IsUsingCloudWanMode || App.NetworkService.IsUsingWifiTransportMode) && rawPacket.StartsWith('{'))
+            return;
 
         AdminPage? activePageInstance = null;
 
@@ -550,9 +587,9 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                 string timeStampStr = DateTime.Now.ToString("HH:mm:ss");
                 activePageInstance.lblDebugTerminal.Text += $"\n[{timeStampStr}] rx: {rawPacket.Trim()}";
 
-                if (activePageInstance.lblDebugTerminal.Text.Length > 2000)
+                if (activePageInstance.lblDebugTerminal.Text.Length > 10000)
                 {
-                    activePageInstance.lblDebugTerminal.Text = "[SYS] Buffer optimized.\n" + activePageInstance.lblDebugTerminal.Text.Substring(activePageInstance.lblDebugTerminal.Text.Length - 1000);
+                    activePageInstance.lblDebugTerminal.Text = "[SYS] Buffer optimized.\n" + activePageInstance.lblDebugTerminal.Text.Substring(activePageInstance.lblDebugTerminal.Text.Length - 5000);
                 }
             }
 
@@ -562,12 +599,41 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             }
         });
 
-        if (App.NetworkService.IsUsingWifiTransportMode) return;
+        if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingCloudWanMode) return;
 
-        if (activePageInstance.WifiApName == "Loading..." || activePageInstance.BleBroadcastName == "Loading..." || activePageInstance.RouterBridgeSSID == "Loading...")
+        if (activePageInstance.WifiApName == "Loading..." || activePageInstance.BleBroadcastName == "Loading..." || activePageInstance.RouterBridgeSSID == "Loading..." || rawPacket.Contains("CF_KEYS:"))
         {
-            int cfHostIndex = rawPacket.IndexOf("CF_HOST:");
-            int cfIdIndex = rawPacket.IndexOf("CF_ID:");
+            if (rawPacket.Contains("CF_KEYS:") && !rawPacket.Contains("ERR_EMPTY_VAULTS"))
+            {
+                try
+                {
+                    int payloadHeaderIndex = rawPacket.IndexOf("CF_KEYS:") + 8;
+                    string base64CipherString = rawPacket[payloadHeaderIndex..].Trim();
+
+                    string decryptedPlaintextBlock = Services.NetworkHubService.DecryptLocalPayloadAES128CBC(base64CipherString);
+
+                    if (!string.IsNullOrWhiteSpace(decryptedPlaintextBlock) && decryptedPlaintextBlock.Contains(","))
+                    {
+                        string[] parameterSegments = decryptedPlaintextBlock.Split(',');
+
+                        if (parameterSegments.Length == 3)
+                        {
+                            MainThread.BeginInvokeOnMainThread(() =>
+                            {
+                                activePageInstance.CloudflareHost = parameterSegments[0].Trim();
+                                activePageInstance.CloudflareClientId = parameterSegments[1].Trim();
+                                activePageInstance.entryCfHost?.Text = activePageInstance.CloudflareHost;
+                                activePageInstance.entryCfClientId?.Text = activePageInstance.CloudflareClientId;
+                            });
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"--> [ADMIN CRYPTO EXCEPTION]: Failure unpacking over-the-air parameters: {ex.Message}");
+                }
+            }
+
             int apIndex = rawPacket.IndexOf("AP_NAME:");
             int bleIndex = rawPacket.IndexOf("BLE_NAME:");
             int routerIndex = rawPacket.IndexOf("ROUTER_SSID:");
@@ -576,20 +642,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             {
                 MainThread.BeginInvokeOnMainThread(() =>
                 {
-                    if (cfHostIndex != -1)
-                    {
-                        string hostResult = rawPacket.Substring(cfHostIndex + 8).Trim();
-                        activePageInstance.CloudflareHost = hostResult.Equals("silent-bird-d9c0.taigon1984.workers.dev") ? string.Empty : hostResult;
-                        if (activePageInstance.entryCfHost != null) activePageInstance.entryCfHost.Text = activePageInstance.CloudflareHost;
-                    }
-
-                    if (cfIdIndex != -1)
-                    {
-                        string idResult = rawPacket.Substring(cfIdIndex + 6).Trim();
-                        activePageInstance.CloudflareClientId = idResult.Contains("PASTE_YOUR_CF_ACCESS_CLIENT_ID_HERE") ? string.Empty : idResult;
-                        if (activePageInstance.entryCfClientId != null) activePageInstance.entryCfClientId.Text = activePageInstance.CloudflareClientId;
-                    }
-
                     if (apIndex != -1)
                     {
                         activePageInstance.WifiApName = rawPacket.Substring(apIndex + 8).Trim();
@@ -631,15 +683,12 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             string targetHost = entryCfHost?.Text?.Trim() ?? string.Empty;
             string targetClientId = entryCfClientId?.Text?.Trim() ?? string.Empty;
             string targetClientSecret = entryCfClientSecret?.Text?.Trim() ?? string.Empty;
-            
+
             if (string.IsNullOrWhiteSpace(targetHost) || targetHost.Length < 5 ||
                 string.IsNullOrWhiteSpace(targetClientId) || targetClientId.Length < 10 ||
                 string.IsNullOrWhiteSpace(targetClientSecret) || targetClientSecret.Length < 10)
             {
-                // Circuit Breaker: Halt right here. No local cache changes, no over-the-air packets!
-                await DisplayAlertAsync("INPUT CRITERIA FAULT",
-                    "All three configuration fields are strictly required and cannot be left empty or blank.\n\nPlease completely fill out the Hostname, Client ID, and Client Secret fields and try again.",
-                    "OK");
+                await DisplayAlertAsync("INPUT CRITERIA FAULT", "All three configuration fields are strictly required and cannot be left blank.", "OK");
                 return;
             }
 
@@ -647,69 +696,47 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             Preferences.Default.Set("CloudflareClientIdKey", targetClientId);
             Preferences.Default.Set("CloudflareClientSecretKey", targetClientSecret);
 
-            Debug.WriteLine("--> [PHONE DISK SUCCESS]: All three verified Cloudflare keys locked into application preference arrays.");
-
             string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-
-            if (layoutRebootLockoutShell != null) layoutRebootLockoutShell.IsVisible = true;
 
             await Task.Run(async () =>
             {
-                await App.NetworkService.SendSecureCommandAsync(activeKey, $"SAVECFHOST={targetHost}");
-                await Task.Delay(1200);
+                string unifiedCloudflarePayload = $"SAVECFKEYS={targetHost},{targetClientId},{targetClientSecret}";
 
-                await App.NetworkService.SendSecureCommandAsync(activeKey, $"SAVECFID={targetClientId}");
-                await Task.Delay(1200);
+                layoutRebootLockoutShell?.IsVisible = true;
 
-                await App.NetworkService.SendSecureCommandAsync(activeKey, $"SAVECFSECRET={targetClientSecret}");
-                await Task.Delay(1500);
-
-                await App.NetworkService.ForceProactiveRebootRecoveryAsync();
-
-                MainThread.BeginInvokeOnMainThread(async () =>
+                await Task.Run(async () =>
                 {
-                    if (layoutRebootLockoutShell != null) layoutRebootLockoutShell.IsVisible = false;
+                    await App.NetworkService.SendSecureCommandAsync(activeKey, unifiedCloudflarePayload);
+                    await Task.Delay(5000);
+                    await App.NetworkService.ForceProactiveRebootRecoveryAsync();
 
-                    await DisplayAlertAsync("VAULT FLASH RECPT", "Your Cloudflare Zero-Trust machine passport credentials have been successfully committed to your vehicle module's non-volatile EEPROM scales!", "DONE");
-
-                    await Navigation.PopAsync();
+                    MainThread.BeginInvokeOnMainThread(async () =>
+                    {
+                        layoutRebootLockoutShell?.IsVisible = false;
+                        await DisplayAlertAsync("VAULT FLASH SUCCESS", "Your complete Cloudflare Zero-Trust machine passport credentials have been successfully flashed into your vehicle module's persistent memory vaults!", "DONE");
+                        await Navigation.PopAsync();
+                    });
                 });
             });
         }
         catch (Exception ex)
         {
-            if (layoutRebootLockoutShell != null) layoutRebootLockoutShell.IsVisible = false;
+            layoutRebootLockoutShell?.IsVisible = false;
             Debug.WriteLine($"--> [CLOUDFLARE WRITE CHOKE]: {ex.Message}");
             await DisplayAlertAsync("LINK FAULT", $"The transmission stream encountered an exception: {ex.Message}", "OK");
         }
+    }
+    
+    protected new void OnPropertyChanged([CallerMemberName] string propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
     ~AdminPage()
     {
         App.NetworkService.OnConnectionStateChanged -= OnVehicleLinkStateChanged;
         App.NetworkService.OnTelemetryReceived -= LogIncomingStreamToTerminal;
-
-        MainPage mainPageInstance = null;
-        if (Shell.Current != null)
-        {
-            foreach (var item in Shell.Current.Items)
-                foreach (var section in item.Items)
-                {
-                    foreach (var content in section.Items)
-                    {
-                        if (content.Content is MainPage resolvedPage)
-                        {
-                            mainPageInstance = resolvedPage;
-                        }
-                    }
-                }
-
-            if (mainPageInstance != null)
-            {
-                mainPageInstance.OnWifiTelemetryParsed -= OnMainPageWifiTelemetryParsed;
-            }
-
-            App.NetworkService.IsRebootingWatchdogActive = false;
-        }
+        MainPage.CurrentInstance?.OnWifiTelemetryParsed -= OnMainPageWifiTelemetryParsed;
+        App.NetworkService.IsRebootingWatchdogActive = false;
     }
 }

@@ -156,6 +156,13 @@
                     </VerticalStackLayout>
                 </Border>
 
+                <Button x:Name="btnRebootController"
+                                Text="REBOOT CONTROLLER" 
+                                BackgroundColor="#F59E0B" 
+                                TextColor="#000000" 
+                                FontAttributes="Bold"
+                                HeightRequest="45"
+                                Clicked="OnRebootControllerClicked"/>
             </VerticalStackLayout>
         </ScrollView>
 

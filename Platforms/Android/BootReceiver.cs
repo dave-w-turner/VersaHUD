@@ -32,13 +32,14 @@ public class BootReceiver : BroadcastReceiver
                     {
                         await Task.Delay(500);
 
-                        if (App.NetworkService != null)
+                        if (App.NetworkService != null && !App.NetworkService.IsUsingWifiTransportMode)
                         {
                             System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR]: Invoking AutoConnectAsync dynamically over active radio waves...");
-                            await App.NetworkService.AutoConnectAsync();
+                            if (await App.NetworkService.AutoConnectAsync())
+                                App.NetworkService.RaiseConnectionStateChangedProxy(true);
                         }
                     }
-                    catch (System.Exception ex)
+                    catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine($"--> [HARDWARE MONITOR RECOVERY CHOKE]: {ex.Message}");
                     }
@@ -59,8 +60,6 @@ public class BootReceiver : BroadcastReceiver
                     System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR CRITICAL]: Both networks dead. Purging residual wireless cache properties...");
 
                     App.NetworkService.ActiveRssi = 0;
-
-                    App.NetworkService.IsUsingWifiTransportMode = false;
                     App.NetworkService.RaiseConnectionStateChangedProxy(false);
                 }
             }

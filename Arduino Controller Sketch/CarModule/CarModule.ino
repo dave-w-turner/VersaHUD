@@ -4,7 +4,11 @@
 #include <ArduinoBLE.h> 
 #include "ArduinoGraphics.h"
 #include "Arduino_LED_Matrix.h"
-#include <WebSocketsClient.h>
+#include <WiFiSSLClient.h>
+#include <RTC.h>
+
+#define CRITICAL_BATTERY_LOW      15  // 15% Trigger threshold
+#define SAFE_BATTERY_CEILING      35  // 35% Release threshold
 
 String CLOUDFLARE_HOST     = "silent-bird-d9c0.taigon1984.workers.dev";
 const uint16_t CLOUDFLARE_PORT  = 443;
@@ -12,11 +16,15 @@ const uint16_t CLOUDFLARE_PORT  = 443;
 String CF_CLIENT_ID        = "PASTE_YOUR_CF_ACCESS_CLIENT_ID_HERE";
 String CF_CLIENT_SECRET    = "PASTE_YOUR_CF_ACCESS_CLIENT_SECRET_HERE";
 
-WebSocketsClient webSocket;
+bool lastCloudTransmitSuccessful = false; 
+String globalCloudflareHeadersBuffer = "";
+String lastAdminPayload = "";
+
+String globalLastUploadedLogTimestamp = ""; 
 
 const String DEFAULT_MASTER_PASSWORD = "VersaPasscode99"; 
 const String DEFAULT_WIFI_AP_NAME = "Versa_Automation_Hub"; 
-const String DEFAULT_BLE_NAME = "VersaHub_BLE"; 
+const String DEFAULT_BLE_NAME = "VersaHub_BLE";
 
 uint8_t aesSecretKeyBytes[16] = {0x5A, 0xA5, 0x1F, 0x2C, 0x7E, 0x9D, 0x8B, 0x34, 0x61, 0xF0, 0xE3, 0xD2, 0xC1, 0xB0, 0x09, 0x48};
 uint8_t initializationVector[16] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F};
@@ -47,7 +55,7 @@ const float CALIBRATION_FRONT = 3.1276;
 const float CALIBRATION_BACK = 3.0673;
 const float ARDUINO_REF_VOLTAGE = 5.00;
 unsigned long previousTelemetryMillis = 0;
-const long telemetryInterval = 3000; 
+const long telemetryInterval = 10000; 
 
 const int EEPROM_LOCK_HASH_ADDR = 10; 
 const int EEPROM_UNLOCK_HASH_ADDR = 12; 
@@ -57,23 +65,35 @@ const int EEPROM_WIFI_PASS_ADDR = 100;
 const int EEPROM_CUSTOM_WIFI_AP = 140; 
 const int EEPROM_CUSTOM_BLE_NAME = 180; 
 const int EEPROM_CF_HOST_ADDR      = 250;
-const int EEPROM_CF_CLIENT_ID_ADDR = 320;
-const int EEPROM_CF_SECRET_ADDR    = 390;
+const int EEPROM_CF_CLIENT_ID_ADDR = 350;
+const int EEPROM_CF_SECRET_ADDR    = 450;
 
-const int MAX_SYSTEM_LOGS = 6;
+const int MAX_SYSTEM_LOGS = 10;
 String systemLogBufferArray[MAX_SYSTEM_LOGS];
 int currentLogWritePointerIndex = 0;
 
 unsigned int currentLockHash = 0;
 unsigned int currentUnlockHash = 0;
 String incomingBuffer = "";
-float globalFrontVolts = 13.10;
-float globalBackVolts = 12.75;
+float globalFrontVolts = 0;
+float globalBackVolts = 0;
 int frontBatteryPercent = 100;
 int backBatteryPercent = 100;
-bool frontIsCharging = (globalFrontVolts >= 12.9);
-bool backIsCharging = (globalBackVolts >= 13.50);
-bool audioOverride = false; 
+
+float frontChargingVolts = 12.9;
+float backChargingVolts = 13.50;
+
+bool frontIsCharging = (globalFrontVolts >= frontChargingVolts);
+bool backIsCharging = (globalBackVolts >= backChargingVolts);
+bool audioOverride = false;
+
+static int longRangeAdminSyncCounter = 999;    
+
+static unsigned long lastCloudUploadTimestamp = 0;
+static unsigned long rapidResponseWindowExpiration = 0;
+unsigned long activeCloudPacingInterval = 10000;
+
+bool crossChargeProtectionActiveFlag = false; 
 
 String currentBroadcastAP = "";
 String currentBroadcastBLE = "";
@@ -81,87 +101,6 @@ String currentBroadcastBLE = "";
 BLEService hubService("19B10000-E8F2-537E-4F1D-223A12345678");
 BLEStringCharacteristic rxCharacteristic("19B10001-E8F2-537E-4F1D-223A12345678", BLEWrite, 512);
 BLEStringCharacteristic txCharacteristic("19B10002-E8F2-537E-4F1D-223A12345678", BLENotify, 512);
-
-void onCloudflareWebSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
-    switch(type) {
-        case WStype_DISCONNECTED:
-            writeLog("--> [CLOUDFLARE TUNNEL]: Radio link dropped or severed. Standing down pipeline.");
-            break;
-            
-        case WStype_CONNECTED:
-            writeLog("--> [CLOUDFLARE TUNNEL]: Handshake authorized! Tunnel secure at wss://" + CLOUDFLARE_HOST);
-            writeLog("[CF_OK]: Secure WAN Pipeline Online.");
-            break;
-            
-        case WStype_TEXT: {
-            String incomingPayload = String((char*)payload);
-            incomingPayload.trim();
-            
-            writeLog("--> [CLOUDFLARE INPUT]: Caught cloud packet payload frame: " + incomingPayload);
-            
-            if (incomingPayload.length() > 0) {
-                processSecureCommand(incomingPayload, "CLOUDFLARE_WAN_LINK");
-            }
-            break;
-        }
-        
-        // 🚀 THE CRYPTOGRAPHIC EXCEPTION CAPTURE CHANNEL:
-        // If the handshakes are rejected, intercept the underlying HTTP code layers!
-        case WStype_ERROR: {
-            writeLog("--> [CONNECTION FAULT]: Handshake aborted or rejected by Cloudflare edge proxy.");
-            
-            // Extract the raw HTTP response headers if available in the payload bytes
-            if (length > 0 && payload != NULL) {
-                String errorPayload = String((char*)payload);
-                errorPayload.trim();
-                
-                if (errorPayload.indexOf("403") != -1 || errorPayload.indexOf("Unauthorized") != -1) {
-                    writeLog("[CF_ERR]: AUTH_REJECTED (Verify Zero Trust Client ID & Secret Credentials)");
-                } else if (errorPayload.indexOf("404") != -1) {
-                    writeLog("[CF_ERR]: WORKER_NOT_FOUND (Verify Cloudflare DNS Hostname Strings)");
-                } else {
-                    writeLog("[CF_ERR]: LINK_FAULT: " + errorPayload.substring(0, 40));
-                }
-            } else {
-                // If the link drops before an HTTP response can even build, the domain itself is dead/unreachable
-                writeLog("[CF_ERR]: DNS_UNREACHABLE (Verify Cloudflare URL Endpoint or Cell Tower Signals)");
-            }
-            break;
-        }
-        case WStype_BIN:
-            break;
-    }
-}
-
-void transmitCloudflareTelemetryFrame() {
-    if (!webSocket.isConnected()) return;
-
-    String jsonLogArrayPayload = "[";
-    int logsCompiledCount = 0;
-    for (int i = 0; i < MAX_SYSTEM_LOGS; i++) {
-        int targetEvaluationIndex = (currentLogWritePointerIndex - 1 - i + MAX_SYSTEM_LOGS) % MAX_SYSTEM_LOGS;
-        String individualLogLine = systemLogBufferArray[targetEvaluationIndex];
-        if (individualLogLine.length() > 0) {
-            if (logsCompiledCount > 0) jsonLogArrayPayload += ",";
-            jsonLogArrayPayload += "\"" + individualLogLine + "\"";
-            logsCompiledCount++;
-        }
-    }
-    jsonLogArrayPayload += "]";
-
-    for (int i = 0; i < MAX_SYSTEM_LOGS; i++) { systemLogBufferArray[i] = ""; }
-    currentLogWritePointerIndex = 0;
-
-    String jsonOutput = "{\"front_v\":" + String(globalFrontVolts, 2) + 
-                        ",\"front_p\":" + String(frontBatteryPercent) + 
-                        ",\"background_v\":" + String(globalBackVolts, 2) + 
-                        ",\"back_p\":" + String(backBatteryPercent) + 
-                        ",\"charging_f\":" + String(frontIsCharging ? "true" : "false") + 
-                        ",\"charging_b\":" + String(backIsCharging ? "true" : "false") + 
-                        ",\"system_logs\":" + jsonLogArrayPayload + "}";
-
-    webSocket.sendTXT(jsonOutput);
-}
 
 void setup() {
     pinMode(RELAY_LOCK, OUTPUT); digitalWrite(RELAY_LOCK, HIGH);
@@ -196,30 +135,9 @@ void setup() {
     if (CLOUDFLARE_HOST.length() == 0) {
         CLOUDFLARE_HOST = "silent-bird-d9c0.taigon1984.workers.dev";
     }
-    
+
     setupBluetoothNetwork();
     setupWiFiAPI();
-
-    bool hasValidCredentials = CLOUDFLARE_HOST.length() > 5 && 
-                               !CLOUDFLARE_HOST.equals("silent-bird-d9c0.taigon1984.workers.dev") &&
-                               CF_CLIENT_ID.length() > 5 && 
-                               !CF_CLIENT_ID.equals("PASTE_YOUR_CF_ACCESS_CLIENT_ID_HERE") &&
-                               CF_CLIENT_SECRET.length() > 5 && 
-                               !CF_CLIENT_SECRET.equals("PASTE_YOUR_CF_ACCESS_CLIENT_SECRET_HERE");
-
-    if (hasValidCredentials) {
-        writeLog("--> [TUNNEL BOOT]: Custom credentials verified. Launching Cloudflare pipeline for host: " + CLOUDFLARE_HOST);
-    
-        webSocket.begin(CLOUDFLARE_HOST.c_str(), CLOUDFLARE_PORT, "/api/telemetry");
-        
-        String cloudflareHeaders = "CF-Access-Client-Id: " + CF_CLIENT_ID + "\r\n" +
-                                   "CF-Access-Client-Secret: " + CF_CLIENT_SECRET + "\r\n";
-        webSocket.setExtraHeaders(cloudflareHeaders.c_str());
-        webSocket.onEvent(onCloudflareWebSocketEvent);
-        webSocket.setReconnectInterval(5000);
-    } else {
-        writeLog("--> [TUNNEL SKIP]: Cloudflare credentials missing or unconfigured. Standing down cloud thread.");
-    }
 
     displayMatrixText(" HUB ONLINE ");
 }
@@ -230,15 +148,13 @@ void loop() {
     handleWiFiAPI();
     BLE.poll();
     
-    webSocket.loop();
-    
     if (BLE.connected() && rxCharacteristic.written()) {
         incomingBuffer = rxCharacteristic.value();
         processSecureCommand(incomingBuffer, "BLE_LINK");
     }
     
     if (pendingSystemHardwareRebootFlag && (currentMillis - hardwareRebootTimestampCount >= 2500)) {
-        Serial.println("--> [WATCHDOG]: Drainage pad completed. Re-flashing core system architecture registers now!");
+        Serial.println("--> [WATCHDOG]: Drainage pad completed. Re-flashing core system architecture registers now and rebooting!");
         delay(10);
         NVIC_SystemReset();
     }
@@ -253,9 +169,12 @@ void loop() {
         
         int rawBack = analogRead(VOLTAGE_BACK);
         globalBackVolts = ((rawBack * ARDUINO_REF_VOLTAGE) / 1023.0) * CALIBRATION_BACK;
+
+        frontIsCharging = (globalFrontVolts >= frontChargingVolts);
+        backIsCharging = (globalBackVolts >= backChargingVolts);
         
         bool radioSenseIsActive = (digitalRead(RADIO_SENSOR) == HIGH); 
-        
+       
         if (globalFrontVolts >= 12.60) frontBatteryPercent = 100;
         else if (globalFrontVolts <= 11.50) frontBatteryPercent = 0;
         else frontBatteryPercent = (int)((globalFrontVolts - 11.50) / (12.60 - 11.50) * 100.0);
@@ -272,15 +191,22 @@ void loop() {
         } else {
             telemetryString += "IP:STA_HOTSPOT | ";
         }
+
+        if (lastCloudTransmitSuccessful) {
+            telemetryString += "[📡 WAN_ONLINE] ";
+        } else {
+            telemetryString += "[☁️ WAN_OFFLINE] ";
+        }
         
         if (radioSenseIsActive) { 
             telemetryString += "[🔊 AMPS ON] ";
         } else {
             telemetryString += "[🔇 AMPS OFF] ";
         }
-        
-        frontIsCharging = (globalFrontVolts >= 12.9);
-        backIsCharging = (globalBackVolts >= 13.50);
+
+        if (crossChargeProtectionActiveFlag) {
+            telemetryString += "[⚡ CROSS_CHG ACTIVE] ";
+        }
         
         if (globalFrontVolts < 6.50 && globalBackVolts < 6.50) {
             telemetryString += "BATTERIES DETECTED: [❌ BOTH DISCONNECTED]";
@@ -303,38 +229,37 @@ void loop() {
         
         writeLog(telemetryString);
 
-        // 🚀 WATCHDOG OVER-THE-AIR RECONNECTOR
-        bool hasValidCredentials = CLOUDFLARE_HOST.length() > 5 && 
-                                   !CLOUDFLARE_HOST.equals("silent-bird-d9c0.taigon1984.workers.dev") &&
-                                   CF_CLIENT_ID.length() > 5 && 
-                                   !CF_CLIENT_ID.equals("PASTE_YOUR_CF_ACCESS_CLIENT_ID_HERE") &&
-                                   CF_CLIENT_SECRET.length() > 5 && 
-                                   !CF_CLIENT_SECRET.equals("PASTE_YOUR_CF_ACCESS_CLIENT_SECRET_HERE");
-
-        if (isWifiConnected && !webSocket.isConnected() && hasValidCredentials) {
-            static unsigned long lastReconnectionAttempt = 0;
-            if (currentMillis - lastReconnectionAttempt >= 7000) {
-                lastReconnectionAttempt = currentMillis;
-                Serial.println("--> [LOOP WATCHDOG]: Cloud tunnel dormancy detected. Re-initializing...");
-                webSocket.begin(CLOUDFLARE_HOST.c_str(), CLOUDFLARE_PORT, "/api/telemetry");
+        if (!crossChargeProtectionActiveFlag) {
+            if ((frontBatteryPercent <= CRITICAL_BATTERY_LOW && backBatteryPercent > 30) || 
+                (backBatteryPercent <= CRITICAL_BATTERY_LOW && frontBatteryPercent > 30)) {
                 
-                String cloudflareHeaders = "CF-Access-Client-Id: " + CF_CLIENT_ID + "\r\n" +
-                                           "CF-Access-Client-Secret: " + CF_CLIENT_SECRET + "\r\n";
-                webSocket.setExtraHeaders(cloudflareHeaders.c_str());
+                crossChargeProtectionActiveFlag = true;
+                writeLog("--> [BATTERY CRITICAL]: Threshold protection tripped! Bridging cells for emergency cross-charge.");
+            }
+        } 
+        else {
+            if ((frontBatteryPercent >= SAFE_BATTERY_CEILING && backBatteryPercent >= 30) || 
+                (backBatteryPercent >= SAFE_BATTERY_CEILING && frontBatteryPercent > 30)) {
+                
+                crossChargeProtectionActiveFlag = false;
+                writeLog("--> [BATTERY RECOVERY]: Weak bank recovered past safe 35% margin. Isolating cells.");
+            }
+            else if (frontBatteryPercent <= 5 && backBatteryPercent <= 5) {
+                crossChargeProtectionActiveFlag = false;
+                writeLog("--> [BATTERY EMERGENCY]: Both banks completely flattened! Breaking cross-charge to save core cell hardware.");
             }
         }
 
-        transmitCloudflareTelemetryFrame();
-        
-        if (frontIsCharging || backIsCharging) {
+        if (frontIsCharging || backIsCharging || crossChargeProtectionActiveFlag) {
             if (digitalRead(RELAY_SOLENOID) == HIGH) { 
-                digitalWrite(RELAY_SOLENOID, LOW); 
-                writeLog("--> [ISOLATOR]: Charging live. K3 CLOSED.");
+                digitalWrite(RELAY_SOLENOID, LOW);
+                writeLog("--> [ISOLATOR ACTION]: Solenoid engaged. RELAY_SOLENOID CLOSED.");
             }
-        } else {
+        } 
+        else {
             if (digitalRead(RELAY_SOLENOID) == LOW) {
-                digitalWrite(RELAY_SOLENOID, HIGH); 
-                writeLog("--> [ISOLATOR]: Alternator offline. K3 OPENED.");
+                digitalWrite(RELAY_SOLENOID, HIGH); // 🔴 OPEN K3 COIL CONTACTS [🗎 0.1.74]
+                writeLog("--> [ISOLATOR ACTION]: Isolation active. RELAY_SOLENOID OPENED.");
             }
         }
         
@@ -360,8 +285,78 @@ void loop() {
                 }
             }
         }
+
+        String jsonLogArrayPayload = "[";
+        int logsCompiledCount = 0;
+        String temporaryNewestTimestampTrack = globalLastUploadedLogTimestamp;
+
+        for (int i = 0; i < MAX_SYSTEM_LOGS; i++) {
+            // Read backwards through your circular log history queue [🗎 0.1.290]
+            int targetIndex = (currentLogWritePointerIndex - 1 - i + MAX_SYSTEM_LOGS) % MAX_SYSTEM_LOGS;
+            String clearTextLine = systemLogBufferArray[targetIndex];
+
+            if (clearTextLine.length() > 11) { // Guard gate: Line must contain a full timestamp header
+                // Extract the timestamp bracket signature cleanly (e.g. "[02:58:14]")
+                String lineTimestampSignature = clearTextLine.substring(0, 10);
+
+                // 🚀 THE ABSOLUTE CLOUD FOOTPRINT CIRCUIT BREAKER:
+                // If this line's timestamp signature is newer than our last uploaded anchor,
+                // it is fresh content! Package it right inside your outbound telemetry payload!
+                if (lineTimestampSignature > globalLastUploadedLogTimestamp) {
+                    if (logsCompiledCount == 0) {
+                        // Track the newest timestamp encountered in this pass to update our global anchor later
+                        temporaryNewestTimestampTrack = lineTimestampSignature;
+                    }
+
+                    if (logsCompiledCount > 0) {
+                        jsonLogArrayPayload += ",";
+                    }
+                    jsonLogArrayPayload += "\"" + clearTextLine + "\"";
+                    logsCompiledCount++;
+                }
+            }
+        }
+        jsonLogArrayPayload += "]";
+
+        globalLastUploadedLogTimestamp = temporaryNewestTimestampTrack;
+
+        String jsonOutput = "{\"front_v\": " + String(globalFrontVolts, 2) + 
+                            ",\"front_p\":" + String(frontBatteryPercent) + 
+                            ",\"background_v\":" + String(globalBackVolts, 2) + 
+                            ",\"back_p\":" + String(backBatteryPercent) + 
+                            ",\"charging_f\":" + (frontIsCharging ? String("true") : String("false")) + 
+                            ",\"charging_b\":" + (backIsCharging ? String("true") : String("false")) + 
+                            ",\"cross_charging\":" + (crossChargeProtectionActiveFlag ? String("true") : String("false")) + 
+                            ",\"wan_link\":" + (lastCloudTransmitSuccessful ? String("true") : String("false")) + 
+                            ",\"system_logs\":" + jsonLogArrayPayload + "}";
+
+        if (!radioSenseIsActive) {
+            activeCloudPacingInterval = 30000; 
+        }
+        else if (currentMillis < rapidResponseWindowExpiration) {
+            activeCloudPacingInterval = 2000;
+        }
+
+        if (currentMillis - lastCloudUploadTimestamp >= activeCloudPacingInterval) {
+            lastCloudUploadTimestamp = currentMillis;
+            transmitSecureHTTPTelemetry(jsonOutput);
+        }
+
+        longRangeAdminSyncCounter++;
+
+        if (longRangeAdminSyncCounter >= 180) {
+            writeLog("--> [WAN REFRESH]: Executing scheduled 30-minute background identity synchronization pass...");
+            if (flushAdminConfigurationToCloud())
+            {
+                longRangeAdminSyncCounter = 0;
+            }
+            else
+            {
+                writeLog("--> [WAN REFRESH]: Failed to flush configuration to Cloudflare.");
+            }
+        }
     }
-    
+
     while (Serial.available() > 0) {
         char c = Serial.read();
         if (c == '\n' || c == '\r') {
@@ -405,7 +400,13 @@ bool processSecureCommand(String rawPacket, String source) {
         return false;
     }
     
-    if (actionPayload == "VERIFYPASS") {
+    if (actionPayload == "REBOOT") {
+        writeLog("--> [WATCHDOG]: Request to reboot. Rebooting controller now...");
+        delay(1500); 
+        NVIC_SystemReset();       
+        return true; 
+    }
+    else if (actionPayload == "VERIFYPASS") {
         writeLog("--> [AUTH]: Master Passcode verified successfully over " + source + ".");
         writeLog("[SYS] [🟢 AUTH_SUCCESS]");
         return true;
@@ -434,9 +435,11 @@ bool processSecureCommand(String rawPacket, String source) {
         if (newAP.length() > 2) {
             writeStringToEEPROM(EEPROM_CUSTOM_WIFI_AP, newAP);
             writeLog("--> [ADMIN_SUCCESS]: WIFI AP written. Rebooting controller...");
+
+            flushAdminConfigurationToCloud(); 
             
             if (source == "BLE_LINK" || source == "LOCAL_USB" || source == "CLOUDFLARE_WAN_LINK") {
-                writeLog("--> [WATCHDOG]: Remote origin detected. Resetting controller now...");
+                writeLog("--> [WATCHDOG]: Remote origin detected. Rebooting controller now...");
                 delay(1500); 
                 NVIC_SystemReset();
             }
@@ -455,9 +458,11 @@ bool processSecureCommand(String rawPacket, String source) {
         if (newBLE.length() > 2) {
             writeStringToEEPROM(EEPROM_CUSTOM_BLE_NAME, newBLE);
             writeLog("--> [ADMIN_SUCCESS]: BLE name written. Rebooting controller...");
+
+            flushAdminConfigurationToCloud();
             
             if (source == "BLE_LINK" || source == "LOCAL_USB" || source == "CLOUDFLARE_WAN_LINK") {
-                writeLog("--> [WATCHDOG]: Remote origin detected. Resetting controller now...");
+                writeLog("--> [WATCHDOG]: Remote origin detected. Rebooting controller now...");
                 delay(1500); 
                 NVIC_SystemReset();
             }
@@ -484,7 +489,7 @@ bool processSecureCommand(String rawPacket, String source) {
                 writeLog("--> [ADMIN_SUCCESS]: Router storage wiped out. Rebooting controller...");
                 
                 if (source == "BLE_LINK" || source == "LOCAL_USB" || source == "CLOUDFLARE_WAN_LINK") {
-                    writeLog("--> [WATCHDOG]: Remote origin detected. Resetting controller now...");
+                    writeLog("--> [WATCHDOG]: Remote origin detected. Rebooting controller now...");
                     delay(1500); 
                     NVIC_SystemReset();
                 }
@@ -517,6 +522,8 @@ bool processSecureCommand(String rawPacket, String source) {
                     
                     writeSecureStringToEEPROM(EEPROM_WIFI_SSID_ADDR, routerSSID);
                     writeSecureStringToEEPROM(EEPROM_WIFI_PASS_ADDR, routerPASS);
+
+                    flushAdminConfigurationToCloud();
                     
                     if (source == "BLE_LINK" || source == "LOCAL_USB" || source == "CLOUDFLARE_WAN_LINK") {
                         writeLog("--> [WATCHDOG]: Remote origin detected. Resetting controller now...");
@@ -544,8 +551,6 @@ bool processSecureCommand(String rawPacket, String source) {
         String newPass = actionPayload.substring(equalsSignIndex + 1); 
         newPass.trim();
         
-        writeLog("--> [DEBUG]: Extracted Password: '" + newPass + "' | Length Calculated = " + newPass.length());
-        
         if (newPass.length() > 2) {
             unsigned int newHash = generateFletcher16Hash(newPass);
             saveHashToEEPROM(EEPROM_LOCK_HASH_ADDR, newHash);
@@ -564,14 +569,14 @@ bool processSecureCommand(String rawPacket, String source) {
         String activeAP = readStringFromEEPROM(EEPROM_CUSTOM_WIFI_AP);
         if (activeAP.length() == 0) activeAP = DEFAULT_WIFI_AP_NAME;
         writeLog("[SYS] AP_NAME:" + activeAP);
-        writeLog("--> [ADMIN]: Queried active Wi-Fi AP name.");
+        Serial.println("--> [ADMIN]: Queried active Wi-Fi AP name.");
         return true;
     } 
     else if (actionPayload == "GETBLENAME") {
         String activeBLE = readStringFromEEPROM(EEPROM_CUSTOM_BLE_NAME);
         if (activeBLE.length() == 0) activeBLE = DEFAULT_BLE_NAME;
         writeLog("[SYS] BLE_NAME:" + activeBLE);
-        writeLog("--> [ADMIN]: Queried active Bluetooth name.");
+        Serial.println("--> [ADMIN]: Queried active Bluetooth name.");
         return true;
     } 
     else if (actionPayload == "GETROUTER") {
@@ -581,11 +586,11 @@ bool processSecureCommand(String rawPacket, String source) {
         } else {
             writeLog("[SYS] ROUTER_SSID:" + savedSSID);
         }
-        writeLog("--> [ADMIN]: Queried link router bridge SSID properties safely.");
+        Serial.println("--> [ADMIN]: Queried link router bridge SSID properties safely.");
         return true;
     }
     else if (actionPayload == "SCANWIFI") {
-        writeLog("--> [ADMIN]: Initializing environment Wi-Fi network band scan...");
+        Serial.println("--> [ADMIN]: Initializing environment Wi-Fi network band scan...");
         int networksFoundCount = WiFi.scanNetworks(); 
         String payloadStringResponse = "[SYS] WIFI_LIST:";
         int accumulatedItems = 0;
@@ -604,88 +609,65 @@ bool processSecureCommand(String rawPacket, String source) {
             }
         }
         writeLog(payloadStringResponse);
-        writeLog("--> [ADMIN_SUCCESS]: Wireless environment catalog transmitted.");
+        Serial.println("--> [ADMIN_SUCCESS]: Wireless environment catalog transmitted.");
         return true;
     }
-    else if (actionPayload.startsWith("SAVECFHOST=")) {
+    else if (actionPayload.startsWith("SAVECFKEYS=")) {
         int equalsIndex = actionPayload.indexOf('=');
-        String newCfHost = actionPayload.substring(equalsIndex + 1);
-        newCfHost.trim();
-
-        writeLog("--> [ADMIN]: Request to save Cloudflare DNS host: '" + newCfHost + "'.");
-
-        if (newCfHost.length() > 5) {
-            writeStringToEEPROM(EEPROM_CF_HOST_ADDR, newCfHost);
-            writeLog("--> [ADMIN_SUCCESS]: Cloudflare DNS hostname committed. Rebooting...");
-            
-            if (source == "BLE_LINK" || source == "LOCAL_USB" || source == "CLOUDFLARE_WAN_LINK") {
-                delay(1500);
-                NVIC_SystemReset();
-            }
-        } else {
-            writeLog("--> [ADMIN_ERROR]: Hostname string failed length validation gates.");
-        }
-        return true;
-    }
-    else if (actionPayload.startsWith("SAVECFID=")) {
-        int equalsIndex = actionPayload.indexOf('=');
-        String newCfId = actionPayload.substring(equalsIndex + 1);
-        newCfId.trim();
-
-        writeLog("--> [ADMIN]: Request to write secure Cloudflare Client ID.");
-
-        if (newCfId.length() > 10) {
-            writeSecureStringToEEPROM(EEPROM_CF_CLIENT_ID_ADDR, newCfId);
-            writeLog("--> [ADMIN_SUCCESS]: Zero Trust Client ID secured in storage. Rebooting...");
-            
-            if (source == "BLE_LINK" || source == "LOCAL_USB" || source == "CLOUDFLARE_WAN_LINK") {
-                delay(1500);
-                NVIC_SystemReset();
-            }
-        } else {
-            writeLog("--> [ADMIN_ERROR]: Client ID payload failed size constraints.");
-        }
-        return true;
-    }
-    else if (actionPayload.startsWith("SAVECFSECRET=")) {
-        int equalsIndex = actionPayload.indexOf('=');
-        String newCfSecret = actionPayload.substring(equalsIndex + 1);
-        newCfSecret.trim();
-
-        writeLog("--> [ADMIN]: Request to write secure Cloudflare Client Secret.");
-
-        if (newCfSecret.length() > 10) {
-            writeSecureStringToEEPROM(EEPROM_CF_SECRET_ADDR, newCfSecret);
-            writeLog("--> [ADMIN_SUCCESS]: Zero Trust Client Secret secured in storage. Rebooting...");
-            
-            if (source == "BLE_LINK" || source == "LOCAL_USB" || source == "CLOUDFLARE_WAN_LINK") {
-                delay(1500);
-                NVIC_SystemReset();
-            }
-        } else {
-            writeLog("--> [ADMIN_ERROR]: Client Secret payload failed size constraints.");
-        }
-        return true;
-    }
-    else if (actionPayload == "GETCFHOST") {
-        String activeCfHost = readStringFromEEPROM(EEPROM_CF_HOST_ADDR);
-        if (activeCfHost.length() == 0) {
-            activeCfHost = "silent-bird-d9c0.taigon1984.workers.dev";
-        }
+        String keyPayload = actionPayload.substring(equalsIndex + 1);
         
-        writeLog("CF_HOST:" + activeCfHost);
-        writeLog("--> [ADMIN]: Queried active Cloudflare DNS host endpoint properties.");
+        int firstComma = keyPayload.indexOf(',');
+        int secondComma = keyPayload.indexOf(',', firstComma + 1);
+        
+        if (firstComma != -1 && secondComma != -1) {
+            String routerCfHost   = keyPayload.substring(0, firstComma);
+            String routerCfId     = keyPayload.substring(firstComma + 1, secondComma);
+            String routerCfSecret = keyPayload.substring(secondComma + 1);
+            
+            routerCfHost.trim();
+            routerCfId.trim();
+            routerCfSecret.trim();
+
+            writeLog("--> [ADMIN]: Processing consolidated Cloudflare credentials flash block...");
+            
+            if (routerCfHost.length() > 5 && routerCfId.length() > 10 && routerCfSecret.length() > 10) {
+                writeStringToEEPROM(EEPROM_CF_HOST_ADDR, routerCfHost);
+                writeSecureStringToEEPROM(EEPROM_CF_CLIENT_ID_ADDR, routerCfId);
+                writeSecureStringToEEPROM(EEPROM_CF_SECRET_ADDR, routerCfSecret);
+                
+                writeLog("--> [ADMIN_SUCCESS]: Complete Zero-Trust profile committed to storage vaults! Rebooting controller...");
+                
+                delay(1500); 
+                NVIC_SystemReset();
+                return true;
+            } else {
+                writeLog("--> [ADMIN_ERROR]: Payload segments failed baseline length verification constraints.");
+            }
+        } else {
+            writeLog("--> [ADMIN_ERROR]: Corrupted credentials envelope configuration shape. Missing commas.");
+        }
         return true;
     }
-    else if (actionPayload == "GETCFID") {
-        String activeCfId = readSecureStringFromEEPROM(EEPROM_CF_CLIENT_ID_ADDR);
+    else if (actionPayload == "GETCFKEYS") {
+        Serial.println("--> [ADMIN]: App requested secure remote configuration sync pass...");
         
-        if (activeCfId.length() == 0) {
-            writeLog("CF_ID:[❌ NONE SAVED]");
-        } else {
-            writeLog("CF_ID:" + activeCfId);
+        String activeCfHost   = readStringFromEEPROM(EEPROM_CF_HOST_ADDR);
+        String activeCfId     = readSecureStringFromEEPROM(EEPROM_CF_CLIENT_ID_ADDR);
+        String activeCfSecret = readSecureStringFromEEPROM(EEPROM_CF_SECRET_ADDR);
+        
+        if (activeCfId.length() > 0 && activeCfSecret.length() > 0) {
+            String rawKeysBuffer = activeCfHost + "," + activeCfId + "," + activeCfSecret;
+            
+            String encryptedKeysBase64 = encryptPayloadAES128CBC(rawKeysBuffer);
+            
+            String cfKeysPayloadResponse = "[SYS] CF_KEYS:" + encryptedKeysBase64;
+            writeLog(cfKeysPayloadResponse);
+            Serial.println("--> [ADMIN_SUCCESS]: Stored Zero-Trust key vectors encrypted and off-loaded safely.");
+        } 
+        else {
+            writeLog("[SYS] CF_KEYS:ERR_EMPTY_VAULTS");
+            Serial.println("--> [ADMIN_WARN]: Key retrieval aborted. Stored vaults are currently unconfigured.");
         }
-        writeLog("--> [ADMIN]: Queried active Cloudflare Zero Trust Client ID properties safely.");
         return true;
     }
 
@@ -706,7 +688,15 @@ void setupWiFiAPI() {
     
     if (WiFi.status() != WL_CONNECTED) {
         WiFi.beginAP(currentBroadcastAP.c_str(), "VersaCore99");
+    } else {
+        RTC.begin();
+        unsigned long globalEpochTime = WiFi.getTime();
+        if (globalEpochTime > 0) {
+            RTCTime activeTimeConvert(globalEpochTime);
+            RTC.setTime(activeTimeConvert);
+        }
     }
+
     webServer.begin();
 }
 
@@ -762,6 +752,8 @@ void handleWiFiAPI() {
                                           ",\"back_p\":" + String(backBatteryPercent) + 
                                           ",\"charging_f\":" + String(frontIsCharging ? "true" : "false") + 
                                           ",\"charging_b\":" + String(backIsCharging ? "true" : "false") + 
+                                          ",\"cross_charging\":" + (crossChargeProtectionActiveFlag ? String("true") : String("false")) + 
+                                          ",\"wan_link\":" + String(lastCloudTransmitSuccessful ? "true" : "false") + 
                                           ",\"system_logs\":" + jsonLogArrayPayload + "}";
                             
                             client.println("HTTP/1.1 200 OK");
@@ -826,7 +818,7 @@ void handleWiFiAPI() {
                     break;
                 }
                 else if (requestBuffer.indexOf("GET /api/status") != -1) {
-                    writeLog("--> [NET REST STATUS]: Discovery probe received. Responding Ready.");
+                    Serial.println("--> [NET REST STATUS]: Discovery probe received. Responding Ready.");
                     client.println("HTTP/1.1 200 OK");
                     client.println("Content-Type: application/json");
                     client.println("Connection: close");
@@ -835,7 +827,7 @@ void handleWiFiAPI() {
                     break;
                 }
                 else if (requestBuffer.indexOf("GET /api/admin") != -1) {
-                    writeLog("--> [NET REST API]: Generating clean administration profile payload...");
+                    Serial.println("--> [NET REST API]: Generating clean administration profile payload...");
                     
                     String activeAP = readStringFromEEPROM(EEPROM_CUSTOM_WIFI_AP);
                     if (activeAP.length() == 0) activeAP = DEFAULT_WIFI_AP_NAME;
@@ -846,26 +838,27 @@ void handleWiFiAPI() {
                     String savedSSID = readSecureStringFromEEPROM(EEPROM_WIFI_SSID_ADDR);
                     if (savedSSID.length() == 0) savedSSID = "NONE";
 
-                    // 🚀 INJECTED: READ THE ACTIVE TUNNEL PREFERENCES FROM PERMANENT REGISTERS
                     String savedCfHost = readStringFromEEPROM(EEPROM_CF_HOST_ADDR);
                     if (savedCfHost.length() == 0) savedCfHost = "silent-bird-d9c0.taigon1984.workers.dev";
 
                     String savedCfId = readSecureStringFromEEPROM(EEPROM_CF_CLIENT_ID_ADDR);
                     if (savedCfId.length() == 0) savedCfId = "NONE";
                     
-                    // 🎯 THE COMPACT JSON EXTENSION:
-                    // We cleanly chain the new keys into your single-line response canvas!
                     String jsonAdminProfile = "{\"wifi_ap\":\"" + activeAP + "\"" +
                                               ",\"ble_name\":\"" + activeBLE + "\"" +
                                               ",\"router_ssid\":\"" + savedSSID + "\"" +
                                               ",\"cf_host\":\"" + savedCfHost + "\"" +
                                               ",\"cf_id\":\"" + savedCfId + "\"}";
+
+                    String encryptedPayload = encryptPayloadAES128CBC(jsonAdminProfile);
                                               
                     client.println("HTTP/1.1 200 OK");
                     client.println("Content-Type: application/json");
                     client.println("Connection: close");
                     client.println();
-                    client.print(jsonAdminProfile);
+                    client.print(encryptedPayload);
+
+                    Serial.println("--> [ADMIN REST SUCCESS]: Transmitted encrypted administrative payload profile string.");
                     break;
                 }
             }
@@ -916,7 +909,9 @@ void writeSecureStringToEEPROM(int addr, String data) {
 
 String readSecureStringFromEEPROM(int addr) {
     int len = EEPROM.read(addr); 
-    if (len == 255 || len == 0 || len > 32) return "";
+    
+    if (len == 255 || len == 0 || len > 128) return "";
+    
     String res = ""; 
     for (int i = 0; i < len; i++) { 
         uint8_t normalByte = EEPROM.read(addr + 1 + i) ^ CRYPTO_SALT_KEY[i % 16];
@@ -939,18 +934,6 @@ String readStringFromEEPROM(int addr) {
 void displayMatrixText(String txt) {
     activeDashboardText = txt;
     writeLog("[DASHBOARD ALERT]: " + txt);
-}
-
-void writeLog(String txt) {
-    Serial.println(txt);
-    if (BLE.connected()) {
-        txCharacteristic.setValue(txt);
-    }
-    String sanitizedText = txt;
-    sanitizedText.replace("\"", "\\\""); 
-    sanitizedText.trim();
-    systemLogBufferArray[currentLogWritePointerIndex] = sanitizedText;
-    currentLogWritePointerIndex = (currentLogWritePointerIndex + 1) % MAX_SYSTEM_LOGS;
 }
 
 // ====================================================================
@@ -1133,4 +1116,295 @@ String decryptPayloadAES128CBC(const String& base64Input) {
     
     free(plainBytes); 
     return outStr;
+}
+
+void aes_Cipher(uint8_t* state, const uint8_t* roundKeys) {
+    auto AddRoundKey = [](uint8_t* st, const uint8_t* key) {
+        for (int i = 0; i < 16; ++i) st[i] ^= key[i];
+    };
+    auto SubBytes = [](uint8_t* st) {
+        for (int i = 0; i < 16; ++i) st[i] = sbox[st[i]];
+    };
+    auto ShiftRows = [](uint8_t* st) {
+        uint8_t tmp;
+        tmp = st[1]; st[1] = st[5]; st[5] = st[9]; st[9] = st[13]; st[13] = tmp;
+        tmp = st[2]; st[2] = st[10]; st[10] = tmp; tmp = st[6]; st[6] = st[14]; st[14] = tmp;
+        tmp = st[15]; st[15] = st[11]; st[11] = st[7]; st[7] = st[3]; st[3] = tmp;
+    };
+    auto MixColumns = [](uint8_t* st) {
+        auto g2 = [](uint8_t x) { return (x << 1) ^ ((x & 0x80) ? 0x1b : 0x00); };
+        for (int i = 0; i < 4; ++i) {
+            uint8_t c0 = st[i*4], c1 = st[i*4+1], c2 = st[i*4+2], c3 = st[i*4+3];
+            st[i*4]   = g2(c0) ^ (g2(c1) ^ c1) ^ c2 ^ c3;
+            st[i*4+1] = c0 ^ g2(c1) ^ (g2(c2) ^ c2) ^ c3;
+            st[i*4+2] = c0 ^ c1 ^ g2(c2) ^ (g2(c3) ^ c3);
+            st[i*4+3] = (g2(c0) ^ c0) ^ c1 ^ c2 ^ g2(c3);
+        }
+    };
+
+    AddRoundKey(state, roundKeys);
+    for (int round = 1; round <= 9; ++round) {
+        SubBytes(state);
+        ShiftRows(state);
+        MixColumns(state);
+        AddRoundKey(state, roundKeys + round * 16);
+    }
+    SubBytes(state);
+    ShiftRows(state);
+    AddRoundKey(state, roundKeys + 160);
+}
+
+String encryptPayloadAES128CBC(const String& plainInput) {
+    auto b64_enc = [](int val) -> char {
+        if (val >= 0 && val <= 255) {
+            const char b64Chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            return b64Chars[val];
+        }
+        return '=';
+    };
+
+    size_t plainLen = plainInput.length();
+    uint8_t padVal = 16 - (plainLen % 16);
+    size_t cipherLen = plainLen + padVal;
+
+    uint8_t* cipherBytes = (uint8_t*)malloc(cipherLen);
+    if (!cipherBytes) return "";
+
+    // Load plaintext and apply standard PKCS7 padding
+    memcpy(cipherBytes, plainInput.c_str(), plainLen);
+    memset(cipherBytes + plainLen, padVal, padVal);
+
+    uint8_t roundKeys[176];
+    aes_KeyExpansion(aesSecretKeyBytes, roundKeys);
+
+    uint8_t prev_block[16];
+    memcpy(prev_block, initializationVector, 16);
+
+    for (size_t block = 0; block < cipherLen; block += 16) {
+        for (int i = 0; i < 16; ++i) {
+            cipherBytes[block + i] ^= prev_block[i];
+        }
+        aes_Cipher(cipherBytes + block, roundKeys);
+        memcpy(prev_block, cipherBytes + block, 16);
+    }
+
+    // Convert fully encrypted bytes directly into an output Base64 string block
+    String base64Output = "";
+    for (size_t i = 0; i < cipherLen; i += 3) {
+        uint32_t n = (cipherBytes[i] << 16) | 
+                     ((i + 1 < cipherLen ? cipherBytes[i+1] : 0) << 8) | 
+                      (i + 2 < cipherLen ? cipherBytes[i+2] : 0);
+
+        base64Output += b64_enc((n >> 18) & 63);
+        base64Output += b64_enc((n >> 12) & 63);
+        base64Output += (i + 1 < cipherLen) ? b64_enc((n >> 6) & 63) : '=';
+        base64Output += (i + 2 < cipherLen) ? b64_enc(n & 63) : '=';
+    }
+
+    free(cipherBytes);
+    return base64Output;
+}
+
+void transmitSecureHTTPTelemetry(String jsonPayload) {
+    bool isWifiConnected = (WiFi.status() == WL_CONNECTED);
+    if (!isWifiConnected) return;
+
+    bool hasValidCredentials = CLOUDFLARE_HOST.length() > 5 && 
+                               !CLOUDFLARE_HOST.equals("silent-bird-d9c0.taigon1984.workers.dev") &&
+                               CF_CLIENT_ID.length() > 5 && 
+                               CF_CLIENT_SECRET.length() > 5;
+
+    if (!hasValidCredentials) return;
+
+    WiFiSSLClient secureClient;
+
+    Serial.println("--> [WAN HTTPS]: Opening hardware-accelerated TLS 443 channel to Cloudflare edge...");
+
+    if (secureClient.connect(CLOUDFLARE_HOST.c_str(), 443)) { 
+        Serial.println("--> [WAN HTTPS SUCCESS]: Handshake authorized! Flushing data payload..."); 
+
+        secureClient.println("POST /api/telemetry HTTP/1.1");
+        secureClient.println("Host: " + CLOUDFLARE_HOST);
+        secureClient.println("Content-Type: text/plain");
+        secureClient.println("CF-Access-Client-Id: " + CF_CLIENT_ID);
+        secureClient.println("CF-Access-Client-Secret: " + CF_CLIENT_SECRET);
+        secureClient.println("Content-Length: " + String(jsonPayload.length()));
+        secureClient.println("Connection: close");
+        secureClient.println();
+        secureClient.print(jsonPayload);
+
+        while (secureClient.connected()) {
+            String responseLine = secureClient.readStringUntil('\n');
+            responseLine.trim();
+            
+            if (responseLine.length() == 0) {
+                break;
+            }
+        }
+
+        String inboundWanCommandBody = "";
+        while (secureClient.available()) {
+            char incomingByteChar = secureClient.read();
+            inboundWanCommandBody += incomingByteChar;
+        }
+        inboundWanCommandBody.trim();
+
+        secureClient.stop();
+        lastCloudTransmitSuccessful = true;
+
+        if (inboundWanCommandBody.length() > 0 && inboundWanCommandBody != "NONE") {
+            if (inboundWanCommandBody.indexOf("Server:") != -1 || inboundWanCommandBody.indexOf("CF-RAY") != -1) {
+                return;
+            }
+
+            writeLog("--> [WAN OVER-THE-AIR COMMAND]: Intercepted active remote payload envelope!");
+            writeLog("--> [WAN COMMAND PAYLOAD]: " + inboundWanCommandBody);
+
+            String fullyDecryptedBodyString = decryptPayloadAES128CBC(inboundWanCommandBody);
+            fullyDecryptedBodyString.trim();
+            
+            if (fullyDecryptedBodyString.length() > 0 && fullyDecryptedBodyString.indexOf(':') != -1) {
+                rapidResponseWindowExpiration = millis() + 20000;
+
+                if (fullyDecryptedBodyString.indexOf("SETBLENAME=") != -1 || 
+                    fullyDecryptedBodyString.indexOf("SETWIFINAME=") != -1 ||
+                    fullyDecryptedBodyString.indexOf("SAVEROUTER=") != -1) { 
+                    
+                    processSecureCommand(fullyDecryptedBodyString, "WIFI_API_ADMIN"); 
+                    
+                    pendingSystemHardwareRebootFlag = true; 
+                    hardwareRebootTimestampCount = millis(); 
+                    writeLog("--> [NET REST API WAN]: Admin profile updated over cellular data. Queueing automated safety reboot...");
+                }
+                else if (processSecureCommand(fullyDecryptedBodyString, "CLOUDFLARE_WAN_LINK")) { 
+                    writeLog("--> [NET COMMAND SUCCESS WAN]: Rapid over-the-air remote action executed cleanly.");
+                } 
+                else {
+                    writeLog("--> [DENIED WAN]: Cryptographic validation rejected token.");
+                }
+            }
+            else {
+                writeLog("--> [WAN DECRYPT ERROR]: Cipher compilation structural fault or bad key framing layout.");
+            }
+        }
+    } 
+    else {
+        writeLog("--> [WAN HTTPS ERROR]: Handshake aborted. Edge network unreachable.");
+        lastCloudTransmitSuccessful = false;
+    }
+}
+
+bool flushAdminConfigurationToCloud() {
+    if (WiFi.status() != WL_CONNECTED) {
+        return false; 
+    }
+
+    String activeAP = readStringFromEEPROM(EEPROM_CUSTOM_WIFI_AP);
+    if (activeAP.length() == 0) activeAP = DEFAULT_WIFI_AP_NAME;
+
+    String activeBLE = readStringFromEEPROM(EEPROM_CUSTOM_BLE_NAME);
+    if (activeBLE.length() == 0) activeBLE = DEFAULT_BLE_NAME;
+
+    String savedSSID = readSecureStringFromEEPROM(EEPROM_WIFI_SSID_ADDR);
+    if (savedSSID.length() == 0) {
+        savedSSID = "NONE";
+    }
+
+    String configJsonPayload = "{\"wifi_ap\":\"" + activeAP + "\"" +
+                               ",\"ble_name\":\"" + activeBLE + "\"" +
+                               ",\"router_ssid\":\"" + savedSSID + "\"}";
+
+    if (lastAdminPayload == configJsonPayload) {
+        return true; 
+    }
+
+    Serial.println("Payload to be transmitted to Cloudflare: " + configJsonPayload);
+
+    bool hasValidCredentials = CLOUDFLARE_HOST.length() > 5 && 
+                               CF_CLIENT_ID.length() > 5 && 
+                               CF_CLIENT_SECRET.length() > 5;
+
+    if (!hasValidCredentials) return false;
+
+    WiFiSSLClient secureClient;
+    Serial.println("--> [WAN HTTPS CONFIG]: Offloading identities to persistent KV vaults...");
+
+    if (secureClient.connect(CLOUDFLARE_HOST.c_str(), 443)) {
+        secureClient.println("POST /api/admin HTTP/1.1");
+        secureClient.println("Host: " + CLOUDFLARE_HOST);
+        secureClient.println("Content-Type: text/plain");
+        secureClient.println("CF-Access-Client-Id: " + CF_CLIENT_ID);
+        secureClient.println("CF-Access-Client-Secret: " + CF_CLIENT_SECRET);
+        secureClient.println("Content-Length: " + String(configJsonPayload.length()));
+        secureClient.println("Connection: close");
+        secureClient.println();
+        secureClient.print(configJsonPayload);
+
+        lastAdminPayload = configJsonPayload;
+
+        unsigned long secureBreakoutWatchdogTimer = millis();
+        while (secureClient.connected() && (millis() - secureBreakoutWatchdogTimer < 1500)) {
+            if (secureClient.available()) {
+                String responseLine = secureClient.readStringUntil('\n');
+                responseLine.trim();
+                if (responseLine.length() == 0) {
+                    break;
+                }
+            }
+        }
+
+        while (secureClient.available()) { 
+            secureClient.read(); 
+        }
+
+        secureClient.stop();
+        Serial.println("--> [WAN HTTPS CONFIG COMPLETE]: Persistent cloud identities populated successfully.");
+        return true;
+    } else {
+        Serial.println("--> [WAN HTTPS CONFIG ERROR]: Handshake aborted. Vaults un-hydrated.");
+    }
+
+    return false;
+}
+
+void writeLog(String txt) {
+    String timestampPrefixString = "";
+    RTCTime currentSystemClockTime;
+
+    if (RTC.getTime(currentSystemClockTime)) {
+        char timestampClockBuffer[16];
+        sprintf(timestampClockBuffer, "[%02d:%02d:%02d] ", 
+                currentSystemClockTime.getHour(), 
+                currentSystemClockTime.getMinutes(), 
+                currentSystemClockTime.getSeconds());
+        timestampPrefixString = String(timestampClockBuffer);
+    } 
+    else {
+        unsigned long totalUptimeSeconds = millis() / 1000;
+        unsigned long currentSeconds = totalUptimeSeconds % 60;
+        unsigned long currentMinutes = (totalUptimeSeconds / 60) % 60;
+        unsigned long currentHours   = (totalUptimeSeconds / 3600) % 24;
+
+        char relativeClockBuffer[16];
+        sprintf(relativeClockBuffer, "[+%02ld:%02ld:%02ld] ", currentHours, currentMinutes, currentSeconds);
+        timestampPrefixString = String(relativeClockBuffer);
+    }
+
+    String finalizedTimestampedLogLine = timestampPrefixString + txt;
+
+    Serial.println(finalizedTimestampedLogLine);
+
+    if (BLE.connected()) {
+        txCharacteristic.setValue(finalizedTimestampedLogLine);
+    }
+
+    String cleanLogLine = finalizedTimestampedLogLine;
+    cleanLogLine.trim();
+
+    if (cleanLogLine.length() > 256) {
+        cleanLogLine = cleanLogLine.substring(0, 253) + "...";
+    }
+
+    systemLogBufferArray[currentLogWritePointerIndex] = cleanLogLine;
+    currentLogWritePointerIndex = (currentLogWritePointerIndex + 1) % MAX_SYSTEM_LOGS;
 }

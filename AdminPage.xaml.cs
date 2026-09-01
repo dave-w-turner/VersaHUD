@@ -60,6 +60,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
     public new event PropertyChangedEventHandler PropertyChanged;
 
+    private static string lastLoggedTelemetryMessage = string.Empty;
 
     public AdminPage()
     {
@@ -535,10 +536,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         {
             MainThread.BeginInvokeOnMainThread(async () =>
             {
-                if (activePageInstance.layoutRebootLockoutShell != null)
-                {
-                    activePageInstance.layoutRebootLockoutShell.IsVisible = false;
-                }
+                activePageInstance.layoutRebootLockoutShell?.IsVisible = false;
 
                 if (activePageInstance.entryRouterPass != null)
                 {
@@ -582,14 +580,14 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         MainThread.BeginInvokeOnMainThread(async () =>
         {
-            if (activePageInstance.lblDebugTerminal != null)
+            if (activePageInstance.lblDebugTerminal != null && rawPacket != lastLoggedTelemetryMessage)
             {
-                string timeStampStr = DateTime.Now.ToString("HH:mm:ss");
-                activePageInstance.lblDebugTerminal.Text += $"\n[{timeStampStr}] rx: {rawPacket.Trim()}";
+                lastLoggedTelemetryMessage = rawPacket;
+                activePageInstance.lblDebugTerminal.Text += $"\nrx: {rawPacket.Trim()}";
 
                 if (activePageInstance.lblDebugTerminal.Text.Length > 10000)
                 {
-                    activePageInstance.lblDebugTerminal.Text = "[SYS] Buffer optimized.\n" + activePageInstance.lblDebugTerminal.Text.Substring(activePageInstance.lblDebugTerminal.Text.Length - 5000);
+                    activePageInstance.lblDebugTerminal.Text = string.Concat("[SYS] Buffer optimized.\n", activePageInstance.lblDebugTerminal.Text.AsSpan(activePageInstance.lblDebugTerminal.Text.Length - 5000));
                 }
             }
 

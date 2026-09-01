@@ -17,6 +17,8 @@ public partial class MainPage : ContentPage
 
     public static MainPage CurrentInstance { get; private set; }
 
+    private string _lastWifiTelemetryValue = "";
+
 
     public MainPage()
     {
@@ -142,7 +144,11 @@ public partial class MainPage : ContentPage
                                 {
                                     try
                                     {
-                                        ParseVehicleTelemetryStream(cleanJsonDataPayload);
+                                        if (cleanJsonDataPayload != _lastWifiTelemetryValue)
+                                        {
+                                            _lastWifiTelemetryValue = cleanJsonDataPayload;
+                                            ParseVehicleTelemetryStream(cleanJsonDataPayload);
+                                        }
                                     }
                                     catch (Exception parseEx)
                                     {

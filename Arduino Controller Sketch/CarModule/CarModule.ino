@@ -22,6 +22,8 @@ String lastAdminPayload = "";
 
 String globalLastUploadedLogTimestamp = ""; 
 
+unsigned long maintenanceModeIsolationTimerAnchor = 0; 
+
 const String DEFAULT_MASTER_PASSWORD = "VersaPasscode99"; 
 const String DEFAULT_WIFI_AP_NAME = "Versa_Automation_Hub"; 
 const String DEFAULT_BLE_NAME = "VersaHub_BLE";
@@ -80,12 +82,11 @@ float globalBackVolts = 0;
 int frontBatteryPercent = 100;
 int backBatteryPercent = 100;
 
-float frontChargingVolts = 12.9;
-float backChargingVolts = 13.50;
+float frontChargingVolts = 13.40;
+float backChargingVolts = 13.80;
 
 bool frontIsCharging = (globalFrontVolts >= frontChargingVolts);
 bool backIsCharging = (globalBackVolts >= backChargingVolts);
-bool audioOverride = false;
 
 static int longRangeAdminSyncCounter = 999;    
 
@@ -144,47 +145,47 @@ void setup() {
 
 void loop() {
     unsigned long currentMillis = millis();
-    
+
     handleWiFiAPI();
     BLE.poll();
-    
+
     if (BLE.connected() && rxCharacteristic.written()) {
         incomingBuffer = rxCharacteristic.value();
         processSecureCommand(incomingBuffer, "BLE_LINK");
     }
-    
+
     if (pendingSystemHardwareRebootFlag && (currentMillis - hardwareRebootTimestampCount >= 2500)) {
         Serial.println("--> [WATCHDOG]: Drainage pad completed. Re-flashing core system architecture registers now and rebooting!");
         delay(10);
         NVIC_SystemReset();
     }
-    
+
     if (currentMillis - previousTelemetryMillis >= telemetryInterval) {
         previousTelemetryMillis = currentMillis;
-        
+
         pinMode(RADIO_SENSOR, INPUT);
-        
+
         int rawFront = analogRead(VOLTAGE_FRONT);
         globalFrontVolts = ((rawFront * ARDUINO_REF_VOLTAGE) / 1023.0) * CALIBRATION_FRONT;
-        
+
         int rawBack = analogRead(VOLTAGE_BACK);
         globalBackVolts = ((rawBack * ARDUINO_REF_VOLTAGE) / 1023.0) * CALIBRATION_BACK;
 
         frontIsCharging = (globalFrontVolts >= frontChargingVolts);
         backIsCharging = (globalBackVolts >= backChargingVolts);
-        
+
         bool radioSenseIsActive = (digitalRead(RADIO_SENSOR) == HIGH); 
-       
+
         if (globalFrontVolts >= 12.60) frontBatteryPercent = 100;
         else if (globalFrontVolts <= 11.50) frontBatteryPercent = 0;
         else frontBatteryPercent = (int)((globalFrontVolts - 11.50) / (12.60 - 11.50) * 100.0);
-        
+
         if (globalBackVolts >= 12.80) backBatteryPercent = 100;
         else if (globalBackVolts <= 10.50) backBatteryPercent = 0;
         else backBatteryPercent = (int)((globalBackVolts - 10.50) / (12.80 - 10.50) * 100.0);
-        
+
         String telemetryString = "[SYS] ";
-        
+
         bool isWifiConnected = (WiFi.status() == WL_CONNECTED);
         if (isWifiConnected) {
             telemetryString += "IP:" + WiFi.localIP().toString() + " | "; 
@@ -195,9 +196,9 @@ void loop() {
         if (lastCloudTransmitSuccessful) {
             telemetryString += "[📡 WAN_ONLINE] ";
         } else {
-            telemetryString += "[☁️ WAN_OFFLINE] ";
+            telemetryString += "[☁ WAN_OFFLINE] ";
         }
-        
+
         if (radioSenseIsActive) { 
             telemetryString += "[🔊 AMPS ON] ";
         } else {
@@ -206,169 +207,173 @@ void loop() {
 
         if (crossChargeProtectionActiveFlag) {
             telemetryString += "[⚡ CROSS_CHG ACTIVE] ";
-        }
-        
-        if (globalFrontVolts < 6.50 && globalBackVolts < 6.50) {
-            telemetryString += "BATTERIES DETECTED: [❌ BOTH DISCONNECTED]";
-        }
-        else {
-            if (globalFrontVolts < 6.50) telemetryString += "Front: [❌ DISCONNECTED]";
-            else {
-                telemetryString += "Front: ";
-                if (frontIsCharging) telemetryString += "[🔋 CHARGING] ";
-                telemetryString += String(globalFrontVolts, 1) + "V (" + String(frontBatteryPercent) + "%)";
-            }
-            telemetryString += " | ";
-            if (globalBackVolts < 6.50) telemetryString += "Back: [❌ DISCONNECTED]";
-            else {
-                telemetryString += "Back: ";
-                if (backIsCharging && !frontIsCharging) telemetryString += "[🔋 CHARGING] ";
-                telemetryString += String(globalBackVolts, 1) + "V (" + String(backBatteryPercent) + "%)";
-            }
-        }
-        
-        writeLog(telemetryString);
-
-        if (!crossChargeProtectionActiveFlag) {
-            if ((frontBatteryPercent <= CRITICAL_BATTERY_LOW && backBatteryPercent > 30) || 
-                (backBatteryPercent <= CRITICAL_BATTERY_LOW && frontBatteryPercent > 30)) {
-                
-                crossChargeProtectionActiveFlag = true;
-                writeLog("--> [BATTERY CRITICAL]: Threshold protection tripped! Bridging cells for emergency cross-charge.");
-            }
         } 
-        else {
-            if ((frontBatteryPercent >= SAFE_BATTERY_CEILING && backBatteryPercent >= 30) || 
-                (backBatteryPercent >= SAFE_BATTERY_CEILING && frontBatteryPercent > 30)) {
-                
-                crossChargeProtectionActiveFlag = false;
-                writeLog("--> [BATTERY RECOVERY]: Weak bank recovered past safe 35% margin. Isolating cells.");
-            }
-            else if (frontBatteryPercent <= 5 && backBatteryPercent <= 5) {
-                crossChargeProtectionActiveFlag = false;
-                writeLog("--> [BATTERY EMERGENCY]: Both banks completely flattened! Breaking cross-charge to save core cell hardware.");
-            }
-        }
 
-        if (frontIsCharging || backIsCharging || crossChargeProtectionActiveFlag) {
-            if (digitalRead(RELAY_SOLENOID) == HIGH) { 
-                digitalWrite(RELAY_SOLENOID, LOW);
-                writeLog("--> [ISOLATOR ACTION]: Solenoid engaged. RELAY_SOLENOID CLOSED.");
-            }
+        if (globalFrontVolts < 6.50 && globalBackVolts < 6.50) { 
+            telemetryString += "BATTERIES DETECTED: [❌ BOTH DISCONNECTED]"; 
         } 
-        else {
-            if (digitalRead(RELAY_SOLENOID) == LOW) {
-                digitalWrite(RELAY_SOLENOID, HIGH); // 🔴 OPEN K3 COIL CONTACTS [🗎 0.1.74]
-                writeLog("--> [ISOLATOR ACTION]: Isolation active. RELAY_SOLENOID OPENED.");
-            }
-        }
-        
-        if (globalFrontVolts >= 11.20) {
-            if (radioSenseIsActive) {
-                if (!audioOverride && digitalRead(RELAY_AMP_REM) == HIGH) {
-                    digitalWrite(RELAY_AMP_REM, LOW); 
-                    writeLog("--> [AUDIO]: Radio detected active. K4 SNAP CLOSED.");
-                }
+        else { 
+            if (globalFrontVolts < 6.50) telemetryString += "Front: [❌ DISCONNECTED]"; 
+            else { 
+                telemetryString += "Front: "; 
+                if (frontIsCharging) telemetryString += "[🔋 CHARGING] "; 
+                telemetryString += String(globalFrontVolts, 1) + "V (" + String(frontBatteryPercent) + "%)"; 
             } 
-            else {
-                if (!audioOverride && digitalRead(RELAY_AMP_REM) == LOW) {
-                    digitalWrite(RELAY_AMP_REM, HIGH); 
-                    writeLog("--> [AUDIO]: Radio detected sleeping. K4 CLICK OPEN.");
-                }
-            }
+            telemetryString += " | "; 
+            if (globalBackVolts < 6.50) telemetryString += "Back: [❌ DISCONNECTED]"; 
+            else { 
+                telemetryString += "Back: "; 
+                if (backIsCharging && !frontIsCharging) telemetryString += "[ 🔋 CHARGING] "; 
+                telemetryString += String(globalBackVolts, 1) + "V (" + String(backBatteryPercent) + "%)"; 
+            } 
         } 
-        else {
-            if (!audioOverride) {
-                if (digitalRead(RELAY_AMP_REM) == LOW) {
+
+        writeLog(telemetryString); 
+
+        if (!crossChargeProtectionActiveFlag) { 
+            if ((frontBatteryPercent <= CRITICAL_BATTERY_LOW && backBatteryPercent > 30) ||  
+                (backBatteryPercent <= CRITICAL_BATTERY_LOW && frontBatteryPercent > 30)) { 
+                
+                crossChargeProtectionActiveFlag = true; 
+                writeLog("--> [BATTERY CRITICAL]: Threshold protection tripped! Bridging cells for emergency cross-charge."); 
+            } 
+        }  
+        else { 
+            if ((frontBatteryPercent >= SAFE_BATTERY_CEILING && backBatteryPercent >= 30) ||  
+                (backBatteryPercent >= SAFE_BATTERY_CEILING && frontBatteryPercent > 30)) { 
+                
+                crossChargeProtectionActiveFlag = false; 
+                writeLog("--> [BATTERY RECOVERY]: Weak bank recovered past safe 35% margin. Isolating cells."); 
+            } 
+            else if (frontBatteryPercent <= 5 && backBatteryPercent <= 5) { 
+                crossChargeProtectionActiveFlag = false; 
+                writeLog("--> [BATTERY EMERGENCY]: Both banks completely flattened! Breaking cross-charge to save core cell hardware."); 
+            } 
+        } 
+
+        if (globalFrontVolts >= 14.00 && globalBackVolts >= 14.00) {
+            maintenanceModeIsolationTimerAnchor = currentMillis;
+
+            if (crossChargeProtectionActiveFlag || digitalRead(RELAY_SOLENOID) == LOW) {
+                crossChargeProtectionActiveFlag = false;
+                digitalWrite(RELAY_SOLENOID, HIGH);
+                writeLog("--> [CHARGER SAFETY]: Both banks saturated over 14V. Breaking cross-charge link to allow float maintenance mode.");
+            }
+        }
+        else if (currentMillis - maintenanceModeIsolationTimerAnchor < 300000 && !crossChargeProtectionActiveFlag) {
+            if (digitalRead(RELAY_SOLENOID) == LOW) {
+                digitalWrite(RELAY_SOLENOID, HIGH);
+            }
+        }
+        else if (frontIsCharging || backIsCharging || crossChargeProtectionActiveFlag) { 
+            if (digitalRead(RELAY_SOLENOID) == HIGH) {  
+                digitalWrite(RELAY_SOLENOID, LOW);
+                writeLog("--> [ISOLATOR ACTION]: Solenoid engaged. RELAY_SOLENOID CLOSED."); 
+            } 
+        }  
+        else { 
+            if (digitalRead(RELAY_SOLENOID) == LOW) { 
+                digitalWrite(RELAY_SOLENOID, HIGH);
+                writeLog("--> [ISOLATOR ACTION]: Isolation active. RELAY_SOLENOID OPENED."); 
+            } 
+        } 
+
+        if (globalFrontVolts >= 11.20) { 
+            if (radioSenseIsActive) { 
+                if (digitalRead(RELAY_AMP_REM) == HIGH) { 
+                    digitalWrite(RELAY_AMP_REM, LOW);
+                    writeLog("--> [AUDIO]: Radio detected active. K4 SNAP CLOSED."); 
+                } 
+            }
+            else { 
+                if (digitalRead(RELAY_AMP_REM) == LOW) { 
                     digitalWrite(RELAY_AMP_REM, HIGH);
-                    writeLog("--> [AUDIO]: Critical voltage protection tripped! K4 FORCED OPEN.");
-                }
-            }
+                    writeLog("--> [AUDIO]: Radio detected sleeping. K4 CLICK OPEN."); 
+                } 
+            } 
         }
+        else if (digitalRead(RELAY_AMP_REM) == LOW) { 
+            digitalWrite(RELAY_AMP_REM, HIGH); 
+            writeLog("--> [AUDIO]: Critical voltage protection tripped! K4 FORCED OPEN."); 
+        } 
 
-        String jsonLogArrayPayload = "[";
-        int logsCompiledCount = 0;
-        String temporaryNewestTimestampTrack = globalLastUploadedLogTimestamp;
+        String jsonLogArrayPayload = "["; 
+        int logsCompiledCount = 0; 
+        String temporaryNewestTimestampTrack = globalLastUploadedLogTimestamp; 
 
-        for (int i = 0; i < MAX_SYSTEM_LOGS; i++) {
-            // Read backwards through your circular log history queue [🗎 0.1.290]
-            int targetIndex = (currentLogWritePointerIndex - 1 - i + MAX_SYSTEM_LOGS) % MAX_SYSTEM_LOGS;
-            String clearTextLine = systemLogBufferArray[targetIndex];
+        for (int i = 0; i < MAX_SYSTEM_LOGS; i++) { 
+            int targetIndex = (currentLogWritePointerIndex - 1 - i + MAX_SYSTEM_LOGS) % MAX_SYSTEM_LOGS; 
+            String clearTextLine = systemLogBufferArray[targetIndex]; 
 
-            if (clearTextLine.length() > 11) { // Guard gate: Line must contain a full timestamp header
-                // Extract the timestamp bracket signature cleanly (e.g. "[02:58:14]")
-                String lineTimestampSignature = clearTextLine.substring(0, 10);
+            if (clearTextLine.length() > 11) { 
+                String lineTimestampSignature = clearTextLine.substring(0, 10); 
 
-                // 🚀 THE ABSOLUTE CLOUD FOOTPRINT CIRCUIT BREAKER:
-                // If this line's timestamp signature is newer than our last uploaded anchor,
-                // it is fresh content! Package it right inside your outbound telemetry payload!
-                if (lineTimestampSignature > globalLastUploadedLogTimestamp) {
-                    if (logsCompiledCount == 0) {
-                        // Track the newest timestamp encountered in this pass to update our global anchor later
-                        temporaryNewestTimestampTrack = lineTimestampSignature;
-                    }
+                if (lineTimestampSignature > globalLastUploadedLogTimestamp) { 
+                    if (logsCompiledCount == 0) { 
+                        temporaryNewestTimestampTrack = lineTimestampSignature; 
+                    } 
 
-                    if (logsCompiledCount > 0) {
-                        jsonLogArrayPayload += ",";
-                    }
-                    jsonLogArrayPayload += "\"" + clearTextLine + "\"";
-                    logsCompiledCount++;
-                }
-            }
-        }
-        jsonLogArrayPayload += "]";
+                    if (logsCompiledCount > 0) { 
+                        jsonLogArrayPayload += ","; 
+                    } 
+                    jsonLogArrayPayload += "\"" + clearTextLine + "\""; 
+                    logsCompiledCount++; 
+                } 
+            } 
+        } 
+        jsonLogArrayPayload += "]"; 
 
-        globalLastUploadedLogTimestamp = temporaryNewestTimestampTrack;
+        globalLastUploadedLogTimestamp = temporaryNewestTimestampTrack; 
 
-        String jsonOutput = "{\"front_v\": " + String(globalFrontVolts, 2) + 
-                            ",\"front_p\":" + String(frontBatteryPercent) + 
-                            ",\"background_v\":" + String(globalBackVolts, 2) + 
-                            ",\"back_p\":" + String(backBatteryPercent) + 
-                            ",\"charging_f\":" + (frontIsCharging ? String("true") : String("false")) + 
-                            ",\"charging_b\":" + (backIsCharging ? String("true") : String("false")) + 
-                            ",\"cross_charging\":" + (crossChargeProtectionActiveFlag ? String("true") : String("false")) + 
-                            ",\"wan_link\":" + (lastCloudTransmitSuccessful ? String("true") : String("false")) + 
-                            ",\"system_logs\":" + jsonLogArrayPayload + "}";
+        String jsonOutput = "{\"front_v\": " + String(globalFrontVolts, 2) +
+                            ",\"front_p\":" + String(frontBatteryPercent) +
+                            ",\"background_v\":" + String(globalBackVolts, 2) +  
+                            ",\"back_p\":" + String(backBatteryPercent) +  
+                            ",\"charging_f\":" + (frontIsCharging ? String("true") : String("false")) +  
+                            ",\"charging_b\":" + (backIsCharging ? String("true") : String("false")) +  
+                            ",\"cross_charging\":" + (crossChargeProtectionActiveFlag ? String("true") : String("false")) +  
+                            ",\"wan_link\":" + (lastCloudTransmitSuccessful ? String("true") : String("false")) +  
+                            ",\"system_logs\":" + jsonLogArrayPayload + "}"; 
 
-        if (!radioSenseIsActive) {
-            activeCloudPacingInterval = 30000; 
-        }
-        else if (currentMillis < rapidResponseWindowExpiration) {
+        unsigned long activeCloudPacingInterval = 10000; 
+        
+        if (currentMillis < rapidResponseWindowExpiration) { 
             activeCloudPacingInterval = 2000;
+        } 
+        else if (!radioSenseIsActive) {
+            activeCloudPacingInterval = 30000;
         }
 
-        if (currentMillis - lastCloudUploadTimestamp >= activeCloudPacingInterval) {
-            lastCloudUploadTimestamp = currentMillis;
-            transmitSecureHTTPTelemetry(jsonOutput);
-        }
+        if (currentMillis - lastCloudUploadTimestamp >= activeCloudPacingInterval) { 
+            lastCloudUploadTimestamp = currentMillis; 
+            transmitSecureHTTPTelemetry(jsonOutput); 
+        } 
 
-        longRangeAdminSyncCounter++;
+        longRangeAdminSyncCounter++; 
 
-        if (longRangeAdminSyncCounter >= 180) {
-            writeLog("--> [WAN REFRESH]: Executing scheduled 30-minute background identity synchronization pass...");
-            if (flushAdminConfigurationToCloud())
-            {
-                longRangeAdminSyncCounter = 0;
-            }
-            else
-            {
-                writeLog("--> [WAN REFRESH]: Failed to flush configuration to Cloudflare.");
-            }
-        }
-    }
+        if (longRangeAdminSyncCounter >= 180) { 
+            writeLog("--> [WAN REFRESH]: Executing scheduled background identity synchronization pass..."); 
+            if (flushAdminConfigurationToCloud()) { 
+                longRangeAdminSyncCounter = 0; 
+            } 
+            else { 
+                writeLog("--> [WAN REFRESH]: Failed to flush configuration to Cloudflare."); 
+            } 
+        } 
+    } 
 
-    while (Serial.available() > 0) {
-        char c = Serial.read();
-        if (c == '\n' || c == '\r') {
-            incomingBuffer.trim();
-            if (incomingBuffer.length() > 0) {
-                processSecureCommand(incomingBuffer, "LOCAL_USB");
-                incomingBuffer = "";
-            }
-        } else {
-            incomingBuffer += c;
-        }
-    }
+    while (Serial.available() > 0) { 
+        char c = Serial.read(); 
+        if (c == '\n' || c == '\r') { 
+            incomingBuffer.trim(); 
+            if (incomingBuffer.length() > 0) { 
+                processSecureCommand(incomingBuffer, "LOCAL_USB"); 
+                incomingBuffer = ""; 
+            } 
+        } else { 
+            incomingBuffer += c; 
+        } 
+    } 
 }
 
 bool processSecureCommand(String rawPacket, String source) {
@@ -753,7 +758,7 @@ void handleWiFiAPI() {
                                           ",\"charging_f\":" + String(frontIsCharging ? "true" : "false") + 
                                           ",\"charging_b\":" + String(backIsCharging ? "true" : "false") + 
                                           ",\"cross_charging\":" + (crossChargeProtectionActiveFlag ? String("true") : String("false")) + 
-                                          ",\"wan_link\":" + String(lastCloudTransmitSuccessful ? "true" : "false") + 
+                                          ",\"wan_link\":" + (lastCloudTransmitSuccessful ? String("true") : String("false")) + 
                                           ",\"system_logs\":" + jsonLogArrayPayload + "}";
                             
                             client.println("HTTP/1.1 200 OK");
@@ -1233,12 +1238,19 @@ void transmitSecureHTTPTelemetry(String jsonPayload) {
         secureClient.println();
         secureClient.print(jsonPayload);
 
-        while (secureClient.connected()) {
-            String responseLine = secureClient.readStringUntil('\n');
-            responseLine.trim();
-            
-            if (responseLine.length() == 0) {
-                break;
+        bool endOfHttpHeadersEncountered = false;
+        uint32_t rollingHttpHeaderBoundaryWindow = 0;
+        unsigned long httpStreamSafetyWatchdogTimer = millis();
+
+        while (secureClient.connected() && !endOfHttpHeadersEncountered && (millis() - httpStreamSafetyWatchdogTimer < 4000)) {
+            if (secureClient.available()) {
+                char singleInboundByte = (char)secureClient.read();
+                
+                rollingHttpHeaderBoundaryWindow = (rollingHttpHeaderBoundaryWindow << 8) | singleInboundByte;
+                
+                if (rollingHttpHeaderBoundaryWindow == 0x0D0A0D0A) {
+                    endOfHttpHeadersEncountered = true;
+                }
             }
         }
 
@@ -1253,15 +1265,28 @@ void transmitSecureHTTPTelemetry(String jsonPayload) {
         lastCloudTransmitSuccessful = true;
 
         if (inboundWanCommandBody.length() > 0 && inboundWanCommandBody != "NONE") {
-            if (inboundWanCommandBody.indexOf("Server:") != -1 || inboundWanCommandBody.indexOf("CF-RAY") != -1) {
-                return;
+            int finalLineBreakPositionIndex = inboundWanCommandBody.lastIndexOf('\n');
+
+            if (finalLineBreakPositionIndex != -1) {
+                inboundWanCommandBody = inboundWanCommandBody.substring(finalLineBreakPositionIndex + 1);
+                inboundWanCommandBody.trim();
             }
+
+            if (inboundWanCommandBody.length() == 0 || inboundWanCommandBody == "NONE") return;
 
             writeLog("--> [WAN OVER-THE-AIR COMMAND]: Intercepted active remote payload envelope!");
             writeLog("--> [WAN COMMAND PAYLOAD]: " + inboundWanCommandBody);
 
             String fullyDecryptedBodyString = decryptPayloadAES128CBC(inboundWanCommandBody);
             fullyDecryptedBodyString.trim();
+
+            int absoluteWanStringLength = fullyDecryptedBodyString.length();
+            while (absoluteWanStringLength > 0 && 
+                (fullyDecryptedBodyString[absoluteWanStringLength - 1] < 32 || 
+                fullyDecryptedBodyString[absoluteWanStringLength - 1] > 126)) {
+                fullyDecryptedBodyString.remove(absoluteWanStringLength - 1);
+                absoluteWanStringLength = fullyDecryptedBodyString.length();
+            }            
             
             if (fullyDecryptedBodyString.length() > 0 && fullyDecryptedBodyString.indexOf(':') != -1) {
                 rapidResponseWindowExpiration = millis() + 20000;
@@ -1270,7 +1295,7 @@ void transmitSecureHTTPTelemetry(String jsonPayload) {
                     fullyDecryptedBodyString.indexOf("SETWIFINAME=") != -1 ||
                     fullyDecryptedBodyString.indexOf("SAVEROUTER=") != -1) { 
                     
-                    processSecureCommand(fullyDecryptedBodyString, "WIFI_API_ADMIN"); 
+                    processSecureCommand(fullyDecryptedBodyString, "CLOUDFLARE_WAN_ADMIN"); 
                     
                     pendingSystemHardwareRebootFlag = true; 
                     hardwareRebootTimestampCount = millis(); 

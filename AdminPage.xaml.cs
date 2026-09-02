@@ -6,32 +6,46 @@ namespace VersaHUD;
 
 public partial class AdminPage : ContentPage, INotifyPropertyChanged
 {
+    private new event PropertyChangedEventHandler PropertyChanged;
+    private static string lastLoggedTelemetryMessage = string.Empty;
+
     private string _wifiApName = "Loading...";
     private string _bleBroadcastName = "Loading...";
     private string _routerBridgeSSID = "Loading...";
     private string _cloudflareHost = "Loading...";
     private string _cloudflareClientId = "Loading...";
-    private string _cloudflareClientSecret = "Loading...";
     private bool _isRouterConfigured = false;
 
     private CancellationTokenSource? _adminWifiWatchdogCancelSource;
 
-    public string WifiApName
+    private string WifiApName
     {
         get => _wifiApName;
         set { _wifiApName = value; OnPropertyChanged(); }
     }
 
-    public string BleBroadcastName
+    private string BleBroadcastName
     {
         get => _bleBroadcastName;
         set { _bleBroadcastName = value; OnPropertyChanged(); }
     }
 
-    public string RouterBridgeSSID
+    private string RouterBridgeSSID
     {
         get => _routerBridgeSSID;
         set { _routerBridgeSSID = value; OnPropertyChanged(); }
+    }
+
+    private string CloudflareHost
+    {
+        get => _cloudflareHost;
+        set { _cloudflareHost = value; OnPropertyChanged(); }
+    }
+
+    private string CloudflareClientId
+    {
+        get => _cloudflareClientId;
+        set { _cloudflareClientId = value; OnPropertyChanged(); }
     }
 
     public bool IsRouterConfigured
@@ -39,28 +53,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         get => _isRouterConfigured;
         set { _isRouterConfigured = value; OnPropertyChanged(); }
     }
-
-    public string CloudflareHost
-    {
-        get => _cloudflareHost;
-        set { _cloudflareHost = value; OnPropertyChanged(); }
-    }
-
-    public string CloudflareClientId
-    {
-        get => _cloudflareClientId;
-        set { _cloudflareClientId = value; OnPropertyChanged(); }
-    }
-
-    public string CloudflareClientSecret
-    {
-        get => _cloudflareClientSecret;
-        set { _cloudflareClientSecret = value; OnPropertyChanged(); }
-    }
-
-    public new event PropertyChangedEventHandler PropertyChanged;
-
-    private static string lastLoggedTelemetryMessage = string.Empty;
 
     public AdminPage()
     {
@@ -86,82 +78,176 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         entryCfClientSecret?.Text = runningSecret.Equals("PASTE_YOUR_CF_ACCESS_CLIENT_SECRET_HERE") ? "" : runningSecret;
     }
 
-    protected override async void OnAppearing()
+    private static void LogIncomingStreamToTerminal(string rawPacket)
     {
-        base.OnAppearing();
+        if (string.IsNullOrEmpty(rawPacket)) return;
 
-        if (App.NetworkService != null && App.NetworkService.IsRebootingWatchdogActive)
+        if ((App.NetworkService.IsUsingCloudWanMode || App.NetworkService.IsUsingWifiTransportMode) && rawPacket.StartsWith('{'))
+            return;
+
+        AdminPage? activePageInstance = null;
+
+        var rootWindow = Application.Current.MainPage as AppShell;
+        activePageInstance = rootWindow.CurrentPage as AdminPage;
+
+        if (activePageInstance == null) return;
+
+        if (rawPacket.Contains("Rebooting controller..."))
         {
-            layoutRebootLockoutShell?.IsVisible = true;
+            MainThread.BeginInvokeOnMainThread(async () =>
+            {
+                if (activePageInstance.layoutRebootLockoutShell != null)
+                {
+                    activePageInstance.layoutRebootLockoutShell.IsVisible = true;
+                    if (!App.NetworkService.IsRebootingWatchdogActive)
+                    {
+                        await Task.Delay(1200);
+                        await App.NetworkService.ForceProactiveRebootRecoveryAsync();
+                    }
+                }
+            });
+        }
+
+        if (rawPacket.Contains("ROUTER_ERROR"))
+        {
+            MainThread.BeginInvokeOnMainThread(async () =>
+            {
+                activePageInstance.layoutRebootLockoutShell?.IsVisible = false;
+
+                if (activePageInstance.entryRouterPass != null)
+                {
+                    activePageInstance.entryRouterPass.Text = string.Empty;
+                    activePageInstance.entryRouterPass.Focus();
+                    activePageInstance.entryRouterPass.IsEnabled = true;
+                    activePageInstance.entryRouterSSID.IsEnabled = true;
+                    activePageInstance.btnLinkToRouter.IsEnabled = true;
+                }
+                await Application.Current.MainPage.DisplayAlertAsync("ROUTER LINK FAILED", "The vehicle module could not establish an active wireless handshake with your home station. Verify your network credentials and try again.", "OK");
+            });
             return;
         }
-        else
-            layoutRebootLockoutShell?.IsVisible = false;
 
-        if (App.NetworkService != null && App.NetworkService.IsUsingCloudWanMode)
-            _ = App.NetworkService.ExecuteCloudflareTelemetryScrapeAsync();
-
-        await Task.Delay(300);
-
-        if (App.NetworkService != null && !App.NetworkService.IsRebootingWatchdogActive)
+        if (rawPacket.Contains("[ADMIN_SUCCESS]: Router credentials stored."))
         {
-            if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingCloudWanMode)
+            MainThread.BeginInvokeOnMainThread(async () =>
             {
-                Debug.WriteLine("--> [ADMIN CONTROL HUB]: Fetching clean configuration matrices straight from API...");
-
-                var (wifiAp, bleName, routerSsid, cfHost, cfId, isOk) = App.NetworkService.IsUsingWifiTransportMode ?
-                    await Services.NetworkHubService.FetchWifiAdminParametersAsync() : await Services.NetworkHubService.FetchCloudAdminParametersAsync();
-
-                if (isOk)
+                if (activePageInstance.entryRouterPass != null)
                 {
-                    MainThread.BeginInvokeOnMainThread(() =>
+                    activePageInstance.entryRouterPass.Text = string.Empty;
+                    activePageInstance.entryRouterPass.IsEnabled = true;
+                    activePageInstance.entryRouterSSID.IsEnabled = true;
+                    activePageInstance.btnLinkToRouter.IsEnabled = true;
+                }
+                App.NetworkService.IsRebootingWatchdogActive = false;
+                await Application.Current.MainPage.DisplayAlertAsync("ROUTER LINK SUCCESSFUL", "The vehicle module has successfully established a secure wireless handshake with your home station.", "OK");
+            });
+        }
+
+        if (activePageInstance.layoutRebootLockoutShell != null && activePageInstance.layoutRebootLockoutShell.IsVisible)
+        {
+            if (rawPacket.Contains("[SYS]") || rawPacket.Contains("AP_NAME:") || rawPacket.Contains("BLE_NAME:") || rawPacket.Contains("ROUTER_SSID:"))
+            {
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    activePageInstance.layoutRebootLockoutShell.IsVisible = false;
+                });
+            }
+        }
+
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            if (activePageInstance.lblDebugTerminal != null && rawPacket != lastLoggedTelemetryMessage)
+            {
+                lastLoggedTelemetryMessage = rawPacket;
+                activePageInstance.lblDebugTerminal.Text += $"\nrx: {rawPacket.Trim()}";
+
+                if (activePageInstance.lblDebugTerminal.Text.Length > 10000)
+                {
+                    activePageInstance.lblDebugTerminal.Text = string.Concat("[SYS] Buffer optimized.\n", activePageInstance.lblDebugTerminal.Text.AsSpan(activePageInstance.lblDebugTerminal.Text.Length - 5000));
+                }
+            }
+
+            if (activePageInstance.switchAutoscroll != null && activePageInstance.switchAutoscroll.IsToggled && activePageInstance.scrollTerminal != null)
+            {
+                await activePageInstance.scrollTerminal.ScrollToAsync(0, activePageInstance.lblDebugTerminal.Height, true);
+            }
+        });
+
+        if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingCloudWanMode) return;
+
+        if (activePageInstance.WifiApName == "Loading..." || activePageInstance.BleBroadcastName == "Loading..." || activePageInstance.RouterBridgeSSID == "Loading..." || rawPacket.Contains("CF_KEYS:"))
+        {
+            if (rawPacket.Contains("CF_KEYS:") && !rawPacket.Contains("ERR_EMPTY_VAULTS"))
+            {
+                try
+                {
+                    int payloadHeaderIndex = rawPacket.IndexOf("CF_KEYS:") + 8;
+                    string base64CipherString = rawPacket[payloadHeaderIndex..].Trim();
+
+                    string decryptedPlaintextBlock = Services.NetworkHubService.DecryptLocalPayloadAES128CBC(base64CipherString);
+
+                    if (!string.IsNullOrWhiteSpace(decryptedPlaintextBlock) && decryptedPlaintextBlock.Contains(","))
                     {
-                        WifiApName = wifiAp;
-                        BleBroadcastName = bleName;
-                        CloudflareHost = cfHost.Equals("silent-bird-d9c0.taigon1984.workers.dev") ? string.Empty : cfHost;
-                        CloudflareClientId = cfId.Equals("NONE") ? string.Empty : cfId;
+                        string[] parameterSegments = decryptedPlaintextBlock.Split(',');
 
-                        entryCfHost?.Text = CloudflareHost;
-                        entryCfClientId?.Text = CloudflareClientId;
-
-                        if (routerSsid == "NONE" || string.IsNullOrEmpty(routerSsid))
+                        if (parameterSegments.Length == 3)
                         {
-                            RouterBridgeSSID = string.Empty;
-                            IsRouterConfigured = false;
-                            layoutUnconfiguredRouter.IsVisible = true;
-                            layoutConfiguredRouter.IsVisible = false;
+                            MainThread.BeginInvokeOnMainThread(() =>
+                            {
+                                activePageInstance.CloudflareHost = parameterSegments[0].Trim();
+                                activePageInstance.CloudflareClientId = parameterSegments[1].Trim();
+                                activePageInstance.entryCfHost?.Text = activePageInstance.CloudflareHost;
+                                activePageInstance.entryCfClientId?.Text = activePageInstance.CloudflareClientId;
+                            });
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"--> [ADMIN CRYPTO EXCEPTION]: Failure unpacking over-the-air parameters: {ex.Message}");
+                }
+            }
+
+            int apIndex = rawPacket.IndexOf("AP_NAME:");
+            int bleIndex = rawPacket.IndexOf("BLE_NAME:");
+            int routerIndex = rawPacket.IndexOf("ROUTER_SSID:");
+
+            if (apIndex != -1 || bleIndex != -1 || routerIndex != -1)
+            {
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    if (apIndex != -1)
+                    {
+                        activePageInstance.WifiApName = rawPacket.Substring(apIndex + 8).Trim();
+                    }
+
+                    if (bleIndex != -1)
+                    {
+                        activePageInstance.BleBroadcastName = rawPacket.Substring(bleIndex + 9).Trim();
+                    }
+
+                    if (routerIndex != -1)
+                    {
+                        string ssidResult = rawPacket.Substring(routerIndex + 12).Trim();
+
+                        if (ssidResult.Contains("[❌ NONE SAVED]") || ssidResult.Contains("[X NONE SAVED]") || string.IsNullOrEmpty(ssidResult) || ssidResult.Contains("NONE"))
+                        {
+                            activePageInstance.RouterBridgeSSID = string.Empty;
+                            activePageInstance.IsRouterConfigured = false;
+                            activePageInstance.layoutUnconfiguredRouter.IsVisible = true;
+                            activePageInstance.layoutConfiguredRouter.IsVisible = false;
                         }
                         else
                         {
-                            RouterBridgeSSID = routerSsid;
-                            IsRouterConfigured = true;
-                            layoutUnconfiguredRouter.IsVisible = false;
-                            layoutConfiguredRouter.IsVisible = true;
+                            activePageInstance.RouterBridgeSSID = ssidResult;
+                            activePageInstance.IsRouterConfigured = true;
+                            activePageInstance.layoutUnconfiguredRouter.IsVisible = false;
+                            activePageInstance.layoutConfiguredRouter.IsVisible = true;
                         }
-                    });
-                }
-                return;
+                    }
+                });
             }
-
-            Debug.WriteLine("--> [ADMIN CONTROL HUB]: Fetching parameters over-the-air via serial text scraping...");
-            string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-
-            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETWIFINAME");
-            await Task.Delay(150);
-            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETBLENAME");
-            await Task.Delay(150);
-            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETROUTER");
-            await Task.Delay(150);
-            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
         }
-    }
-
-    protected override void OnDisappearing()
-    {
-        base.OnDisappearing();
-
-        _adminWifiWatchdogCancelSource?.Cancel();
-        _adminWifiWatchdogCancelSource = null;
     }
 
     private void OnMainPageWifiTelemetryParsed(string unifiedWifiDataPacket)
@@ -502,178 +588,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         }
     }
 
-    private static void LogIncomingStreamToTerminal(string rawPacket)
-    {
-        if (string.IsNullOrEmpty(rawPacket)) return;
-
-        if ((App.NetworkService.IsUsingCloudWanMode || App.NetworkService.IsUsingWifiTransportMode) && rawPacket.StartsWith('{'))
-            return;
-
-        AdminPage? activePageInstance = null;
-
-        var rootWindow = Application.Current.MainPage as AppShell;
-        activePageInstance = rootWindow.CurrentPage as AdminPage;
-
-        if (activePageInstance == null) return;
-
-        if (rawPacket.Contains("Rebooting controller..."))
-        {
-            MainThread.BeginInvokeOnMainThread(async () =>
-            {
-                if (activePageInstance.layoutRebootLockoutShell != null)
-                {
-                    activePageInstance.layoutRebootLockoutShell.IsVisible = true;
-                    if (!App.NetworkService.IsRebootingWatchdogActive)
-                    {
-                        await Task.Delay(1200);
-                        await App.NetworkService.ForceProactiveRebootRecoveryAsync();
-                    }
-                }
-            });
-        }
-
-        if (rawPacket.Contains("ROUTER_ERROR"))
-        {
-            MainThread.BeginInvokeOnMainThread(async () =>
-            {
-                activePageInstance.layoutRebootLockoutShell?.IsVisible = false;
-
-                if (activePageInstance.entryRouterPass != null)
-                {
-                    activePageInstance.entryRouterPass.Text = string.Empty;
-                    activePageInstance.entryRouterPass.Focus();
-                    activePageInstance.entryRouterPass.IsEnabled = true;
-                    activePageInstance.entryRouterSSID.IsEnabled = true;
-                    activePageInstance.btnLinkToRouter.IsEnabled = true;
-                }
-                await Application.Current.MainPage.DisplayAlertAsync("ROUTER LINK FAILED", "The vehicle module could not establish an active wireless handshake with your home station. Verify your network credentials and try again.", "OK");
-            });
-            return;
-        }
-
-        if (rawPacket.Contains("[ADMIN_SUCCESS]: Router credentials stored."))
-        {
-            MainThread.BeginInvokeOnMainThread(async () =>
-            {
-                if (activePageInstance.entryRouterPass != null)
-                {
-                    activePageInstance.entryRouterPass.Text = string.Empty;
-                    activePageInstance.entryRouterPass.IsEnabled = true;
-                    activePageInstance.entryRouterSSID.IsEnabled = true;
-                    activePageInstance.btnLinkToRouter.IsEnabled = true;
-                }
-                App.NetworkService.IsRebootingWatchdogActive = false;
-                await Application.Current.MainPage.DisplayAlertAsync("ROUTER LINK SUCCESSFUL", "The vehicle module has successfully established a secure wireless handshake with your home station.", "OK");
-            });
-        }
-
-        if (activePageInstance.layoutRebootLockoutShell != null && activePageInstance.layoutRebootLockoutShell.IsVisible)
-        {
-            if (rawPacket.Contains("[SYS]") || rawPacket.Contains("AP_NAME:") || rawPacket.Contains("BLE_NAME:") || rawPacket.Contains("ROUTER_SSID:"))
-            {
-                MainThread.BeginInvokeOnMainThread(() =>
-                {
-                    activePageInstance.layoutRebootLockoutShell.IsVisible = false;
-                });
-            }
-        }
-
-        MainThread.BeginInvokeOnMainThread(async () =>
-        {
-            if (activePageInstance.lblDebugTerminal != null && rawPacket != lastLoggedTelemetryMessage)
-            {
-                lastLoggedTelemetryMessage = rawPacket;
-                activePageInstance.lblDebugTerminal.Text += $"\nrx: {rawPacket.Trim()}";
-
-                if (activePageInstance.lblDebugTerminal.Text.Length > 10000)
-                {
-                    activePageInstance.lblDebugTerminal.Text = string.Concat("[SYS] Buffer optimized.\n", activePageInstance.lblDebugTerminal.Text.AsSpan(activePageInstance.lblDebugTerminal.Text.Length - 5000));
-                }
-            }
-
-            if (activePageInstance.switchAutoscroll != null && activePageInstance.switchAutoscroll.IsToggled && activePageInstance.scrollTerminal != null)
-            {
-                await activePageInstance.scrollTerminal.ScrollToAsync(0, activePageInstance.lblDebugTerminal.Height, true);
-            }
-        });
-
-        if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingCloudWanMode) return;
-
-        if (activePageInstance.WifiApName == "Loading..." || activePageInstance.BleBroadcastName == "Loading..." || activePageInstance.RouterBridgeSSID == "Loading..." || rawPacket.Contains("CF_KEYS:"))
-        {
-            if (rawPacket.Contains("CF_KEYS:") && !rawPacket.Contains("ERR_EMPTY_VAULTS"))
-            {
-                try
-                {
-                    int payloadHeaderIndex = rawPacket.IndexOf("CF_KEYS:") + 8;
-                    string base64CipherString = rawPacket[payloadHeaderIndex..].Trim();
-
-                    string decryptedPlaintextBlock = Services.NetworkHubService.DecryptLocalPayloadAES128CBC(base64CipherString);
-
-                    if (!string.IsNullOrWhiteSpace(decryptedPlaintextBlock) && decryptedPlaintextBlock.Contains(","))
-                    {
-                        string[] parameterSegments = decryptedPlaintextBlock.Split(',');
-
-                        if (parameterSegments.Length == 3)
-                        {
-                            MainThread.BeginInvokeOnMainThread(() =>
-                            {
-                                activePageInstance.CloudflareHost = parameterSegments[0].Trim();
-                                activePageInstance.CloudflareClientId = parameterSegments[1].Trim();
-                                activePageInstance.entryCfHost?.Text = activePageInstance.CloudflareHost;
-                                activePageInstance.entryCfClientId?.Text = activePageInstance.CloudflareClientId;
-                            });
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"--> [ADMIN CRYPTO EXCEPTION]: Failure unpacking over-the-air parameters: {ex.Message}");
-                }
-            }
-
-            int apIndex = rawPacket.IndexOf("AP_NAME:");
-            int bleIndex = rawPacket.IndexOf("BLE_NAME:");
-            int routerIndex = rawPacket.IndexOf("ROUTER_SSID:");
-
-            if (apIndex != -1 || bleIndex != -1 || routerIndex != -1)
-            {
-                MainThread.BeginInvokeOnMainThread(() =>
-                {
-                    if (apIndex != -1)
-                    {
-                        activePageInstance.WifiApName = rawPacket.Substring(apIndex + 8).Trim();
-                    }
-
-                    if (bleIndex != -1)
-                    {
-                        activePageInstance.BleBroadcastName = rawPacket.Substring(bleIndex + 9).Trim();
-                    }
-
-                    if (routerIndex != -1)
-                    {
-                        string ssidResult = rawPacket.Substring(routerIndex + 12).Trim();
-
-                        if (ssidResult.Contains("[❌ NONE SAVED]") || ssidResult.Contains("[X NONE SAVED]") || string.IsNullOrEmpty(ssidResult) || ssidResult.Contains("NONE"))
-                        {
-                            activePageInstance.RouterBridgeSSID = string.Empty;
-                            activePageInstance.IsRouterConfigured = false;
-                            activePageInstance.layoutUnconfiguredRouter.IsVisible = true;
-                            activePageInstance.layoutConfiguredRouter.IsVisible = false;
-                        }
-                        else
-                        {
-                            activePageInstance.RouterBridgeSSID = ssidResult;
-                            activePageInstance.IsRouterConfigured = true;
-                            activePageInstance.layoutUnconfiguredRouter.IsVisible = false;
-                            activePageInstance.layoutConfiguredRouter.IsVisible = true;
-                        }
-                    }
-                });
-            }
-        }
-    }
-
     private async void OnUpdateCloudflareCredentialsClicked(object sender, EventArgs e)
     {
         try
@@ -728,6 +642,84 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
     protected new void OnPropertyChanged([CallerMemberName] string propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
+    protected override async void OnAppearing()
+    {
+        base.OnAppearing();
+
+        if (App.NetworkService != null && App.NetworkService.IsRebootingWatchdogActive)
+        {
+            layoutRebootLockoutShell?.IsVisible = true;
+            return;
+        }
+        else
+            layoutRebootLockoutShell?.IsVisible = false;
+
+        if (App.NetworkService != null && App.NetworkService.IsUsingCloudWanMode)
+            _ = App.NetworkService.ManageCloudFlareTelemetryPollingLifecycle();
+
+        await Task.Delay(300);
+
+        if (App.NetworkService != null && !App.NetworkService.IsRebootingWatchdogActive)
+        {
+            if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingCloudWanMode)
+            {
+                Debug.WriteLine("--> [ADMIN CONTROL HUB]: Fetching clean configuration matrices straight from API...");
+
+                var (wifiAp, bleName, routerSsid, cfHost, cfId, isOk) = App.NetworkService.IsUsingWifiTransportMode ?
+                    await Services.NetworkHubService.FetchWifiAdminParametersAsync() : await Services.NetworkHubService.FetchCloudAdminParametersAsync();
+
+                if (isOk)
+                {
+                    MainThread.BeginInvokeOnMainThread(() =>
+                    {
+                        WifiApName = wifiAp;
+                        BleBroadcastName = bleName;
+                        CloudflareHost = cfHost.Equals("silent-bird-d9c0.taigon1984.workers.dev") ? string.Empty : cfHost;
+                        CloudflareClientId = cfId.Equals("NONE") ? string.Empty : cfId;
+
+                        entryCfHost?.Text = CloudflareHost;
+                        entryCfClientId?.Text = CloudflareClientId;
+
+                        if (routerSsid == "NONE" || string.IsNullOrEmpty(routerSsid))
+                        {
+                            RouterBridgeSSID = string.Empty;
+                            IsRouterConfigured = false;
+                            layoutUnconfiguredRouter.IsVisible = true;
+                            layoutConfiguredRouter.IsVisible = false;
+                        }
+                        else
+                        {
+                            RouterBridgeSSID = routerSsid;
+                            IsRouterConfigured = true;
+                            layoutUnconfiguredRouter.IsVisible = false;
+                            layoutConfiguredRouter.IsVisible = true;
+                        }
+                    });
+                }
+                return;
+            }
+
+            Debug.WriteLine("--> [ADMIN CONTROL HUB]: Fetching parameters over-the-air via serial text scraping...");
+            string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
+
+            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETWIFINAME");
+            await Task.Delay(150);
+            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETBLENAME");
+            await Task.Delay(150);
+            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETROUTER");
+            await Task.Delay(150);
+            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
+        }
+    }
+
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+
+        _adminWifiWatchdogCancelSource?.Cancel();
+        _adminWifiWatchdogCancelSource = null;
     }
 
     ~AdminPage()

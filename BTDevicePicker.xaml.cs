@@ -11,116 +11,6 @@ public partial class BTDevicePicker : ContentView
         listBleDevices.ItemsSource = App.NetworkService?.DiscoveredDevices;
     }
 
-    public async Task InitializePickerLifecycleAsync()
-    {
-        try
-        {
-#if ANDROID
-            Debug.WriteLine("--> [PICKER WATCHDOG]: Resolving custom ModernBluetooth runtime permissions matrix...");
-
-            var scanStatus = await Permissions.CheckStatusAsync<ModernBluetooth>();
-
-            if (scanStatus != PermissionStatus.Granted)
-            {
-                scanStatus = await Permissions.RequestAsync<ModernBluetooth>();
-            }
-
-            if (scanStatus != PermissionStatus.Granted)
-            {
-                await Application.Current.MainPage.DisplayAlertAsync("PERMISSION REQUIRED",
-                    "Android requires Nearby Devices authorization to link with your Nissan console.", "OK");
-                return;
-            }
-
-            await Task.Delay(300);
-#endif
-
-            bool isReconnected = await App.NetworkService.AutoConnectAsync(); 
-            
-            if (!isReconnected)
-            {
-                MainThread.BeginInvokeOnMainThread(async () =>
-                {
-                    this.IsVisible = true;
-                    this.InvalidateMeasure();
-                    await ExecuteVisualRadarScanAsync();
-                });
-            }
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"--> [PICKER RUNTIME CRASH SHIELD]: {ex.Message}");
-        }
-    }
-
-    private async void OnBleDeviceSelected(object sender, SelectionChangedEventArgs e)
-    {
-        if (e.CurrentSelection.FirstOrDefault() is not Plugin.BLE.Abstractions.Contracts.IDevice selectedDevice) return;
-
-        indicatorScanning.IsRunning = false;
-        indicatorScanning.IsVisible = false;
-
-        Debug.WriteLine($"--> [PICKER ACTION]: Staging persistent storage commit for ID: {selectedDevice.Id}");
-
-        Preferences.Default.Set(MainPage.SavedDeviceMacKey, selectedDevice.Id.ToString());
-        Preferences.Default.Set(MainPage.SavedDeviceNameKey, selectedDevice.Name ?? "VersaHub_BLE");
-
-#if ANDROID
-        var nativeSharedPrefs = Android.App.Application.Context.GetSharedPreferences("Microsoft.Maui.Essentials", Android.Content.FileCreationMode.Private);
-        if (nativeSharedPrefs != null)
-        {
-            using (var preferenceDiskEditor = nativeSharedPrefs.Edit())
-            {
-                if (preferenceDiskEditor != null)
-                {
-                    preferenceDiskEditor.PutString(MainPage.SavedDeviceMacKey, selectedDevice.Id.ToString());
-                    preferenceDiskEditor.PutString(MainPage.SavedDeviceNameKey, selectedDevice.Name ?? "VersaHub_BLE");
-                    preferenceDiskEditor.Commit();
-                }
-                else throw new Exception("Failed to acquire native shared preferences editor for disk commit.");
-            }
-            Debug.WriteLine("--> [PICKER SUCCESS]: Hard disk serialization finalized cleanly.");
-        }
-#endif
-        if (this.Parent is Grid parentGrid) parentGrid.IsVisible = false;
-
-        bool pairingSuccess = await App.NetworkService.PairAndConnectDeviceAsync(selectedDevice);
-        
-        if (!pairingSuccess)
-        {
-            Debug.WriteLine("--> [PICKER WATCHDOG]: First clean-install handshake timed out. Initializing silent stabilization retry...");
-
-            await Task.Delay(500);
-
-            pairingSuccess = await App.NetworkService.PairAndConnectDeviceAsync(selectedDevice);
-        }
-
-        if (!pairingSuccess)
-        {
-            listBleDevices.SelectedItem = null;
-
-            Debug.WriteLine("--> [PICKER CRITICAL FAULT]: Second connection pass failed. Restoring view radar states...");
-
-            if (this.Parent is Grid pGrid) pGrid.IsVisible = true;
-            await ExecuteVisualRadarScanAsync();
-            
-            await Application.Current.MainPage.DisplayAlertAsync("CONNECTION FAULT", "Cockpit connection timed out. Tap your device node to re-link.", "OK");
-        }
-        else
-        {
-            Debug.WriteLine("--> [PICKER SUCCESS]: Handshake established successfully over stabilized channel lanes!");
-
-            if (this.Parent is Grid pGrid) pGrid.IsVisible = false;
-
-            if (Shell.Current?.CurrentPage is MainPage mainPage)
-            {
-                await mainPage.VerifyPasswordAgainstHardwareAsync();
-            }
-
-            listBleDevices.SelectedItem = null;
-        }
-    }
-
     private async Task ExecuteVisualRadarScanAsync()
     {
         bool isPermissionApproved = false;
@@ -195,14 +85,124 @@ public partial class BTDevicePicker : ContentView
         });
     }
 
-    public void TriggerRefreshScan()
-    {
-        OnRefreshScanClicked(this, EventArgs.Empty);
-    }
-
     private async void OnRefreshScanClicked(object sender, EventArgs e)
     {
         await ExecuteVisualRadarScanAsync();
+    }
+
+    private async void OnBleDeviceSelected(object sender, SelectionChangedEventArgs e)
+    {
+        if (e.CurrentSelection.FirstOrDefault() is not Plugin.BLE.Abstractions.Contracts.IDevice selectedDevice) return;
+
+        indicatorScanning.IsRunning = false;
+        indicatorScanning.IsVisible = false;
+
+        Debug.WriteLine($"--> [PICKER ACTION]: Staging persistent storage commit for ID: {selectedDevice.Id}");
+
+        Preferences.Default.Set(MainPage.SavedDeviceMacKey, selectedDevice.Id.ToString());
+        Preferences.Default.Set(MainPage.SavedDeviceNameKey, selectedDevice.Name ?? "VersaHub_BLE");
+
+#if ANDROID
+        var nativeSharedPrefs = Android.App.Application.Context.GetSharedPreferences("Microsoft.Maui.Essentials", Android.Content.FileCreationMode.Private);
+        if (nativeSharedPrefs != null)
+        {
+            using (var preferenceDiskEditor = nativeSharedPrefs.Edit())
+            {
+                if (preferenceDiskEditor != null)
+                {
+                    preferenceDiskEditor.PutString(MainPage.SavedDeviceMacKey, selectedDevice.Id.ToString());
+                    preferenceDiskEditor.PutString(MainPage.SavedDeviceNameKey, selectedDevice.Name ?? "VersaHub_BLE");
+                    preferenceDiskEditor.Commit();
+                }
+                else throw new Exception("Failed to acquire native shared preferences editor for disk commit.");
+            }
+            Debug.WriteLine("--> [PICKER SUCCESS]: Hard disk serialization finalized cleanly.");
+        }
+#endif
+        if (this.Parent is Grid parentGrid) parentGrid.IsVisible = false;
+
+        bool pairingSuccess = await App.NetworkService.PairAndConnectDeviceAsync(selectedDevice);
+
+        if (!pairingSuccess)
+        {
+            Debug.WriteLine("--> [PICKER WATCHDOG]: First clean-install handshake timed out. Initializing silent stabilization retry...");
+
+            await Task.Delay(500);
+
+            pairingSuccess = await App.NetworkService.PairAndConnectDeviceAsync(selectedDevice);
+        }
+
+        if (!pairingSuccess)
+        {
+            listBleDevices.SelectedItem = null;
+
+            Debug.WriteLine("--> [PICKER CRITICAL FAULT]: Second connection pass failed. Restoring view radar states...");
+
+            if (this.Parent is Grid pGrid) pGrid.IsVisible = true;
+            await ExecuteVisualRadarScanAsync();
+
+            await Application.Current.MainPage.DisplayAlertAsync("CONNECTION FAULT", "Cockpit connection timed out. Tap your device node to re-link.", "OK");
+        }
+        else
+        {
+            Debug.WriteLine("--> [PICKER SUCCESS]: Handshake established successfully over stabilized channel lanes!");
+
+            if (this.Parent is Grid pGrid) pGrid.IsVisible = false;
+
+            if (Shell.Current?.CurrentPage is MainPage mainPage)
+            {
+                await mainPage.VerifyPasswordAgainstHardwareAsync();
+            }
+
+            listBleDevices.SelectedItem = null;
+        }
+    }
+
+    public async Task InitializePickerLifecycleAsync()
+    {
+        try
+        {
+#if ANDROID
+            Debug.WriteLine("--> [PICKER WATCHDOG]: Resolving custom ModernBluetooth runtime permissions matrix...");
+
+            var scanStatus = await Permissions.CheckStatusAsync<ModernBluetooth>();
+
+            if (scanStatus != PermissionStatus.Granted)
+            {
+                scanStatus = await Permissions.RequestAsync<ModernBluetooth>();
+            }
+
+            if (scanStatus != PermissionStatus.Granted)
+            {
+                await Application.Current.MainPage.DisplayAlertAsync("PERMISSION REQUIRED",
+                    "Android requires Nearby Devices authorization to link with your Nissan console.", "OK");
+                return;
+            }
+
+            await Task.Delay(300);
+#endif
+
+            bool isReconnected = await App.NetworkService.AutoConnectAsync();
+
+            if (!isReconnected)
+            {
+                MainThread.BeginInvokeOnMainThread(async () =>
+                {
+                    this.IsVisible = true;
+                    this.InvalidateMeasure();
+                    await ExecuteVisualRadarScanAsync();
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"--> [PICKER RUNTIME CRASH SHIELD]: {ex.Message}");
+        }
+    }
+
+    public void TriggerRefreshScan()
+    {
+        OnRefreshScanClicked(this, EventArgs.Empty);
     }
 }
 

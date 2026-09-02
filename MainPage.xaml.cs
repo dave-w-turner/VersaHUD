@@ -8,13 +8,15 @@ namespace VersaHUD;
 
 public partial class MainPage : ContentPage
 {
-    public const string SavedDeviceMacKey = "LastConnectedDeviceMac";
-    public const string SavedDeviceNameKey = "LastConnectedBleId";
     private static readonly Regex FrontBatteryRegex = new(@"Front:\s*(?:\[[^\]]+\]\s*)?(?<volts>[\d.]+)\s*V\s*\((?<percent>\d+)%\)", RegexOptions.Compiled);
     private static readonly Regex BackBatteryRegex = new(@"Back:\s*(?:\[[^\]]+\]\s*)?(?<volts>[\d.]+)\s*V\s*\((?<percent>\d+)%\)", RegexOptions.Compiled);
-    public event Action<string>? OnWifiTelemetryParsed;
 
+    public event Action<string>? OnWifiTelemetryParsed;
     public static MainPage CurrentInstance { get; private set; }
+
+    public const string SavedDeviceNameKey = "LastConnectedBleId";
+    public const string SavedDeviceMacKey = "LastConnectedDeviceMac";
+
 
     public MainPage()
     {
@@ -239,9 +241,9 @@ public partial class MainPage : ContentPage
                             if (!currentlyOnWifiRadio)
                             {
                                 App.NetworkService.IsUsingWifiTransportMode = false;
-                                App.NetworkService.ManageWifiTelemetryPollingLifecycle(startWorker: false);
+                                App.NetworkService.ManageWifiTelemetryPollingLifecycle(false);
 
-                                string currentBleName = Preferences.Default.Get(MainPage.SavedDeviceNameKey, "VersaHub_BLE");
+                                string currentBleName = Preferences.Default.Get(SavedDeviceNameKey, "VersaHub_BLE");
                                 if (Guid.TryParse(currentBleName, out _) || currentBleName.Contains('-')) currentBleName = "VersaHub_BLE";
 
                                 lblVehicleIPText?.Text = "OFFLINE (Standalone AP Mode)";
@@ -250,10 +252,10 @@ public partial class MainPage : ContentPage
                                 if (borderBleStatus != null) { borderBleStatus.BackgroundColor = Color.Parse("#1A2D20"); borderBleStatus.Stroke = Color.Parse("#10B981"); }
                                 lblBleDot?.Text = "🟢";
 
-                                if (lblBleStatusText != null) 
-                                { 
+                                if (lblBleStatusText != null)
+                                {
                                     lblBleStatusText.Text = $"CONNECTED: {currentBleName.ToUpper()}";
-                                    lblBleStatusText.TextColor = Color.Parse("#10B981"); 
+                                    lblBleStatusText.TextColor = Color.Parse("#10B981");
                                 }
 
                                 lblActiveTransportChannel?.Text = $"TRANSPORT MODE: Low-Latency Bluetooth Channel (BLE)";
@@ -306,41 +308,7 @@ public partial class MainPage : ContentPage
         }
     }
 
-    protected override void OnAppearing()
-    {
-        base.OnAppearing();
-
-        KickstartWirelessCockpitSync();
-
-        Debug.WriteLine("--> [DASHBOARD LANDING]: Repainting master layout frames...");
-
-        if (App.NetworkService != null && App.NetworkService.IsRebootingWatchdogActive)
-        {
-            borderBleStatus.BackgroundColor = Color.Parse("#2D1A1A");
-            borderBleStatus.Stroke = Color.Parse("#EF4444");
-            lblBleDot.Text = "🔴";
-            lblBleStatusText.Text = "VEHICLE MODULE REBOOTING...";
-            lblBleStatusText.TextColor = Color.Parse("#EF4444");
-            lblBleSignal.Text = string.Empty;
-
-            Debug.WriteLine("--> [UI STATE ALIGNMENT]: Dashboard badge force-shifted to REBOOTING tracking state.");
-        }
-
-        App.NetworkService?.UpdateLifecycleState(true);
-    }
-
-    private void OnSetupFinished(object sender, EventArgs e)
-    {
-        initMasterPasswordControl.OnPasswordInitialized -= OnSetupFinished;
-
-        MainThread.BeginInvokeOnMainThread(() =>
-        {
-            layoutPasswordInitShell.IsVisible = false;
-            KickstartWirelessCockpitSync();
-        });
-    }
-
-    public void KickstartWirelessCockpitSync()
+    private async Task KickstartWirelessCockpitSync()
     {
         if (App.NetworkService != null && App.NetworkService.IsRebootingWatchdogActive)
         {
@@ -348,256 +316,123 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        bool isBluetoothHardwareOff = !Plugin.BLE.CrossBluetoothLE.Current.IsOn;
-        string storedVehicleIP = Preferences.Default.Get("LastKnownVehicleIP", "0.0.0.0");
-        bool hasNoValidWifiRouteYet = string.IsNullOrEmpty(storedVehicleIP) || storedVehicleIP.Equals("0.0.0.0") || storedVehicleIP.Equals("STA_HOTSPOT");
-
-        if (isBluetoothHardwareOff && hasNoValidWifiRouteYet)
+        if (!await App.NetworkService.AutoConnectAsync())
         {
             Debug.WriteLine("--> [CRITICAL OVERRIDE CAUGHT]: Bluetooth hardware is OFF and zero Wi-Fi network routing maps exist on launch!");
 
-            MainThread.BeginInvokeOnMainThread(async () =>
+            if (!(App.NetworkService.IsBluetoothConnected || App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingCloudWanMode))
             {
-                layoutOverlayShell?.IsVisible = true;
-
-                borderNetworkStatus?.IsVisible = false;
-
-                if (borderBleStatus != null)
+                MainThread.BeginInvokeOnMainThread(async () =>
                 {
-                    borderBleStatus.BackgroundColor = Color.Parse("#2D1A1A");
-                    borderBleStatus.Stroke = Color.Parse("#EF4444");
-                }
+                    layoutOverlayShell?.IsVisible = true;
 
-                lblBleDot?.Text = "❌";
-                lblBleSignal?.Text = "SIGNAL DISCONNECTED";
-                lblBleSignal?.TextColor = Color.Parse("#EF4444");
+                    borderNetworkStatus?.IsVisible = false;
 
-                if (lblBleStatusText != null)
-                {
-                    lblBleStatusText.Text = "OFFLINE — RADIO LINK OFF";
-                    lblBleStatusText.TextColor = Color.Parse("#EF4444");
-                }
+                    if (borderBleStatus != null)
+                    {
+                        borderBleStatus.BackgroundColor = Color.Parse("#2D1A1A");
+                        borderBleStatus.Stroke = Color.Parse("#EF4444");
+                    }
 
-                lblActiveTransportChannel?.Text = "TRANSPORT MODE: Halted. Enable Bluetooth or connect to vehicle Wi-Fi.";
+                    lblBleDot?.Text = "❌";
+                    lblBleSignal?.Text = "SIGNAL DISCONNECTED";
+                    lblBleSignal?.TextColor = Color.Parse("#EF4444");
 
-                btnManualScanTrigger?.IsVisible = true;
+                    if (lblBleStatusText != null)
+                    {
+                        lblBleStatusText.Text = "OFFLINE — RADIO LINK OFF";
+                        lblBleStatusText.TextColor = Color.Parse("#EF4444");
+                    }
 
-                lblFrontVolts.Text = "0.00 V";
-                lblFrontPercent.Text = "0%";
-                progressFront.Progress = 0.0f;
-                progressFront.ProgressColor = Colors.DarkSlateGray;
-                lblFrontIcon.Text = "❌";
+                    lblActiveTransportChannel?.Text = "TRANSPORT MODE: Halted. Enable Bluetooth or connect to vehicle Wi-Fi.";
 
-                lblBackVolts.Text = "0.00 V";
-                lblBackPercent.Text = "0%";
-                progressBack.Progress = 0.0f;
-                progressBack.ProgressColor = Colors.DarkSlateGray;
-                lblBackIcon.Text = "❌";
+                    btnManualScanTrigger?.IsVisible = true;
 
-                await DisplayAlertAsync(
-                    "RADIO RECEIVERS OFF",
-                    "VersaHUD cannot locate your vehicle because your phone's Bluetooth is turned OFF and no local vehicle Wi-Fi route has been established yet.\n\nPlease enable Bluetooth in your settings or connect to the console's local network hotspot to start telemetry tracks.",
-                    "OK");
-            });
+                    lblFrontVolts.Text = "0.00 V";
+                    lblFrontPercent.Text = "0%";
+                    progressFront.Progress = 0.0f;
+                    progressFront.ProgressColor = Colors.DarkSlateGray;
+                    lblFrontIcon.Text = "❌";
 
-            return;
+                    lblBackVolts.Text = "0.00 V";
+                    lblBackPercent.Text = "0%";
+                    progressBack.Progress = 0.0f;
+                    progressBack.ProgressColor = Colors.DarkSlateGray;
+                    lblBackIcon.Text = "❌";
+                });
+
+                return;
+            }
         }
 
-        Task.Run(async () =>
+        try
         {
-            try
+            string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
+
+            if (App.NetworkService.IsUsingWifiTransportMode)
             {
-                Debug.WriteLine("--> [BOOT LINK INTERCEPT]: Launching parallel network transport evaluation scan...");
-
-                string cachedVehicleIP = Preferences.Default.Get("LastKnownVehicleIP", string.Empty);
-                bool wifiRouteIsAvailable = false;
-                string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-
-                if (!string.IsNullOrEmpty(cachedVehicleIP) && cachedVehicleIP != "0.0.0.0" && cachedVehicleIP != "STA_HOTSPOT")
-                {
-                    using var timeoutTokenSource = new CancellationTokenSource(TimeSpan.FromMilliseconds(3000));
-
-                    try
-                    {
-                        var localSocketHandler = new SocketsHttpHandler()
-                        {
-                            AllowAutoRedirect = true,
-                            UseCookies = false
-                        };
-
-                        using var bootWebClient = new HttpClient(localSocketHandler);
-                        bootWebClient.Timeout = TimeSpan.FromMilliseconds(3000);
-
-                        string encryptedBase64PayloadString = NetworkHubService.EncryptLocalPayloadAES128CBC(activeKey);
-
-                        var httpPasscodeContent = new StringContent(encryptedBase64PayloadString, Encoding.UTF8, "text/plain");
-                        var networkResponse = await bootWebClient.PostAsync($"http://{cachedVehicleIP}/api/telemetry", httpPasscodeContent, timeoutTokenSource.Token);
-
-                        if (networkResponse.IsSuccessStatusCode)
-                        {
-                            wifiRouteIsAvailable = true;
-                            Debug.WriteLine($"--> [BOOT LINK SUCCESS]: Vehicle node discovered live over Wi-Fi Subnet at http://{cachedVehicleIP}!");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"--> [BOOT WI-FI PROBE EXCEPTION]: Sockets handled dropout cleanly: {ex.Message}");
-                    }
-                }
-
-                if (wifiRouteIsAvailable)
-                {
-                    MainThread.BeginInvokeOnMainThread(async () =>
-                    {
-                        App.NetworkService.IsUsingWifiTransportMode = true;
-                        UpdateBluetoothStatusBadge(isConnected: false);
-                        App.NetworkService.ManageWifiTelemetryPollingLifecycle(startWorker: true);
-
-                        await VerifyPasswordAgainstHardwareAsync();
-                        bool commandWasSent = await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
-
-                        if (commandWasSent)
-                            Debug.WriteLine("--> [BOOT LINK SUCCESS]: Secure Cloudflare key-pull verification request offloaded natively on boot pass!");
-                    });
-                    return;
-                }
-
-                Debug.WriteLine("--> [BOOT LINK FALLBACK]: Wi-Fi path silent or rejected. Proceeding down native Bluetooth radio channels...");
-
-                bool isReconnected = await App.NetworkService.AutoConnectAsync();
-
-                if (!isReconnected)
-                {
-                    string targetedMacAddress = Preferences.Default.Get(SavedDeviceMacKey, string.Empty);
-
-                    MainThread.BeginInvokeOnMainThread(async () =>
-                    {
-                        if (string.IsNullOrEmpty(targetedMacAddress))
-                        {
-                            Debug.WriteLine("--> [BOOT SYNC]: Zero historical pairings found. Revealing manual picker container.");
-                            layoutOverlayShell.IsVisible = true;
-                            if (btDevicePicker != null)
-                            {
-                                btnLock?.IsEnabled = false;
-                                btnUnlock?.IsEnabled = false;
-                                await btDevicePicker.InitializePickerLifecycleAsync();
-                            }
-                        }
-                        else
-                        {
-                            Debug.WriteLine("--> [BOOT SYNC]: Historical device found. Suppressing popup and launching background tracking...");
-                            layoutOverlayShell.IsVisible = false;
-
-                            borderBleStatus.BackgroundColor = Color.Parse("#2D1A1A");
-                            borderBleStatus.Stroke = Color.Parse("#EF4444");
-                            lblBleDot.Text = "🔴";
-                            lblBleStatusText.Text = "RECONNECTING TO VEHICLE CORES...";
-                            lblBleStatusText.TextColor = Color.Parse("#EF4444");
-                            lblBleSignal.Text = string.Empty;
-
-                            btnManualScanTrigger?.IsVisible = true;
-                            await Task.Delay(5000);
-                            KickstartWirelessCockpitSync();
-                        }
-                    });
-                }
-                else
-                {
-                    if (!App.NetworkService.IsUsingCloudWanMode)
-                    {
-                        MainThread.BeginInvokeOnMainThread(async () =>
-                        {
-                            bool commandWasSent = await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
-
-                            if (commandWasSent)
-                                Debug.WriteLine("--> [BOOT LINK SUCCESS]: Secure Cloudflare key-pull verification request offloaded natively on boot pass!");
-                        });
-                    }
-                    else if (App.NetworkService.IsUsingCloudWanMode)
-                        UpdateBluetoothStatusBadge(false);
-
-                    MainThread.BeginInvokeOnMainThread(async () =>
-                    {
-                        await VerifyPasswordAgainstHardwareAsync();
-                    });
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"--> [BOOT WORKFLOW SHIELD]: {ex.Message}");
-            }
-        });
-    }
-
-    public async Task VerifyPasswordAgainstHardwareAsync()
-    {
-        string savedPass = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-
-        Action<string> temporaryAuthHandler = null;
-        temporaryAuthHandler = (fullTelemetryMessage) =>
-        {
-            if (string.IsNullOrEmpty(fullTelemetryMessage)) return;
-            Debug.WriteLine($"--> [SINGLE-STREAM AUTH INTERCEPTOR]: {fullTelemetryMessage}");
-
-            if (fullTelemetryMessage.Contains("AUTH_SUCCESS") || fullTelemetryMessage.Contains("\"front_v\":") || fullTelemetryMessage.Contains("\"charging\":"))
-            {
-                App.NetworkService.OnTelemetryReceived -= temporaryAuthHandler;
-
-                Debug.WriteLine("--> [HANDSHAKE SECURED]: Auth validation state cleared successfully!");
-
                 MainThread.BeginInvokeOnMainThread(async () =>
                 {
-                    if (layoutPasswordInitShell != null && layoutPasswordInitShell.IsVisible)
-                    {
-                        layoutPasswordInitShell.IsVisible = false;
-                        await DisplayAlertAsync("VAULT SYNCED", "Your master passcode has been verified against your vehicle's registers. Security clearance accepted.", "ENTER COCKPIT");
-                    }
-                    fullTelemetryMessage = string.Empty;
+                    await VerifyPasswordAgainstHardwareAsync();
+                    bool commandWasSent = await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
+
+                    if (commandWasSent)
+                        Debug.WriteLine("--> [BOOT LINK SUCCESS]: Secure WIFI key-pull verification request offloaded natively on boot pass!");
                 });
+                return;
             }
-            else if (fullTelemetryMessage.Contains("AUTH_FAILED") || fullTelemetryMessage.Contains("ROUTER_ERROR") || fullTelemetryMessage.Contains("401") || fullTelemetryMessage.Contains("Unauthorized"))
-            {
-                App.NetworkService.OnTelemetryReceived -= temporaryAuthHandler;
 
-                Debug.WriteLine("--> [HANDSHAKE REJECTED]: Auth failed token caught. Displaying single alert prompt...");
-
-                MainThread.BeginInvokeOnMainThread(async () =>
-                {
-                    layoutPasswordInitShell?.IsVisible = true;
-
-                    if (initMasterPasswordControl != null)
-                    {
-                        var entryField = initMasterPasswordControl.FindByName<Entry>("entryInitialPass");
-                        if (entryField != null)
-                        {
-                            entryField.Text = string.Empty;
-                            entryField.Focus();
-                        }
-                    }
-
-                    await DisplayAlertAsync("ACCESS DENIED", "The passcode signature you entered does not match your vehicle module's secure vaults.", "TRY AGAIN");
-                    fullTelemetryMessage = string.Empty;
-                });
-            }
-        };
-
-        App.NetworkService.OnTelemetryReceived -= temporaryAuthHandler;
-        App.NetworkService.OnTelemetryReceived += temporaryAuthHandler;
-        
-        bool isSentSuccessfully = await App.NetworkService.SendSecureCommandAsync(savedPass, "VERIFYPASS");
-
-        if (isSentSuccessfully && App.NetworkService.IsUsingWifiTransportMode)
-        {
-            App.NetworkService.OnTelemetryReceived -= temporaryAuthHandler;
+            string targetedMacAddress = Preferences.Default.Get(SavedDeviceMacKey, string.Empty);
 
             MainThread.BeginInvokeOnMainThread(async () =>
             {
-                if (layoutPasswordInitShell != null && layoutPasswordInitShell.IsVisible)
+                if (string.IsNullOrEmpty(targetedMacAddress))
                 {
-                    layoutPasswordInitShell.IsVisible = false;
-                    await DisplayAlertAsync("VAULT SYNCED", "Your master passcode has been verified against your vehicle's registers via local Wi-Fi. Security clearance accepted.", "ENTER COCKPIT");
+                    Debug.WriteLine("--> [BOOT SYNC]: Zero historical pairings found. Revealing manual picker container.");
+                    layoutOverlayShell.IsVisible = true;
+                    if (btDevicePicker != null)
+                    {
+                        btnLock?.IsEnabled = false;
+                        btnUnlock?.IsEnabled = false;
+                        await btDevicePicker.InitializePickerLifecycleAsync();
+                    }
+                }
+                else if (!(App.NetworkService.IsBluetoothConnected || App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingCloudWanMode))
+                {
+                    Debug.WriteLine("--> [BOOT SYNC]: Historical device found. Suppressing popup and launching background tracking...");
+                    layoutOverlayShell.IsVisible = false;
+
+                    borderBleStatus.BackgroundColor = Color.Parse("#2D1A1A");
+                    borderBleStatus.Stroke = Color.Parse("#EF4444");
+                    lblBleDot.Text = "🔴";
+                    lblBleStatusText.Text = "RECONNECTING TO VEHICLE CORES...";
+                    lblBleStatusText.TextColor = Color.Parse("#EF4444");
+                    lblBleSignal.Text = string.Empty;
+
+                    btnManualScanTrigger?.IsVisible = true;
+                    await Task.Delay(5000);
                 }
             });
+
+            if (!App.NetworkService.IsUsingCloudWanMode)
+            {
+                MainThread.BeginInvokeOnMainThread(async () =>
+                {
+                    bool commandWasSent = await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
+
+                    if (commandWasSent)
+                        Debug.WriteLine("--> [BOOT LINK SUCCESS]: Secure Cloudflare key-pull verification request offloaded natively on boot pass!");
+                });
+            }
+
+            MainThread.BeginInvokeOnMainThread(async () =>
+            {
+                await VerifyPasswordAgainstHardwareAsync();
+            });
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"--> [BOOT WORKFLOW SHIELD]: {ex.Message}");
         }
     }
 
@@ -605,9 +440,6 @@ public partial class MainPage : ContentPage
     {
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            int currentRssiValue = App.NetworkService.ActiveRssi;
-
-            var activeNetworkProfileAccess = Connectivity.Current.NetworkAccess;
             bool phoneHasActiveWifiRadioLink = Connectivity.Current.ConnectionProfiles.Contains(ConnectionProfile.WiFi);
 
             if (App.NetworkService.IsUsingWifiTransportMode || isConnected)
@@ -634,7 +466,7 @@ public partial class MainPage : ContentPage
                 {
                     Debug.WriteLine("--> [DASHBOARD COCKPIT DETACH]: Both transport networks are completely OFFLINE. Initializing absolute zero-out reset passes...");
 
-                    App.NetworkService.ManageWifiTelemetryPollingLifecycle(startWorker: false);
+                    App.NetworkService.ManageWifiTelemetryPollingLifecycle(false);
 
                     borderNetworkStatus?.IsVisible = false;
 
@@ -685,7 +517,7 @@ public partial class MainPage : ContentPage
                     return;
                 }
             }
-            else if (!App.NetworkService.IsUsingWifiTransportMode)
+            else if (!App.NetworkService.IsUsingWifiTransportMode && !App.NetworkService.IsUsingCloudWanMode)
             {
                 string currentBleName = Preferences.Default.Get(MainPage.SavedDeviceNameKey, "VersaHub_BLE");
                 if (Guid.TryParse(currentBleName, out _) || currentBleName.Contains("-")) currentBleName = "VersaHub_BLE";
@@ -754,42 +586,6 @@ public partial class MainPage : ContentPage
         });
     }
 
-    private async void OnLockClicked(object sender, EventArgs e)
-    {
-        try
-        {
-            string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-            Debug.WriteLine("--> [UI CONTROL]: Dispatching secure over-the-air LOCK token packet...");
-
-            _ = Task.Run(async () =>
-            {
-                await App.NetworkService.SendSecureCommandAsync(activeKey, "LOCK");
-            });
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"--> [LOCK UI CHOKE]: {ex.Message}");
-        }
-    }
-
-    private async void OnUnlockClicked(object sender, EventArgs e)
-    {
-        try
-        {
-            string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-            Debug.WriteLine("--> [UI CONTROL]: Dispatching secure over-the-air UNLOCK token packet...");
-
-            _ = Task.Run(async () =>
-            {
-                await App.NetworkService.SendSecureCommandAsync(activeKey, "UNLOCK");
-            });
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"--> [UNLOCK UI CHOKE]: {ex.Message}");
-        }
-    }
-
     private void UpdateDashboardMetrics(float frontVolts, int frontPercent, bool frontIsCharging, float backVolts, int backPercent, bool backIsCharging)
     {
         lblFrontVolts.Text = $"{frontVolts:F2} V";
@@ -839,6 +635,127 @@ public partial class MainPage : ContentPage
         }
     }
 
+    private void ExecuteWifiThemeRedrawPass()
+    {
+        if (!App.NetworkService.IsUsingCloudWanMode)
+        {
+            string cachedIP = Preferences.Default.Get("LastKnownVehicleIP", "0.0.0.0");
+            if (string.IsNullOrEmpty(cachedIP) || cachedIP == "0.0.0.0") return;
+
+            lblBleSignal?.IsVisible = false;
+            btnManualScanTrigger?.IsVisible = false;
+            layoutOverlayShell?.IsVisible = false;
+
+            btnLock?.IsEnabled = true;
+            btnUnlock?.IsEnabled = true;
+
+            borderNetworkStatus?.IsVisible = true;
+            lblVehicleIPText?.Text = cachedIP;
+
+            if (borderBleStatus != null)
+            {
+                borderBleStatus.BackgroundColor = Color.Parse("#1A242D");
+                borderBleStatus.Stroke = Color.Parse("#3B82F6");
+            }
+
+            lblBleDot?.Text = "🌐";
+            if (lblBleStatusText != null)
+            {
+                lblBleStatusText.Text = "LOCAL WI-FI SUBNET ONLINE";
+                lblBleStatusText.TextColor = Color.Parse("#3B82F6");
+            }
+
+            lblActiveTransportChannel?.Text = $"TRANSPORT MODE: REST API LINK ({cachedIP})";
+        }
+    }
+
+    private void ExecuteCloudWanThemeRedrawPass()
+    {
+        if (lblBleSignal != null)
+        {
+            lblBleSignal.Text = " 📶 WAN LIVE";
+            lblBleSignal.TextColor = Color.Parse("#F59E0B");
+            lblBleSignal.IsVisible = true;
+        }
+
+        btnManualScanTrigger?.IsVisible = false;
+        layoutOverlayShell?.IsVisible = false;
+
+        btnLock?.IsEnabled = true;
+        btnUnlock?.IsEnabled = true;
+
+        borderNetworkStatus?.IsVisible = true;
+        lblVehicleIPText?.Text = "Cloudflare Proxy";
+
+        if (borderBleStatus != null)
+        {
+            borderBleStatus.BackgroundColor = Color.Parse("#2D221A");
+            borderBleStatus.Stroke = Color.Parse("#F59E0B");
+        }
+
+        lblBleDot?.Text = "☁️";
+        if (lblBleStatusText != null)
+        {
+            lblBleStatusText.Text = "WAN CONNECTED";
+            lblBleStatusText.TextColor = Color.Parse("#F59E0B");
+        }
+
+        lblActiveTransportChannel?.Text = "TRANSPORT MODE: Encrypted WAN Link Active";
+
+        if (lblCloudWanTelemetryStatus != null)
+        {
+            lblCloudWanTelemetryStatus.Text = "☁️ CLOUD LINK: ONLINE";
+            lblCloudWanTelemetryStatus.TextColor = Color.Parse("#10B981");
+        }
+    }
+
+    private void OnSetupFinished(object sender, EventArgs e)
+    {
+        initMasterPasswordControl.OnPasswordInitialized -= OnSetupFinished;
+
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            layoutPasswordInitShell.IsVisible = false;
+            _ = KickstartWirelessCockpitSync();
+        });
+    }
+
+    private async void OnLockClicked(object sender, EventArgs e)
+    {
+        try
+        {
+            string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
+            Debug.WriteLine("--> [UI CONTROL]: Dispatching secure over-the-air LOCK token packet...");
+
+            _ = Task.Run(async () =>
+            {
+                await App.NetworkService.SendSecureCommandAsync(activeKey, "LOCK");
+            });
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"--> [LOCK UI CHOKE]: {ex.Message}");
+        }
+    }
+
+    private async void OnUnlockClicked(object sender, EventArgs e)
+    {
+        try
+        {
+            string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
+            Debug.WriteLine("--> [UI CONTROL]: Dispatching secure over-the-air UNLOCK token packet...");
+
+            _ = Task.Run(async () =>
+            {
+                await App.NetworkService.SendSecureCommandAsync(activeKey, "UNLOCK");
+            });
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"--> [UNLOCK UI CHOKE]: {ex.Message}");
+        }
+    }
+
     private async void OnAdminNavigationClicked(object sender, EventArgs e)
     {
         await Navigation.PushAsync(new AdminPage());
@@ -857,11 +774,11 @@ public partial class MainPage : ContentPage
                 if (initMasterPasswordControl != null)
                 {
                     var entryField = initMasterPasswordControl.FindByName<Entry>("entryInitialPass");
-                    if (entryField != null) entryField.Text = string.Empty;
+                    entryField?.Text = string.Empty;
                 }
                 layoutOverlayShell.IsVisible = true;
-                if (btnLock != null) btnLock.IsEnabled = false;
-                if (btnUnlock != null) btnUnlock.IsEnabled = false;
+                btnLock?.IsEnabled = false;
+                btnUnlock?.IsEnabled = false;
                 if (btDevicePicker != null) _ = btDevicePicker.InitializePickerLifecycleAsync();
             });
         }
@@ -900,7 +817,7 @@ public partial class MainPage : ContentPage
             {
                 Debug.WriteLine("--> [WATCHDOG]: System token validation missing. Requesting dynamic hardware tracking permissions...");
                 var forcedStatus = await Permissions.RequestAsync<Permissions.Bluetooth>();
-                isPermissionApproved = (forcedStatus == PermissionStatus.Granted);
+                isPermissionApproved = forcedStatus == PermissionStatus.Granted;
             }
             else
             {
@@ -917,13 +834,13 @@ public partial class MainPage : ContentPage
             {
                 MainThread.BeginInvokeOnMainThread(async () =>
                 {
-                    if (layoutOverlayShell != null) layoutOverlayShell.IsVisible = true;
+                    layoutOverlayShell?.IsVisible = true;
 
                     if (btDevicePicker != null)
                     {
                         Debug.WriteLine("--> [HARDWARE MONITOR]: Forcing active device list reset sweep over radio waves...");
-                        if (btnLock != null) btnLock.IsEnabled = false;
-                        if (btnUnlock != null) btnUnlock.IsEnabled = false;
+                        btnLock?.IsEnabled = false;
+                        btnUnlock?.IsEnabled = false;
                         await btDevicePicker.InitializePickerLifecycleAsync();
                     }
                 });
@@ -940,13 +857,6 @@ public partial class MainPage : ContentPage
         }
     }
 
-    public void RaiseWifiTelemetryParsedEventProxy(string synchronizedPacketText)
-    {
-        if (string.IsNullOrEmpty(synchronizedPacketText)) return;
-
-        ParseVehicleTelemetryStream(synchronizedPacketText);
-    }
-
     private void OnTransportChannelShiftRepaint(bool isWifiActive)
     {
         MainThread.BeginInvokeOnMainThread(() =>
@@ -956,12 +866,10 @@ public partial class MainPage : ContentPage
             if (isWifiActive)
             {
                 layoutOverlayShell?.IsVisible = false;
-                App.NetworkService.ManageWifiTelemetryPollingLifecycle(true);
+                _ = App.NetworkService.AutoConnectAsync();
                 Debug.WriteLine("--> [UI INTENT OVERRIDE SUCCESS]: Cockpit interface successfully unlocked over local Wi-Fi subnet!");
             }
-            else { KickstartWirelessCockpitSync(); }
-
-            UpdateBluetoothStatusBadge(isConnected: App.NetworkService.IsBluetoothConnected);
+            else App.NetworkService.ManageWifiTelemetryPollingLifecycle(false);
         });
     }
 
@@ -970,38 +878,28 @@ public partial class MainPage : ContentPage
         btDevicePicker.TriggerRefreshScan();
     }
 
-    private void ExecuteWifiThemeRedrawPass()
+    protected override void OnAppearing()
     {
-        if (!App.NetworkService.IsUsingCloudWanMode)
+        base.OnAppearing();
+
+        if (!(App.NetworkService.IsBluetoothConnected || App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingCloudWanMode))
+            _ = KickstartWirelessCockpitSync();
+
+        Debug.WriteLine("--> [DASHBOARD LANDING]: Repainting master layout frames...");
+
+        if (App.NetworkService != null && App.NetworkService.IsRebootingWatchdogActive)
         {
-            string cachedIP = Preferences.Default.Get("LastKnownVehicleIP", "0.0.0.0");
-            if (string.IsNullOrEmpty(cachedIP) || cachedIP == "0.0.0.0") return;
+            borderBleStatus.BackgroundColor = Color.Parse("#2D1A1A");
+            borderBleStatus.Stroke = Color.Parse("#EF4444");
+            lblBleDot.Text = "🔴";
+            lblBleStatusText.Text = "VEHICLE MODULE REBOOTING...";
+            lblBleStatusText.TextColor = Color.Parse("#EF4444");
+            lblBleSignal.Text = string.Empty;
 
-            lblBleSignal?.IsVisible = false;
-            btnManualScanTrigger?.IsVisible = false;
-            layoutOverlayShell?.IsVisible = false;
-
-            btnLock?.IsEnabled = true;
-            btnUnlock?.IsEnabled = true;
-
-            borderNetworkStatus?.IsVisible = true;
-            lblVehicleIPText?.Text = cachedIP;
-
-            if (borderBleStatus != null)
-            {
-                borderBleStatus.BackgroundColor = Color.Parse("#1A242D");
-                borderBleStatus.Stroke = Color.Parse("#3B82F6");
-            }
-
-            lblBleDot?.Text = "🌐";
-            if (lblBleStatusText != null)
-            {
-                lblBleStatusText.Text = "LOCAL WI-FI SUBNET ONLINE";
-                lblBleStatusText.TextColor = Color.Parse("#3B82F6");
-            }
-
-            lblActiveTransportChannel?.Text = $"TRANSPORT MODE: REST API LINK ({cachedIP})";
+            Debug.WriteLine("--> [UI STATE ALIGNMENT]: Dashboard badge force-shifted to REBOOTING tracking state.");
         }
+
+        App.NetworkService?.UpdateLifecycleState(true);
     }
 
     protected override void OnDisappearing()
@@ -1009,43 +907,81 @@ public partial class MainPage : ContentPage
         base.OnDisappearing();
     }
 
-    private void ExecuteCloudWanThemeRedrawPass()
+    public void RaiseWifiTelemetryParsedEventProxy(string synchronizedPacketText)
     {
-        if (lblBleSignal != null) 
-        { 
-            lblBleSignal.Text = " 📶 WAN LIVE"; 
-            lblBleSignal.TextColor = Color.Parse("#F59E0B"); 
-            lblBleSignal.IsVisible = true; 
-        }
+        if (string.IsNullOrEmpty(synchronizedPacketText)) return;
 
-        btnManualScanTrigger?.IsVisible = false;
-        layoutOverlayShell?.IsVisible = false;
+        ParseVehicleTelemetryStream(synchronizedPacketText);
+    }
 
-        btnLock?.IsEnabled = true;
-        btnUnlock?.IsEnabled = true;
+    public async Task VerifyPasswordAgainstHardwareAsync()
+    {
+        string savedPass = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
 
-        borderNetworkStatus?.IsVisible = true;
-        lblVehicleIPText?.Text = "Cloudflare Proxy";
-
-        if (borderBleStatus != null)
+        void temporaryAuthHandler(string fullTelemetryMessage)
         {
-            borderBleStatus.BackgroundColor = Color.Parse("#2D221A");
-            borderBleStatus.Stroke = Color.Parse("#F59E0B");
+            if (string.IsNullOrEmpty(fullTelemetryMessage)) return;
+            Debug.WriteLine($"--> [SINGLE-STREAM AUTH INTERCEPTOR]: {fullTelemetryMessage}");
+
+            if (fullTelemetryMessage.Contains("AUTH_SUCCESS") || fullTelemetryMessage.Contains("\"front_v\":") || fullTelemetryMessage.Contains("\"charging\":"))
+            {
+                App.NetworkService.OnTelemetryReceived -= temporaryAuthHandler;
+
+                Debug.WriteLine("--> [HANDSHAKE SECURED]: Auth validation state cleared successfully!");
+
+                MainThread.BeginInvokeOnMainThread(async () =>
+                {
+                    if (layoutPasswordInitShell != null && layoutPasswordInitShell.IsVisible)
+                    {
+                        layoutPasswordInitShell.IsVisible = false;
+                        await DisplayAlertAsync("VAULT SYNCED", "Your master passcode has been verified against your vehicle's registers. Security clearance accepted.", "ENTER COCKPIT");
+                    }
+                    fullTelemetryMessage = string.Empty;
+                });
+            }
+            else if (fullTelemetryMessage.Contains("AUTH_FAILED") || fullTelemetryMessage.Contains("ROUTER_ERROR") || fullTelemetryMessage.Contains("401") || fullTelemetryMessage.Contains("Unauthorized"))
+            {
+                App.NetworkService.OnTelemetryReceived -= temporaryAuthHandler;
+
+                Debug.WriteLine("--> [HANDSHAKE REJECTED]: Auth failed token caught. Displaying single alert prompt...");
+
+                MainThread.BeginInvokeOnMainThread(async () =>
+                {
+                    layoutPasswordInitShell?.IsVisible = true;
+
+                    if (initMasterPasswordControl != null)
+                    {
+                        var entryField = initMasterPasswordControl.FindByName<Entry>("entryInitialPass");
+                        if (entryField != null)
+                        {
+                            entryField.Text = string.Empty;
+                            entryField.Focus();
+                        }
+                    }
+
+                    await DisplayAlertAsync("ACCESS DENIED", "The passcode signature you entered does not match your vehicle module's secure vaults.", "TRY AGAIN");
+                    fullTelemetryMessage = string.Empty;
+                });
+            }
         }
 
-        lblBleDot?.Text = "☁️";
-        if (lblBleStatusText != null) 
-        { 
-            lblBleStatusText.Text = "WAN CONNECTED"; 
-            lblBleStatusText.TextColor = Color.Parse("#F59E0B"); 
-        }
+        App.NetworkService.OnTelemetryReceived -= temporaryAuthHandler;
+        App.NetworkService.OnTelemetryReceived += temporaryAuthHandler;
 
-        lblActiveTransportChannel?.Text = "TRANSPORT MODE: Encrypted WAN Link Active";
+        bool isSentSuccessfully = await App.NetworkService.SendSecureCommandAsync(savedPass, "VERIFYPASS");
 
-        if (lblCloudWanTelemetryStatus != null)
+        if (isSentSuccessfully && App.NetworkService.IsUsingWifiTransportMode)
         {
-            lblCloudWanTelemetryStatus.Text = "☁️ CLOUD LINK: ONLINE";
-            lblCloudWanTelemetryStatus.TextColor = Color.Parse("#10B981");
+            App.NetworkService.OnTelemetryReceived -= temporaryAuthHandler;
+
+            MainThread.BeginInvokeOnMainThread(async () =>
+            {
+                if (layoutPasswordInitShell != null && layoutPasswordInitShell.IsVisible)
+                {
+                    layoutPasswordInitShell.IsVisible = false;
+                    await DisplayAlertAsync("VAULT SYNCED", "Your master passcode has been verified against your vehicle's registers via local Wi-Fi. Security clearance accepted.", "ENTER COCKPIT");
+                }
+            });
         }
     }
 

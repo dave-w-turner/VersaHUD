@@ -22,66 +22,7 @@ public class TelemetryForegroundService : Service
     private bool _isFrontCharging = false;
     private bool _isTrunkCharging = false;
 
-    public override IBinder OnBind(Intent intent) => null;
-
     private BootReceiver? _dynamicBluetoothStateReceiver;
-
-    public override StartCommandResult OnStartCommand(Intent intent, StartCommandFlags flags, int startId)
-    {
-        CreateNotificationChannel();
-        _notificationManager = (NotificationManager)GetSystemService(NotificationService);
-
-        Notification.Builder quickStartBuilder = (Build.VERSION.SdkInt >= BuildVersionCodes.O)
-            ? new Notification.Builder(this, CHANNEL_ID)
-            : new Notification.Builder(this);
-
-        quickStartBuilder.SetSmallIcon(global::Android.Resource.Drawable.IcMenuManage)
-                         .SetContentTitle("Versa HUD Cockpit")
-                         .SetOngoing(true);
-
-        if (Build.VERSION.SdkInt >= BuildVersionCodes.Q)
-        {
-            StartForeground(NOTIFICATION_ID, quickStartBuilder.Build(), Android.Content.PM.ForegroundService.TypeSpecialUse);
-        }
-        else
-        {
-            StartForeground(NOTIFICATION_ID, quickStartBuilder.Build());
-        }
-
-        Notification customPanelNotification = BuildTelemetryStatusNotification();
-        _notificationManager.Notify(NOTIFICATION_ID, customPanelNotification);
-
-        try
-        {
-            if (_dynamicBluetoothStateReceiver == null)
-            {
-                _dynamicBluetoothStateReceiver = new BootReceiver();
-
-                var bluetoothToggleFilter = new IntentFilter(Android.Bluetooth.BluetoothAdapter.ActionStateChanged);
-
-                RegisterReceiver(_dynamicBluetoothStateReceiver, bluetoothToggleFilter);
-                System.Diagnostics.Debug.WriteLine("--> [SERVICE LAUNCH]: Programmatic Runtime Bluetooth State Receiver successfully injected into Android kernel.");
-            }
-        }
-        catch (Exception rxEx)
-        {
-            System.Diagnostics.Debug.WriteLine($"--> [SERVICE LAUNCH WARNING]: Runtime receiver registry bypassed: {rxEx.Message}");
-        }
-
-        App.NetworkService.OnConnectionStateChanged += (isConnected) =>
-        {
-            _notificationManager.Notify(NOTIFICATION_ID, BuildTelemetryStatusNotification());
-        };
-
-        App.NetworkService.OnTransportModeChanged += (isWifiActive) =>
-        {
-            _notificationManager.Notify(NOTIFICATION_ID, BuildTelemetryStatusNotification());
-        };
-
-        App.NetworkService.OnTelemetryReceived += OnTelemetryReceivedUpdateWidget;
-
-        return StartCommandResult.Sticky;
-    }
 
     private Notification BuildTelemetryStatusNotification()
     {
@@ -192,7 +133,7 @@ public class TelemetryForegroundService : Service
         return finalNotification;
     }
 
-    private string GenerateVisualProgressIndicatorMeter(int percentageValue)
+    private static string GenerateVisualProgressIndicatorMeter(int percentageValue)
     {
         int totalSegments = 15;
         int activeSegments = (int)Math.Round((percentageValue / 100.0) * totalSegments);
@@ -202,6 +143,24 @@ public class TelemetryForegroundService : Service
         string emptyTrack = new('┄', totalSegments - activeSegments);
 
         return $"⦗{filledTrack}{emptyTrack}⦘";
+    }
+
+    private void CreateNotificationChannel()
+    {
+        if (Build.VERSION.SdkInt >= BuildVersionCodes.O)
+        {
+            var channel = new NotificationChannel(CHANNEL_ID, "Cockpit Telemetry Monitor", NotificationImportance.Min)
+            {
+                Description = "Displays live vehicle battery metrics and locking control switches."
+            };
+
+            channel.SetSound(null, null);
+            channel.EnableVibration(false);
+            channel.LockscreenVisibility = NotificationVisibility.Public;
+
+            var manager = (NotificationManager)GetSystemService(NotificationService);
+            manager?.CreateNotificationChannel(channel);
+        }
     }
 
     private void OnTelemetryReceivedUpdateWidget(string rawPacket)
@@ -254,22 +213,63 @@ public class TelemetryForegroundService : Service
         });
     }
 
-    private void CreateNotificationChannel()
+    public override IBinder OnBind(Intent intent) => null;
+
+    public override StartCommandResult OnStartCommand(Intent intent, StartCommandFlags flags, int startId)
     {
-        if (Build.VERSION.SdkInt >= BuildVersionCodes.O)
+        CreateNotificationChannel();
+        _notificationManager = (NotificationManager)GetSystemService(NotificationService);
+
+        Notification.Builder quickStartBuilder = (Build.VERSION.SdkInt >= BuildVersionCodes.O)
+            ? new Notification.Builder(this, CHANNEL_ID)
+            : new Notification.Builder(this);
+
+        quickStartBuilder.SetSmallIcon(global::Android.Resource.Drawable.IcMenuManage)
+                         .SetContentTitle("Versa HUD Cockpit")
+                         .SetOngoing(true);
+
+        if (Build.VERSION.SdkInt >= BuildVersionCodes.Q)
         {
-            var channel = new NotificationChannel(CHANNEL_ID, "Cockpit Telemetry Monitor", NotificationImportance.Min)
-            {
-                Description = "Displays live vehicle battery metrics and locking control switches."
-            };
-
-            channel.SetSound(null, null);
-            channel.EnableVibration(false);
-            channel.LockscreenVisibility = NotificationVisibility.Public;
-
-            var manager = (NotificationManager)GetSystemService(NotificationService);
-            manager?.CreateNotificationChannel(channel);
+            StartForeground(NOTIFICATION_ID, quickStartBuilder.Build(), Android.Content.PM.ForegroundService.TypeSpecialUse);
         }
+        else
+        {
+            StartForeground(NOTIFICATION_ID, quickStartBuilder.Build());
+        }
+
+        Notification customPanelNotification = BuildTelemetryStatusNotification();
+        _notificationManager.Notify(NOTIFICATION_ID, customPanelNotification);
+
+        try
+        {
+            if (_dynamicBluetoothStateReceiver == null)
+            {
+                _dynamicBluetoothStateReceiver = new BootReceiver();
+
+                var bluetoothToggleFilter = new IntentFilter(Android.Bluetooth.BluetoothAdapter.ActionStateChanged);
+
+                RegisterReceiver(_dynamicBluetoothStateReceiver, bluetoothToggleFilter);
+                System.Diagnostics.Debug.WriteLine("--> [SERVICE LAUNCH]: Programmatic Runtime Bluetooth State Receiver successfully injected into Android kernel.");
+            }
+        }
+        catch (Exception rxEx)
+        {
+            System.Diagnostics.Debug.WriteLine($"--> [SERVICE LAUNCH WARNING]: Runtime receiver registry bypassed: {rxEx.Message}");
+        }
+
+        App.NetworkService.OnConnectionStateChanged += (isConnected) =>
+        {
+            _notificationManager.Notify(NOTIFICATION_ID, BuildTelemetryStatusNotification());
+        };
+
+        App.NetworkService.OnTransportModeChanged += (isWifiActive) =>
+        {
+            _notificationManager.Notify(NOTIFICATION_ID, BuildTelemetryStatusNotification());
+        };
+
+        App.NetworkService.OnTelemetryReceived += OnTelemetryReceivedUpdateWidget;
+
+        return StartCommandResult.Sticky;
     }
 
     public override void OnDestroy()

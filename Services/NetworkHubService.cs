@@ -36,7 +36,7 @@ public class NetworkHubService
     private static readonly SemaphoreSlim _wifiRadarLockoutMutedGate = new(1, 1);
     private static DateTime _lastWifiHandshakeTimestamp = DateTime.MinValue;
     private const int DEBOUNCE_COOLDOWN_MILLISECONDS = 3500;
-    private const int MIN_PASS_RSSI_VALUE = -75;
+    private const int MIN_PASS_RSSI_VALUE = -80;
 
     public event Action<int> OnRssiUpdated;    
     public event Action<string>? OnTelemetryReceived;
@@ -968,6 +968,15 @@ public class NetworkHubService
         _targetDevice?.UpdateRssiAsync();
         ActiveRssi = _targetDevice?.Rssi ?? -100;
         OnRssiUpdated(ActiveRssi);
+
+        var activeProfiles = Connectivity.Current.ConnectionProfiles;
+        bool hasPhysicalWifiInterface = activeProfiles.Contains(ConnectionProfile.WiFi);
+
+        if (ActiveRssi < MIN_PASS_RSSI_VALUE && !IsUsingWifiTransportMode && hasPhysicalWifiInterface)
+        {
+            Debug.WriteLine("--> [BLE SIGNAL WEAK]: RSSI below threshold. Attempting Wi-Fi transport mode failover...");
+            _ = AutoConnectAsync();
+        }
 
         try
         {

@@ -181,6 +181,10 @@ public class NetworkHubService
             if (IsBluetoothConnected)
             {               
                 _isConnecting = false;
+
+                if (!hasPhysicalWifiInterface)
+                    OnConnectionStateChanged?.Invoke(true);
+
                 return true;
             }
 

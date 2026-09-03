@@ -32,12 +32,8 @@ public class BootReceiver : BroadcastReceiver
                     {
                         await Task.Delay(500);
 
-                        if (App.NetworkService != null && !App.NetworkService.IsUsingWifiTransportMode)
-                        {
-                            System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR]: Invoking AutoConnectAsync dynamically over active radio waves...");
-                            if (await App.NetworkService.AutoConnectAsync())
-                                App.NetworkService.RaiseConnectionStateChangedProxy(true);
-                        }
+                        System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR]: Invoking AutoConnectAsync dynamically over active radio waves...");
+                        _ = App.NetworkService.AutoConnectAsync();
                     }
                     catch (Exception ex)
                     {
@@ -51,7 +47,7 @@ public class BootReceiver : BroadcastReceiver
 
                 if (App.NetworkService != null)
                 {
-                    if (App.NetworkService.IsUsingWifiTransportMode)
+                    if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingCloudWanMode)
                     {
                         System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR RADAR]: Bluetooth radio severed, but active Wi-Fi transport link is live! Suppressing disconnect alert.");
                         return;
@@ -59,8 +55,7 @@ public class BootReceiver : BroadcastReceiver
 
                     System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR CRITICAL]: Both networks dead. Purging residual wireless cache properties...");
 
-                    App.NetworkService.ActiveRssi = 0;
-                    App.NetworkService.RaiseConnectionStateChangedProxy(false);
+                    _ = App.NetworkService.AutoConnectAsync();
                 }
             }
             return;

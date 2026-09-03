@@ -37,12 +37,12 @@
                     <VerticalStackLayout Padding="15" Spacing="15">
                         <VerticalStackLayout Spacing="5">
                             <Label Text="LOCAL WI-FI AP NAME SSID" TextColor="#8E8E93" FontSize="11" FontAttributes="Bold"/>
-                            <Entry x:Name="entryWifiAP" Text="{Binding WifiApName, Mode=TwoWay}" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
+                            <Entry x:Name="entryWifiAP" Text="Loading..." TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
                             <Button Text="UPDATE AP SSID" BackgroundColor="#3B82F6" TextColor="#FFFFFF" Clicked="OnUpdateWifiAPClicked" HeightRequest="40"/>
                         </VerticalStackLayout>
                         <VerticalStackLayout Spacing="5">
                             <Label Text="BLUETOOTH BROADCAST IDENTITY" TextColor="#8E8E93" FontSize="11" FontAttributes="Bold"/>
-                            <Entry x:Name="entryBleName" Text="{Binding BleBroadcastName, Mode=TwoWay}" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
+                            <Entry x:Name="entryBleName" Text="Loading..." TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
                             <Button Text="UPDATE BLE NAME" BackgroundColor="#3B82F6" TextColor="#FFFFFF" Clicked="OnUpdateBleNameClicked" HeightRequest="40"/>
                         </VerticalStackLayout>
                     </VerticalStackLayout>
@@ -57,7 +57,7 @@
                         <VerticalStackLayout x:Name="layoutUnconfiguredRouter" IsVisible="True" Spacing="12">
                             <Label Text="No active router link set. Scan for an available network infrastructure channel to link your vehicle module to your home station." TextColor="#8E8E93" FontSize="11" HorizontalTextAlignment="Center"/>
                             <Grid ColumnDefinitions="*, Auto" ColumnSpacing="10">
-                                <Entry Grid.Column="0" x:Name="entryRouterSSID" Text="{Binding RouterBridgeSSID, Mode=TwoWay}" Placeholder="Target Router Name (SSID)" PlaceholderColor="#555555" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
+                                <Entry Grid.Column="0" x:Name="entryRouterSSID" Text="Loading..." Placeholder="Target Router Name (SSID)" PlaceholderColor="#555555" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
                                 <Button Grid.Column="1" Text="🔍 SCAN" BackgroundColor="#2D2D2D" BorderColor="#3D3D3D" BorderWidth="1" TextColor="#3B82F6" FontAttributes="Bold" Clicked="OnScanWifiNetworksClicked" HeightRequest="45" Padding="15,0"/>
                             </Grid>
                             <Entry x:Name="entryRouterPass" Placeholder="Target Router Password" PlaceholderColor="#555555" IsPassword="True" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
@@ -75,7 +75,7 @@
                             </Border>
                             <HorizontalStackLayout Spacing="5" HorizontalOptions="Center">
                                 <Label Text="Linked SSID Target:" TextColor="#8E8E93" FontSize="12"/>
-                                <Label Text="{Binding RouterBridgeSSID}" TextColor="#FFFFFF" FontSize="12" FontAttributes="Bold"/>
+                                <Label x:Name="lblRouterSSID" Text="Loading..." TextColor="#FFFFFF" FontSize="12" FontAttributes="Bold"/>
                             </HorizontalStackLayout>
                             <Button Text="🔄 FORGET ROUTER / FORCE STANDALONE AP MODE" BackgroundColor="#EF4444" TextColor="#FFFFFF" Clicked="OnForgetRouterClicked" HeightRequest="45" FontAttributes="Bold" CornerRadius="6"/>
                         </VerticalStackLayout>

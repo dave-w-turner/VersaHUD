@@ -41,10 +41,7 @@ public class TelemetryForegroundService : Service
 
         builder.SetContentIntent(pendingContentIntent);
 
-        bool isBluetoothRadioPoweredOn = Plugin.BLE.CrossBluetoothLE.Current.IsOn;
-        bool isDeviceLinkGenuinelyActive = App.NetworkService != null && App.NetworkService.IsBluetoothConnected;
-
-        bool isBluetoothConnected = isBluetoothRadioPoweredOn && isDeviceLinkGenuinelyActive;
+        bool isBluetoothConnected = App.NetworkService != null && App.NetworkService.IsBluetoothConnected;
         bool isSystemTotallyOffline = !isBluetoothConnected && !App.NetworkService.IsUsingWifiTransportMode && !App.NetworkService.IsUsingCloudWanMode;
 
         var multiLineTextStyle = new Notification.BigTextStyle();
@@ -203,14 +200,6 @@ public class TelemetryForegroundService : Service
         }
 
         _notificationManager.Notify(NOTIFICATION_ID, BuildTelemetryStatusNotification());
-
-        MainThread.BeginInvokeOnMainThread(() =>
-        {
-            if (App.Current?.MainPage is AppShell shell && shell.CurrentPage is MainPage mainPage)
-            {
-                mainPage.RaiseWifiTelemetryParsedEventProxy(rawPacket);
-            }
-        });
     }
 
     public override IBinder OnBind(Intent intent) => null;

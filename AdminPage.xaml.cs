@@ -7,8 +7,6 @@ namespace VersaHUD;
 public partial class AdminPage : ContentPage, INotifyPropertyChanged
 {
     private new event PropertyChangedEventHandler PropertyChanged;
-    private bool _isRouterConfigured = false;
-
     private CancellationTokenSource? _adminWifiWatchdogCancelSource;
 
     public AdminPage()
@@ -177,14 +175,12 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                         if (ssidResult.Contains("[❌ NONE SAVED]") || ssidResult.Contains("[X NONE SAVED]") || string.IsNullOrEmpty(ssidResult) || ssidResult.Contains("NONE"))
                         {
                             entryRouterSSID.Text = string.Empty;
-                            _isRouterConfigured = false;
                             layoutUnconfiguredRouter.IsVisible = true;
                             layoutConfiguredRouter.IsVisible = false;
                         }
                         else
                         {
                             lblRouterSSID.Text = ssidResult;
-                            _isRouterConfigured = true;
                             layoutUnconfiguredRouter.IsVisible = false;
                             layoutConfiguredRouter.IsVisible = true;
                         }
@@ -476,7 +472,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             });
 
             entryRouterSSID.Text = string.Empty;
-            _isRouterConfigured = false;
             layoutUnconfiguredRouter.IsVisible = true;
             layoutConfiguredRouter.IsVisible = false;
 
@@ -509,7 +504,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             });
 
             entryRouterSSID.Text = string.Empty;
-            _isRouterConfigured = false;
             layoutUnconfiguredRouter.IsVisible = true;
             layoutConfiguredRouter.IsVisible = false;
 
@@ -613,14 +607,12 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                         if (routerSsid == "NONE" || string.IsNullOrEmpty(routerSsid))
                         {
                             entryRouterSSID.Text = string.Empty;
-                            _isRouterConfigured = false;
                             layoutUnconfiguredRouter.IsVisible = true;
                             layoutConfiguredRouter.IsVisible = false;
                         }
                         else
                         {
                             entryRouterSSID.Text = routerSsid;
-                            _isRouterConfigured = true;
                             layoutUnconfiguredRouter.IsVisible = false;
                             layoutConfiguredRouter.IsVisible = true;
                         }

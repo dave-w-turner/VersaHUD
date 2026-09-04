@@ -241,35 +241,28 @@ public partial class MainPage : ContentPage
 
                         if (extractedVehicleIP == "STA_HOTSPOT")
                         {
-                            var currentNetworkAccess = Connectivity.Current.NetworkAccess;
-                            bool currentlyOnWifiRadio = currentNetworkAccess == NetworkAccess.Internet &&
-                                                        Connectivity.Current.ConnectionProfiles.Contains(ConnectionProfile.WiFi);
+                            App.NetworkService.IsUsingWifiTransportMode = false;
+                            await App.NetworkService.ManageWifiTelemetryPollingLifecycle(false);
 
-                            if (!currentlyOnWifiRadio)
+                            string currentBleName = Preferences.Default.Get(SavedDeviceNameKey, "VersaHub_BLE");
+                            if (Guid.TryParse(currentBleName, out _) || currentBleName.Contains('-')) currentBleName = "VersaHub_BLE";
+
+                            lblVehicleIPText?.Text = "OFFLINE (Standalone AP Mode)";
+                            borderNetworkStatus?.IsVisible = true;
+
+                            if (borderBleStatus != null) { borderBleStatus.BackgroundColor = Color.Parse("#1A2D20"); borderBleStatus.Stroke = Color.Parse("#10B981"); }
+                            lblBleDot?.Text = "🟢";
+
+                            if (lblBleStatusText != null)
                             {
-                                App.NetworkService.IsUsingWifiTransportMode = false;
-                                await App.NetworkService.ManageWifiTelemetryPollingLifecycle(false);
-
-                                string currentBleName = Preferences.Default.Get(SavedDeviceNameKey, "VersaHub_BLE");
-                                if (Guid.TryParse(currentBleName, out _) || currentBleName.Contains('-')) currentBleName = "VersaHub_BLE";
-
-                                lblVehicleIPText?.Text = "OFFLINE (Standalone AP Mode)";
-                                borderNetworkStatus?.IsVisible = false;
-
-                                if (borderBleStatus != null) { borderBleStatus.BackgroundColor = Color.Parse("#1A2D20"); borderBleStatus.Stroke = Color.Parse("#10B981"); }
-                                lblBleDot?.Text = "🟢";
-
-                                if (lblBleStatusText != null)
-                                {
-                                    lblBleStatusText.Text = $"CONNECTED: {currentBleName.ToUpper()}";
-                                    lblBleStatusText.TextColor = Color.Parse("#10B981");
-                                }
-
-                                lblActiveTransportChannel?.Text = $"TRANSPORT MODE: Low-Latency Bluetooth Channel (BLE)";
-                                btnManualScanTrigger?.IsVisible = false;
-                                lblBleSignal?.IsVisible = true;
-                                layoutOverlayShell?.IsVisible = false;
+                                lblBleStatusText.Text = $"CONNECTED: {currentBleName.ToUpper()}";
+                                lblBleStatusText.TextColor = Color.Parse("#10B981");
                             }
+
+                            lblActiveTransportChannel?.Text = $"TRANSPORT MODE: Low-Latency Bluetooth Channel (BLE)";
+                            btnManualScanTrigger?.IsVisible = false;
+                            lblBleSignal?.IsVisible = true;
+                            layoutOverlayShell?.IsVisible = false;
                         }
                         else if (!string.IsNullOrEmpty(extractedVehicleIP) && extractedVehicleIP != "STA_HOTSPOT")
                         {

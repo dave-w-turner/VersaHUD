@@ -44,6 +44,12 @@ String activeDashboardText = " START ";
 bool pendingSystemHardwareRebootFlag = false;
 unsigned long hardwareRebootTimestampCount = 0;
 
+unsigned long lastNetworkWatchdogCheckMillis = 0;
+const unsigned long networkWatchdogInterval = 15000;
+unsigned long continuousDisconnectAnchorMillis = 0;
+const unsigned long maxDowntimeBeforeHardReset = 300000;
+bool systemIsCurrentlyInFallbackApMode = false;
+
 const int RELAY_LOCK = 8;
 const int RELAY_UNLOCK = 9;
 const int RELAY_SOLENOID = 6;
@@ -141,6 +147,7 @@ void setup() {
     setupWiFiAPI();
 
     displayMatrixText(" HUB ONLINE ");
+    continuousDisconnectAnchorMillis = millis();
 }
 
 void loop() {
@@ -159,6 +166,11 @@ void loop() {
         delay(10);
         NVIC_SystemReset();
     }
+
+    if (currentMillis - lastNetworkWatchdogCheckMillis >= networkWatchdogInterval) {
+        lastNetworkWatchdogCheckMillis = currentMillis;
+        maintainNetworkHealth();
+    }    
 
     if (currentMillis - previousTelemetryMillis >= telemetryInterval) {
         previousTelemetryMillis = currentMillis;
@@ -680,29 +692,88 @@ bool processSecureCommand(String rawPacket, String source) {
 }
 
 void setupWiFiAPI() {
+  String savedSSID = readSecureStringFromEEPROM(EEPROM_WIFI_SSID_ADDR);
+  String savedPASS = readSecureStringFromEEPROM(EEPROM_WIFI_PASS_ADDR);
+
+  bool stationConnectedSuccess = false;
+
+  if (savedSSID.length() > 0) {
+    Serial.println("[SYS] Attempting Link to Home Station...");
+    WiFi.begin(savedSSID.c_str(), savedPASS.c_str());
+    
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 10) {
+      delay(500); 
+      attempts++;
+    }
+    
+    if (WiFi.status() == WL_CONNECTED) {
+      stationConnectedSuccess = true;
+    }
+  }
+
+  if (!stationConnectedSuccess) {
+    Serial.println("[WAN ALERT]: Station link dropped. Starting Fallback Access Point...");
+    
+    WiFi.beginAP(currentBroadcastAP.c_str(), "VersaCore99");
+    systemIsCurrentlyInFallbackApMode = true;
+  } else {
+    Serial.println("[SYS] Station Linked! Synchronizing Network Time...");
+    systemIsCurrentlyInFallbackApMode = false;
+    
+    RTC.begin();
+    unsigned long globalEpochTime = WiFi.getTime();
+    if (globalEpochTime > 0) {
+      RTCTime activeTimeConvert(globalEpochTime);
+      RTC.setTime(activeTimeConvert);
+    }
+  }
+  webServer.begin();
+}
+
+void maintainNetworkHealth() {
+  uint8_t currentStatus = WiFi.status();
+
+  if (currentStatus == WL_CONNECTED && !systemIsCurrentlyInFallbackApMode) {
+    continuousDisconnectAnchorMillis = millis();
+    return;
+  }
+
+  if (millis() - continuousDisconnectAnchorMillis > maxDowntimeBeforeHardReset) {
+    Serial.println("[CRITICAL WATCHDOG]: Network stack lockup detected. Resetting Core MCU registers...");
+    Serial.flush();
+    NVIC_SystemReset();
+  }
+
+  if (!systemIsCurrentlyInFallbackApMode) {
+    writeLog("--> [WAN MONITOR]: Station disconnected. Activating backup network configuration...");
+    
+    WiFi.disconnect();
+    delay(100);
+    
+    WiFi.beginAP(currentBroadcastAP.c_str(), "VersaCore99");
+    systemIsCurrentlyInFallbackApMode = true;
+  } 
+  else {
     String savedSSID = readSecureStringFromEEPROM(EEPROM_WIFI_SSID_ADDR);
     String savedPASS = readSecureStringFromEEPROM(EEPROM_WIFI_PASS_ADDR);
     
     if (savedSSID.length() > 0) {
-        WiFi.begin(savedSSID.c_str(), savedPASS.c_str());
-        int attempts = 0;
-        while (WiFi.status() != WL_CONNECTED && attempts < 10) {
-            delay(500); attempts++;
-        }
-    }
-    
-    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("[WAN MONITOR]: Testing background probe to target router...");
+      
+      WiFi.begin(savedSSID.c_str(), savedPASS.c_str());
+      
+      delay(2500); 
+      
+      if (WiFi.status() == WL_CONNECTED) {
+        writeLog("--> [WAN RECOVERY]: Home network re-established. Dismantling local hotspot loop.");
+        systemIsCurrentlyInFallbackApMode = false;
+        lastCloudTransmitSuccessful = true;
+      } else {
         WiFi.beginAP(currentBroadcastAP.c_str(), "VersaCore99");
-    } else {
-        RTC.begin();
-        unsigned long globalEpochTime = WiFi.getTime();
-        if (globalEpochTime > 0) {
-            RTCTime activeTimeConvert(globalEpochTime);
-            RTC.setTime(activeTimeConvert);
-        }
+      }
     }
-
-    webServer.begin();
+  }
 }
 
 void handleWiFiAPI() {

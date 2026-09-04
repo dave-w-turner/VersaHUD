@@ -15,6 +15,7 @@ public class NetworkHubService
     private ICharacteristic? _rxCharacteristic;
     private ICharacteristic? _txCharacteristic;
 
+    private CancellationTokenSource? _rssiLoopCts;
     private CancellationTokenSource? _wifiTelemetryCancelSource;
     
     private const string DeviceCacheKey = "LastConnectedBleId";
@@ -87,14 +88,14 @@ public class NetworkHubService
         Connectivity.Current.ConnectivityChanged += OnSystemWirelessHardwareStateChanged;
     }
 
-    public async Task<bool> AutoConnectAsync(bool wifiAdapterOff = false)
+    public async Task<bool> AutoConnectAsync(bool wifiAdapterOffOverride = false)
     {
         if (_isConnecting) return false;
 
         _isConnecting = true;
 
         var activeProfiles = Connectivity.Current.ConnectionProfiles;
-        bool hasPhysicalWifiInterface = !wifiAdapterOff && activeProfiles.Contains(ConnectionProfile.WiFi) && (Connectivity.Current.NetworkAccess == NetworkAccess.Internet || Connectivity.Current.NetworkAccess == NetworkAccess.Local);
+        bool hasPhysicalWifiInterface = !wifiAdapterOffOverride && activeProfiles.Contains(ConnectionProfile.WiFi) && (Connectivity.Current.NetworkAccess == NetworkAccess.Internet || Connectivity.Current.NetworkAccess == NetworkAccess.Local);
         bool phoneHasInternetAccess = Connectivity.Current.NetworkAccess == NetworkAccess.Internet;
 
         if (!(CrossBluetoothLE.Current.IsOn || hasPhysicalWifiInterface || phoneHasInternetAccess))
@@ -736,10 +737,6 @@ public class NetworkHubService
 
                     if (_targetDevice != null && IsBluetoothConnected)
                     {
-                        await _targetDevice.UpdateRssiAsync();
-
-                        ActiveRssi = _targetDevice?.Rssi ?? -100;
-
                         if (ActiveRssi >= MIN_PASS_RSSI_VALUE)
                         {
                             Debug.WriteLine("--> [WIFI POLLING] - BLE signal strength restored. Suspending Wi-Fi polling and reverting to BLE transport.");
@@ -939,10 +936,6 @@ public class NetworkHubService
         _rxCharacteristic = await targetService.GetCharacteristicAsync(RxCharUuid);
         _txCharacteristic = await targetService.GetCharacteristicAsync(TxCharUuid);
 
-        await _targetDevice.UpdateRssiAsync();
-        ActiveRssi = _targetDevice.Rssi;
-        OnRssiUpdated(ActiveRssi);
-
         if (_txCharacteristic != null && !IsUsingWifiTransportMode)
         {
             _txCharacteristic.ValueUpdated -= NativeCharacteristic_ValueUpdated;
@@ -955,7 +948,66 @@ public class NetworkHubService
             Debug.WriteLine("--> [BLE SUCCESS]: Live telemetry channels fully open and sanitized.");
         }
 
+        _ = StartRssiTracking();
+        
         _bLECommunicationProvisioned = true;
+    }
+
+    public async Task StartRssiTracking()
+    {
+        StopRssiTracking();
+
+        _rssiLoopCts = new CancellationTokenSource();
+        _ = Task.Run(() => PollRssiAsync(_rssiLoopCts.Token));
+    }
+
+    public void StopRssiTracking()
+    {
+        _rssiLoopCts?.Cancel();
+        _rssiLoopCts?.Dispose();
+        _rssiLoopCts = null;
+    }
+
+    private async Task PollRssiAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested &&
+                   await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                if (_targetDevice == null || !IsBluetoothConnected)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    bool? success = await _targetDevice?.UpdateRssiAsync();
+
+                    if (success == true)
+                    {
+                        ActiveRssi = _targetDevice.Rssi;
+                        OnRssiUpdated(ActiveRssi);
+                    }
+                    else
+                    {
+                        ActiveRssi = -100;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"RSSI Update failed: {ex.Message}");
+                    ActiveRssi = -100;
+                }
+
+                OnRssiUpdated(ActiveRssi);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     private async void OnSystemWirelessHardwareStateChanged(object sender, ConnectivityChangedEventArgs e)
@@ -994,10 +1046,6 @@ public class NetworkHubService
                         _ = AutoConnectAsync();
                     }
                 }
-
-                _targetDevice?.UpdateRssiAsync();
-                ActiveRssi = _targetDevice?.Rssi ?? -100;
-                OnRssiUpdated(ActiveRssi);
             });
         }
         catch (Exception ex)

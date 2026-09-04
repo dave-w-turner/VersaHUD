@@ -152,8 +152,10 @@ public partial class BTDevicePicker : ContentView
             if (Shell.Current?.CurrentPage is MainPage mainPage)
             {
                 await Task.Delay(1000);
-                _ = App.NetworkService.AutoConnectAsync();
-                await mainPage.VerifyPasswordAgainstHardwareAsync();
+                if (await App.NetworkService.AutoConnectAsync())
+                {
+                    await mainPage.VerifyPasswordAgainstHardwareAsync();
+                }
             }
 
             listBleDevices.SelectedItem = null;

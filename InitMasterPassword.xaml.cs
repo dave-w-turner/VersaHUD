@@ -40,29 +40,25 @@ public partial class InitMasterPassword : ContentView
 
             using (var storageEditor = nativePreferences.Edit())
             {
-                // We write using your exact, clean string literal key matching your firmware firmware variables!
                 storageEditor.PutString("MasterPasswordKey", enteredPasscode);
-                storageEditor.Apply(); // Flash the update securely down to the physical silicon chip
+                storageEditor.Apply();
             }
             Debug.WriteLine($"--> [NATIVE STORAGE LINK]: Master password token saved cleanly: {enteredPasscode}");
 #else
             Preferences.Default.Set("MasterPasswordKey", enteredPasscode);
 #endif
 
-            entryInitialPass.Text = string.Empty; // Wipe out input text properties
+            entryInitialPass.Text = string.Empty;
 
             OnPasswordInitialized?.Invoke(this, EventArgs.Empty);
 
-            var currentMainPage = Shell.Current?.CurrentPage as VersaHUD.MainPage;
+            var currentMainPage = Shell.Current?.CurrentPage as MainPage;
             if (currentMainPage != null)
             {
                 MainThread.BeginInvokeOnMainThread(async () =>
                 {
                     var layoutContainerShell = currentMainPage.FindByName<Grid>("layoutPasswordInitShell");
-                    if (layoutContainerShell != null)
-                    {
-                        layoutContainerShell.IsVisible = false; // Hide the onboarding panel
-                    }
+                    layoutContainerShell?.IsVisible = false;
 
                     await currentMainPage.VerifyPasswordAgainstHardwareAsync();
                 });

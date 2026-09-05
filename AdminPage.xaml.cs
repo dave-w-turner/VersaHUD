@@ -1,12 +1,10 @@
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
 
 namespace VersaHUD;
 
 public partial class AdminPage : ContentPage, INotifyPropertyChanged
 {
-    private new event PropertyChangedEventHandler PropertyChanged;
     private CancellationTokenSource? _adminWifiWatchdogCancelSource;
 
     public AdminPage()
@@ -192,33 +190,13 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
     private void OnVehicleLinkStateChanged(bool isConnected)
     {
-        if (isConnected)
+        MainThread.BeginInvokeOnMainThread(async () =>
         {
-            MainThread.BeginInvokeOnMainThread(async () =>
+            if (layoutRebootLockoutShell != null && layoutRebootLockoutShell.IsVisible && !App.NetworkService.IsRebootingWatchdogActive)
             {
-                if (layoutRebootLockoutShell != null && layoutRebootLockoutShell.IsVisible)
-                {
-                    layoutRebootLockoutShell.IsVisible = false;
-                }
-
-                await Task.Delay(400);
-
-                if (App.NetworkService != null && !App.NetworkService.IsRebootingWatchdogActive)
-                {
-                    if (!(App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingCloudWanMode))
-                    {
-                        string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-                        Debug.WriteLine("--> [ADMIN CONTROL HUB]: Executing post-reboot automated BLE serial command sync pass...");
-
-                        await App.NetworkService.SendSecureCommandAsync(activeKey, "GETROUTER");
-                        await Task.Delay(150);
-                        await App.NetworkService.SendSecureCommandAsync(activeKey, "GETWIFINAME");
-                        await Task.Delay(150);
-                        await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
-                    }
-                }
-            });
-        }
+                layoutRebootLockoutShell.IsVisible = false;
+            }
+        });
     }
 
     private async void OnRotateMasterPassClicked(object sender, EventArgs e)
@@ -565,12 +543,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             await DisplayAlertAsync("LINK FAULT", $"The transmission stream encountered an exception: {ex.Message}", "OK");
         }
     }
-    
-    protected new void OnPropertyChanged([CallerMemberName] string propertyName = null)
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
-
+  
     protected override async void OnAppearing()
     {
         base.OnAppearing();
@@ -587,37 +560,11 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         if (App.NetworkService != null && !App.NetworkService.IsRebootingWatchdogActive)
         {
-            if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingCloudWanMode)
+            if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode)
             {
                 Debug.WriteLine("--> [ADMIN CONTROL HUB]: Fetching clean configuration matrices straight from API...");
 
-                var (wifiAp, bleName, routerSsid, cfHost, cfId, isOk) = App.NetworkService.IsUsingWifiTransportMode ?
-                    await Services.NetworkHubService.FetchWifiAdminParametersAsync() : await Services.NetworkHubService.FetchCloudAdminParametersAsync();
-
-                if (isOk)
-                {
-                    MainThread.BeginInvokeOnMainThread(() =>
-                    {
-                        entryWifiAP.Text = wifiAp;
-                        entryBleName.Text = bleName;
-                        entryCfHost.Text = cfHost.Equals("silent-bird-d9c0.taigon1984.workers.dev") ? string.Empty : cfHost;
-                        entryCfClientId.Text = cfId.Equals("NONE") ? string.Empty : cfId;
-
-
-                        if (routerSsid == "NONE" || string.IsNullOrEmpty(routerSsid))
-                        {
-                            entryRouterSSID.Text = string.Empty;
-                            layoutUnconfiguredRouter.IsVisible = true;
-                            layoutConfiguredRouter.IsVisible = false;
-                        }
-                        else
-                        {
-                            entryRouterSSID.Text = routerSsid;
-                            layoutUnconfiguredRouter.IsVisible = false;
-                            layoutConfiguredRouter.IsVisible = true;
-                        }
-                    });
-                }
+                await HandleWifiAndCloudData();
                 return;
             }
 
@@ -633,6 +580,38 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
             await Task.Delay(500);
         }
+    }
+
+    private async Task HandleWifiAndCloudData()
+    {
+        var (wifiAp, bleName, routerSsid, cfHost, cfId, isOk) = App.NetworkService.IsUsingWifiTransportMode ?
+            await Services.NetworkHubService.FetchWifiAdminParametersAsync() : await Services.NetworkHubService.FetchCloudAdminParametersAsync();
+
+        if (isOk)
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                entryWifiAP.Text = wifiAp;
+                entryBleName.Text = bleName;
+                entryCfHost.Text = cfHost.Equals("silent-bird-d9c0.taigon1984.workers.dev") ? string.Empty : cfHost;
+                entryCfClientId.Text = cfId.Equals("NONE") ? string.Empty : cfId;
+
+
+                if (routerSsid == "NONE" || string.IsNullOrEmpty(routerSsid))
+                {
+                    entryRouterSSID.Text = string.Empty;
+                    layoutUnconfiguredRouter.IsVisible = true;
+                    layoutConfiguredRouter.IsVisible = false;
+                }
+                else
+                {
+                    entryRouterSSID.Text = routerSsid;
+                    layoutUnconfiguredRouter.IsVisible = false;
+                    layoutConfiguredRouter.IsVisible = true;
+                }
+            });
+        }
+
     }
 
     protected override void OnDisappearing()

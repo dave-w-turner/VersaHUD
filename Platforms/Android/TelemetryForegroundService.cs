@@ -1,6 +1,7 @@
 ﻿using Android.App;
 using Android.Content;
 using Android.OS;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace VersaHUD;
@@ -21,6 +22,7 @@ public class TelemetryForegroundService : Service
     private int _backPercent = 0;
     private bool _isFrontCharging = false;
     private bool _isTrunkCharging = false;
+    private bool _isCrossCharging = false;
 
     private BootReceiver? _dynamicBluetoothStateReceiver;
 
@@ -42,7 +44,7 @@ public class TelemetryForegroundService : Service
         builder.SetContentIntent(pendingContentIntent);
 
         bool isBluetoothConnected = App.NetworkService != null && App.NetworkService.IsBluetoothConnected;
-        bool isSystemTotallyOffline = !isBluetoothConnected && !App.NetworkService.IsUsingWifiTransportMode && !App.NetworkService.IsUsingCloudWanMode;
+        bool isSystemTotallyOffline = !isBluetoothConnected && !(App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode) && !App.NetworkService.IsUsingCloudWanMode;
 
         var multiLineTextStyle = new Notification.BigTextStyle();
 
@@ -58,7 +60,7 @@ public class TelemetryForegroundService : Service
             _isFrontCharging = false;
             _isTrunkCharging = false;
 
-            string emptyProgressIndicator = GenerateVisualProgressIndicatorMeter(0);
+            string emptyProgressIndicator = GenerateVisualProgressIndicatorMeter(0);           
 
             multiLineTextStyle.BigText(
                 $"FRONT BATTERY   ::   0.0V  ( 0% )   {emptyProgressIndicator}   🔋 [ OFFLINE ]\n" +
@@ -91,11 +93,39 @@ public class TelemetryForegroundService : Service
             int fDisplayPercent = _frontPercent;
             int bDisplayPercent = _backPercent;
 
-            multiLineTextStyle.BigText(
-                $"FRONT BATTERY   ::   {fDisplayVolts:F1}V  ({fDisplayPercent,3}%)   {fProgressIndicator}   {fChargingFlag}\n" +
-                $"TRUNK BATTERY   ::   {bDisplayVolts:F1}V  ({bDisplayPercent,3}%)   {bProgressIndicator}   {bSystemFlag}");
+            StringBuilder statusText = new();
 
-            builder.SetContentTitle("📡 VERSA HUD STATUS");
+            if (_isCrossCharging)
+            {
+                statusText.AppendLine($"⚡ CROSS-CHARGING ACTIVE\n");
+            }
+
+            if (App.NetworkService != null)
+            {
+                if (App.NetworkService.IsUsingWifiTransportMode)
+                {
+                    statusText.AppendLine($"📶 Wi-Fi Transport Mode Active\n");
+                }
+                else if (App.NetworkService.IsUsingLocalApMode)
+                {
+                    statusText.AppendLine($"🏠 Local AP Mode Active\n");
+                }
+                else if (App.NetworkService.IsUsingCloudWanMode)
+                {
+                    statusText.AppendLine($"🌐 Cloud WAN Transport Mode Active\n");
+                }
+                else if (App.NetworkService.IsBluetoothConnected)
+                {
+                    statusText.AppendLine($"🔵 Bluetooth Transport Mode Active\n");
+                }
+            }
+
+            statusText.AppendLine($"FRONT BATTERY   ::   {fDisplayVolts:F1}V  ({fDisplayPercent,3}%)   {fProgressIndicator}   {fChargingFlag}");
+            statusText.AppendLine($"TRUNK BATTERY   ::   {bDisplayVolts:F1}V  ({bDisplayPercent,3}%)   {bProgressIndicator}   {bSystemFlag}");
+
+            multiLineTextStyle.BigText(statusText.ToString());
+
+            builder.SetContentTitle("📡 VERSA HUD");
 
             Intent lockIntent = new Intent(this, typeof(NotificationActionReceiver)).SetAction("VERSAHUD_ACTION_LOCK");
             PendingIntent pLock = PendingIntent.GetBroadcast(this, 1, lockIntent, PendingIntentFlags.UpdateCurrent | PendingIntentFlags.Immutable);
@@ -177,6 +207,7 @@ public class TelemetryForegroundService : Service
 
                 _isFrontCharging = root.TryGetProperty("charging_f", out var cf) && cf.GetBoolean();
                 _isTrunkCharging = root.TryGetProperty("charging_b", out var cb) && cb.GetBoolean();
+                _isCrossCharging = root.TryGetProperty("cross_charging", out var cx) && cx.GetBoolean();
             }
             catch { return; }
         }
@@ -197,6 +228,7 @@ public class TelemetryForegroundService : Service
 
             _isFrontCharging = rawPacket.Contains("Front: [🔋 CHARGING]") || rawPacket.Contains("charging_f\":true");
             _isTrunkCharging = rawPacket.Contains("Back: [🔋 CHARGING]") || rawPacket.Contains("Back: [🔋 CHARGING") || rawPacket.Contains("charging_b\":true");
+            _isCrossCharging = rawPacket.Contains("[⚡ CROSS_CHG ACTIVE]") || rawPacket.Contains("cross_charging\":true");
         }
 
         _notificationManager.Notify(NOTIFICATION_ID, BuildTelemetryStatusNotification());
@@ -247,11 +279,6 @@ public class TelemetryForegroundService : Service
         }
 
         App.NetworkService.OnConnectionStateChanged += (isConnected) =>
-        {
-            _notificationManager.Notify(NOTIFICATION_ID, BuildTelemetryStatusNotification());
-        };
-
-        App.NetworkService.OnTransportModeChanged += (isWifiActive) =>
         {
             _notificationManager.Notify(NOTIFICATION_ID, BuildTelemetryStatusNotification());
         };

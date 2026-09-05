@@ -4,10 +4,9 @@ namespace VersaHUD.Controls;
 
 public partial class BTDevicePicker : ContentView
 {
-	public BTDevicePicker()
+    public BTDevicePicker()
 	{
 		InitializeComponent();
-
         listBleDevices.ItemsSource = App.NetworkService?.DiscoveredDevices;
     }
 
@@ -87,6 +86,12 @@ public partial class BTDevicePicker : ContentView
 
     private async void OnRefreshScanClicked(object sender, EventArgs e)
     {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            IsVisible = true;
+        });
+
+        await Task.Delay(100);
         await ExecuteVisualRadarScanAsync();
     }
 
@@ -114,52 +119,82 @@ public partial class BTDevicePicker : ContentView
                     preferenceDiskEditor.PutString(MainPage.SavedDeviceNameKey, selectedDevice.Name ?? "VersaHub_BLE");
                     preferenceDiskEditor.Commit();
                 }
-                else throw new Exception("Failed to acquire native shared preferences editor for disk commit.");
+                else
+                {
+                    MainThread.BeginInvokeOnMainThread(async () =>
+                    {
+                        await Application.Current.MainPage.DisplayAlertAsync("CONNECTION FAULT", "Could not save device information.", "OK");
+                        return;
+                    });
+                }
             }
             Debug.WriteLine("--> [PICKER SUCCESS]: Hard disk serialization finalized cleanly.");
         }
 #endif
-        if (this.Parent is Grid parentGrid) parentGrid.IsVisible = false;
 
-        bool pairingSuccess = await App.NetworkService.PairAndConnectDeviceAsync(selectedDevice);
-
-        if (!pairingSuccess)
+        MainThread.BeginInvokeOnMainThread(async () =>
         {
-            Debug.WriteLine("--> [PICKER WATCHDOG]: First clean-install handshake timed out. Initializing silent stabilization retry...");
+            IsVisible = false;
+        });
 
-            await Task.Delay(500);
+        await Task.Delay(100);
 
-            pairingSuccess = await App.NetworkService.PairAndConnectDeviceAsync(selectedDevice);
+        bool pairingSuccess = false;
+        try
+        {
+            pairingSuccess = await Task.Run(async () => await App.NetworkService.PairAndConnectDeviceAsync(selectedDevice));
+
+            if (!pairingSuccess)
+            {
+                Debug.WriteLine("--> [PICKER WATCHDOG]: First clean-install handshake timed out. Initializing silent stabilization retry...");
+                await Task.Delay(500);
+                pairingSuccess = await Task.Run(async () => await App.NetworkService.PairAndConnectDeviceAsync(selectedDevice));
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"--> [PICKER EXCEPTION]: Bluetooth stack fault in Release Profile: {ex.Message}");
+            pairingSuccess = false;
         }
 
         if (!pairingSuccess)
         {
-            listBleDevices.SelectedItem = null;
+            MainThread.BeginInvokeOnMainThread(async () =>
+            {
+                listBleDevices.SelectedItem = null;
+                Debug.WriteLine("--> [PICKER CRITICAL FAULT]: Second connection pass failed. Restoring view radar states...");
+                await Application.Current.MainPage.DisplayAlertAsync("CONNECTION FAULT", "Cockpit connection timed out. Tap your device node to re-link.", "OK");
 
-            Debug.WriteLine("--> [PICKER CRITICAL FAULT]: Second connection pass failed. Restoring view radar states...");
+                IsVisible = true;
+                await Task.Delay(100);
 
-            if (this.Parent is Grid pGrid) pGrid.IsVisible = true;
-            await ExecuteVisualRadarScanAsync();
-
-            await Application.Current.MainPage.DisplayAlertAsync("CONNECTION FAULT", "Cockpit connection timed out. Tap your device node to re-link.", "OK");
+                await ExecuteVisualRadarScanAsync();
+            });
         }
         else
         {
             Debug.WriteLine("--> [PICKER SUCCESS]: Handshake established successfully over stabilized channel lanes!");
 
-            if (this.Parent is Grid pGrid) pGrid.IsVisible = false;
-
-            if (Shell.Current?.CurrentPage is MainPage mainPage)
+            MainThread.BeginInvokeOnMainThread(async () =>
             {
-                await Task.Delay(1000);
-                if (await App.NetworkService.AutoConnectAsync())
+                if (Shell.Current?.CurrentPage is MainPage mainPage)
                 {
-                    await mainPage.VerifyPasswordAgainstHardwareAsync();
+                    await Task.Delay(1000);
+                    await Task.Run(async () => await App.NetworkService.AutoConnectAsync());
                 }
-            }
 
-            listBleDevices.SelectedItem = null;
+                listBleDevices.SelectedItem = null;
+            });
         }
+    }
+
+    private void OnClosePickerOverlayClicked(object sender, EventArgs e)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            IsVisible = false;
+            Debug.WriteLine("--> [UI CONTROL]: Device selection picker overlay hidden cleanly.");
+        });
     }
 
     public async Task InitializePickerLifecycleAsync()
@@ -186,17 +221,12 @@ public partial class BTDevicePicker : ContentView
             await Task.Delay(300);
 #endif
 
-            bool isReconnected = await App.NetworkService.AutoConnectAsync();
-
-            if (!isReconnected)
+            MainThread.BeginInvokeOnMainThread(async () =>
             {
-                MainThread.BeginInvokeOnMainThread(async () =>
-                {
-                    this.IsVisible = true;
-                    this.InvalidateMeasure();
-                    await ExecuteVisualRadarScanAsync();
-                });
-            }
+                IsVisible = true;
+                InvalidateMeasure();
+                await ExecuteVisualRadarScanAsync();
+            });
         }
         catch (Exception ex)
         {

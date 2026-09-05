@@ -22,6 +22,8 @@ public class BootReceiver : BroadcastReceiver
         {
             int stateCode = intent.GetIntExtra(BluetoothAdapter.ExtraState, BluetoothAdapter.Error);
 
+            App.NetworkService.LastTransportSwitchTimestamp = DateTime.MinValue;
+
             if (stateCode == (int)State.On)
             {
                 System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR]: Bluetooth hardware initialized. Triggering rapid background reconnection pipeline...");
@@ -33,7 +35,7 @@ public class BootReceiver : BroadcastReceiver
                         await Task.Delay(500);
 
                         System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR]: Invoking AutoConnectAsync dynamically over active radio waves...");
-                        _ = App.NetworkService.AutoConnectAsync();
+                        _ = Task.Run(async () => _ = App.NetworkService.AutoConnectAsync());
                     }
                     catch (Exception ex)
                     {
@@ -47,7 +49,7 @@ public class BootReceiver : BroadcastReceiver
 
                 if (App.NetworkService != null)
                 {
-                    if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingCloudWanMode)
+                    if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingCloudWanMode || App.NetworkService.IsUsingLocalApMode)
                     {
                         System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR RADAR]: Bluetooth radio severed, but active Wi-Fi transport link is live! Suppressing disconnect alert.");
                         return;
@@ -55,9 +57,12 @@ public class BootReceiver : BroadcastReceiver
 
                     System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR CRITICAL]: Both networks dead. Purging residual wireless cache properties...");
 
-                    _ = App.NetworkService.AutoConnectAsync();
+                    App.NetworkService.StopRssiTracking();
+
+                    Task.Run(async () => _ = App.NetworkService.AutoConnectAsync());
                 }
             }
+            
             return;
         }
 

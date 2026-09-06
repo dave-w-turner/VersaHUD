@@ -26,6 +26,7 @@ public partial class MainPage : ContentPage
         App.NetworkService.OnConnectionStateChanged += UpdateBluetoothStatusBadge;
         App.NetworkService.OnRssiUpdated += UpdateWirelessSignalBars;
         App.NetworkService.OnTelemetryReceived += ParseVehicleTelemetryStream;
+        App.NetworkService.OnAuthorizationRequestComplete += HandleAuthorizationRequest;
 
         if (initMasterPasswordControl != null)
         {
@@ -123,6 +124,14 @@ public partial class MainPage : ContentPage
                     if (!string.IsNullOrEmpty(combinedTelemetryString))
                     {
                         OnTelemetryParsed?.Invoke(combinedTelemetryString);
+                        App.NetworkService.IsWifiTelemetryDead = false;
+                    }
+                    else
+                    {
+
+                        //No telemetry logs returning from endpoint. Switch transport.
+                        Debug.WriteLine("--> [DASHBOARD PARSER]: No telemetry being return from Wifi endpoint. Setting flag to default to next transport type.");
+                        App.NetworkService.IsWifiTelemetryDead = true;
                     }
                 }
 
@@ -327,6 +336,8 @@ public partial class MainPage : ContentPage
 
                 btnManualScanTrigger?.IsVisible = true;
                 btnAdminNavigation?.IsEnabled = false;
+                btnUnlock?.IsEnabled = false;
+                btnLock?.IsEnabled = false;
             }
             else if (!(isConnected || App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode))
             {
@@ -504,6 +515,7 @@ public partial class MainPage : ContentPage
         {
             lblCrossChargeStatus.Text = "⚡ CROSS-CHARGING ACTIVE";
             lblCrossChargeStatus.TextColor = Colors.Yellow;
+            layoutCrossCharging.IsVisible = true;
         }
         else
         {
@@ -607,12 +619,57 @@ public partial class MainPage : ContentPage
 
     private void OnSetupFinished(object sender, EventArgs e)
     {
-        initMasterPasswordControl.OnPasswordInitialized -= OnSetupFinished;
-
-        MainThread.BeginInvokeOnMainThread(() =>
+        MainThread.BeginInvokeOnMainThread(async () =>
         {
             layoutPasswordInitShell.IsVisible = false;
+            App.NetworkService.IsPromptingForMasterPassword = false;
         });
+    }
+
+    private void HandleAuthorizationRequest(bool promptForMasterPassword)
+    {
+        if (promptForMasterPassword)
+        {
+            Debug.WriteLine("--> [HANDSHAKE REJECTED]: Auth failed token caught. Displaying single alert prompt...");
+
+            App.NetworkService.IsPromptingForMasterPassword = true;
+
+            MainThread.BeginInvokeOnMainThread(async () =>
+            {
+                layoutPasswordInitShell?.IsVisible = true;
+
+                if (initMasterPasswordControl != null)
+                {
+                    var entryField = initMasterPasswordControl.FindByName<Entry>("entryInitialPass");
+                    if (entryField != null)
+                    {
+                        entryField.Text = string.Empty;
+                        entryField.Focus();
+                    }
+                }
+
+                await DisplayAlertAsync("ACCESS DENIED", "The passcode signature you entered does not match your vehicle module's secure vaults.", "TRY AGAIN");
+            });
+        }
+        else
+        {
+            Debug.WriteLine("--> [HANDSHAKE SECURED]: Auth validation state cleared successfully!");
+
+            MainThread.BeginInvokeOnMainThread(async () =>
+            {
+                if (layoutPasswordInitShell != null && layoutPasswordInitShell.IsVisible)
+                {
+                    layoutPasswordInitShell.IsVisible = false;
+                    await DisplayAlertAsync("VAULT SYNCED", "Your master passcode has been verified against your vehicle's registers. Security clearance accepted.", "ENTER COCKPIT");
+                }
+
+                string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
+                bool commandWasSent = await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
+
+                if (commandWasSent)
+                    Debug.WriteLine("--> [BOOT LINK SUCCESS]: Secure WIFI key-pull verification request offloaded natively on boot pass!");
+            });
+        }
     }
 
     private async void OnLockClicked(object sender, EventArgs e)
@@ -622,10 +679,7 @@ public partial class MainPage : ContentPage
             string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
             Debug.WriteLine("--> [UI CONTROL]: Dispatching secure over-the-air LOCK token packet...");
 
-            _ = Task.Run(async () =>
-            {
-                await App.NetworkService.SendSecureCommandAsync(activeKey, "LOCK");
-            });
+            await App.NetworkService.SendSecureCommandAsync(activeKey, "LOCK");
         }
         catch (Exception ex)
         {
@@ -640,10 +694,7 @@ public partial class MainPage : ContentPage
             string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
             Debug.WriteLine("--> [UI CONTROL]: Dispatching secure over-the-air UNLOCK token packet...");
 
-            _ = Task.Run(async () =>
-            {
-                await App.NetworkService.SendSecureCommandAsync(activeKey, "UNLOCK");
-            });
+            await App.NetworkService.SendSecureCommandAsync(activeKey, "UNLOCK");
         }
         catch (Exception ex)
         {
@@ -663,7 +714,7 @@ public partial class MainPage : ContentPage
             Debug.WriteLine("--> [RECOVERY HUB]: Wrong device selected. Executing wireless reset line...");
             if (App.NetworkService != null) await App.NetworkService.DisconnectCurrentDeviceAsync();
 
-            MainThread.BeginInvokeOnMainThread(() =>
+            MainThread.BeginInvokeOnMainThread(async () =>
             {
                 layoutPasswordInitShell.IsVisible = false;
                 if (initMasterPasswordControl != null)
@@ -675,7 +726,11 @@ public partial class MainPage : ContentPage
                 btnLock?.IsEnabled = false;
                 btnUnlock?.IsEnabled = false;
                 btnAdminNavigation?.IsEnabled = false;
-                if (btDevicePicker != null) _ = btDevicePicker.InitializePickerLifecycleAsync();
+
+                if (btDevicePicker != null)
+                {
+                    await btDevicePicker.InitializePickerLifecycleAsync();
+                }
             });
         }
         catch (Exception ex)
@@ -742,17 +797,17 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private void OnRefreshScanClicked(object sender, EventArgs e)
+    private async Task OnRefreshScanClicked(object sender, EventArgs e)
     {
-        btDevicePicker.TriggerRefreshScan();
+        await btDevicePicker.TriggerRefreshScan();
     }
 
-    protected override void OnAppearing()
+    protected override async void OnAppearing()
     {
         base.OnAppearing();
 
         if (!(App.NetworkService.IsBluetoothConnected || App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode))
-            _ = KickstartWirelessCockpitSync();
+            await KickstartWirelessCockpitSync();
 
         Debug.WriteLine("--> [DASHBOARD LANDING]: Repainting master layout frames...");
 
@@ -806,112 +861,13 @@ public partial class MainPage : ContentPage
                 }
                 else
                 {
-                    _ = Task.Run(async () => _ = App.NetworkService.AutoConnectAsync());
+                    App.NetworkService.StartConnectionSupervisor();
                 }
             });
         }
         catch (Exception ex)
         {
             Debug.WriteLine($"--> [BOOT WORKFLOW SHIELD]: {ex.Message}");
-        }
-    }
-
-    public async Task VerifyPasswordAgainstHardwareAsync()
-    {
-        if ((bool)(layoutPasswordInitShell?.IsVisible) || App.NetworkService.WaitingForAuthorizationTelemetry || App.NetworkService.IsAuthorized) return;
-
-        string savedPass = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-
-        App.NetworkService.OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
-        App.NetworkService.OnTelemetryReceived += PasswordVerificationTelemetryHandler;
-
-        if (!await App.NetworkService.SendSecureCommandAsync(savedPass, "VERIFYPASS"))
-        {
-            App.NetworkService.OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
-            App.NetworkService.IsAuthorized = false;
-
-            MainThread.BeginInvokeOnMainThread(async () =>
-            {
-                layoutPasswordInitShell?.IsVisible = true;
-
-                if (initMasterPasswordControl != null)
-                {
-                    var entryField = initMasterPasswordControl.FindByName<Entry>("entryInitialPass");
-                    if (entryField != null)
-                    {
-                        entryField.Text = string.Empty;
-                        entryField.Focus();
-                    }
-                }
-
-                await DisplayAlertAsync("ACCESS DENIED", "The passcode signature you entered does not match your vehicle module's secure vaults.", "TRY AGAIN");
-            });
-
-            return;
-        }
-
-        App.NetworkService.WaitingForAuthorizationTelemetry = true;
-    }
-
-    public void PasswordVerificationTelemetryHandler(string fullTelemetryMessage)
-    {
-        if (string.IsNullOrEmpty(fullTelemetryMessage)) return;
-        Debug.WriteLine($"--> [SINGLE-STREAM AUTH INTERCEPTOR]: {fullTelemetryMessage}");
-
-        if (fullTelemetryMessage.Contains("AUTH_SUCCESS") || fullTelemetryMessage.Contains("\"front_v\":") || fullTelemetryMessage.Contains("\"charging\":"))
-        {
-            App.NetworkService.OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
-            App.NetworkService.WaitingForAuthorizationTelemetry = false;
-
-            Debug.WriteLine("--> [HANDSHAKE SECURED]: Auth validation state cleared successfully!");
-
-            MainThread.BeginInvokeOnMainThread(async () =>
-            {
-                if (layoutPasswordInitShell != null && layoutPasswordInitShell.IsVisible)
-                {
-                    layoutPasswordInitShell.IsVisible = false;
-                    await DisplayAlertAsync("VAULT SYNCED", "Your master passcode has been verified against your vehicle's registers. Security clearance accepted.", "ENTER COCKPIT");
-                }
-
-                fullTelemetryMessage = string.Empty;
-            });
-
-            MainThread.BeginInvokeOnMainThread(async () =>
-            {
-                string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-                bool commandWasSent = await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
-
-                if (commandWasSent)
-                    Debug.WriteLine("--> [BOOT LINK SUCCESS]: Secure WIFI key-pull verification request offloaded natively on boot pass!");
-            });
-
-            App.NetworkService.IsAuthorized = true;
-        }
-        else if (fullTelemetryMessage.Contains("AUTH_FAILED") || fullTelemetryMessage.Contains("ROUTER_ERROR") || fullTelemetryMessage.Contains("401") || fullTelemetryMessage.Contains("Unauthorized"))
-        {
-            App.NetworkService.IsAuthorized = false;
-            App.NetworkService.OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
-            App.NetworkService.WaitingForAuthorizationTelemetry = false;
-
-            Debug.WriteLine("--> [HANDSHAKE REJECTED]: Auth failed token caught. Displaying single alert prompt...");
-
-            MainThread.BeginInvokeOnMainThread(async () =>
-            {
-                layoutPasswordInitShell?.IsVisible = true;
-
-                if (initMasterPasswordControl != null)
-                {
-                    var entryField = initMasterPasswordControl.FindByName<Entry>("entryInitialPass");
-                    if (entryField != null)
-                    {
-                        entryField.Text = string.Empty;
-                        entryField.Focus();
-                    }
-                }
-
-                await DisplayAlertAsync("ACCESS DENIED", "The passcode signature you entered does not match your vehicle module's secure vaults.", "TRY AGAIN");
-                fullTelemetryMessage = string.Empty;
-            });
         }
     }
 

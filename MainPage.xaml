@@ -129,12 +129,13 @@
                                VerticalOptions="Center"/>
                     </HorizontalStackLayout>
                 </Border>
-
+                
+                <VerticalStackLayout Grid.Column="0" x:Name="layoutCrossCharging" Spacing="10" HorizontalOptions="Center" IsVisible="False" Grid.ColumnSpan="2">
+                    <Label x:Name="lblCrossChargeStatus" Text="" FontSize="28" VerticalOptions="Center"/>
+                </VerticalStackLayout>
+                
                 <Grid ColumnDefinitions="*, *" Margin="0,15,0,0">
                     <VerticalStackLayout Grid.Column="0" Spacing="10" HorizontalOptions="Center">
-                        <VerticalStackLayout x:Name="layoutCrossCharging" Spacing="10" HorizontalOptions="Center" IsVisible="False" Grid.ColumnSpan="2">
-                            <Label x:Name="lblCrossChargeStatus" Text="" FontSize="28" VerticalOptions="Center"/>
-                        </VerticalStackLayout>
                         <HorizontalStackLayout Spacing="8" HorizontalOptions="Center">
                             <Label x:Name="lblFrontIcon" Text="❌" FontSize="28" VerticalOptions="Center"/>
                             <Label x:Name="lblFrontPercent" Text="0%" TextColor="#FFFFFF" FontSize="24" FontAttributes="Bold" VerticalOptions="Center"/>

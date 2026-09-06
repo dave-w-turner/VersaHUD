@@ -819,9 +819,6 @@ void handleWiFiAPI() {
                             }
                             jsonLogArrayPayload += "]";
                             
-                            for (int i = 0; i < MAX_SYSTEM_LOGS; i++) { systemLogBufferArray[i] = ""; }
-                            currentLogWritePointerIndex = 0;
-                            
                             String json = "{\"front_v\":" + String(globalFrontVolts, 2) + 
                                           ",\"front_p\":" + String(frontBatteryPercent) + 
                                           ",\"background_v\":" + String(globalBackVolts, 2) + 
@@ -1292,6 +1289,14 @@ void transmitSecureHTTPTelemetry(String jsonPayload) {
 
     if (!hasValidCredentials) return;
 
+    if (!lastCloudTransmitSuccessful) {
+        unsigned long dynamicEpochProbe = WiFi.getTime();
+        if (dynamicEpochProbe > 0) {
+        RTCTime activeTimeConvert(dynamicEpochProbe);
+        RTC.setTime(activeTimeConvert);
+        }
+    }    
+
     WiFiSSLClient secureClient;
 
     Serial.println("--> [WAN HTTPS]: Opening hardware-accelerated TLS 443 channel to Cloudflare edge...");
@@ -1387,80 +1392,86 @@ void transmitSecureHTTPTelemetry(String jsonPayload) {
     else {
         writeLog("--> [WAN HTTPS ERROR]: Handshake aborted. Edge network unreachable.");
         lastCloudTransmitSuccessful = false;
+
+        secureClient.flush();
+        secureClient.stop();
     }
 }
 
 bool flushAdminConfigurationToCloud() {
-    if (WiFi.status() != WL_CONNECTED) {
-        return false; 
-    }
+  if (WiFi.status() != WL_CONNECTED) {
+    return false; 
+  }
 
-    String activeAP = readStringFromEEPROM(EEPROM_CUSTOM_WIFI_AP);
-    if (activeAP.length() == 0) activeAP = DEFAULT_WIFI_AP_NAME;
+  String activeAP = readStringFromEEPROM(EEPROM_CUSTOM_WIFI_AP);
+  if (activeAP.length() == 0) activeAP = DEFAULT_WIFI_AP_NAME;
 
-    String activeBLE = readStringFromEEPROM(EEPROM_CUSTOM_BLE_NAME);
-    if (activeBLE.length() == 0) activeBLE = DEFAULT_BLE_NAME;
+  String activeBLE = readStringFromEEPROM(EEPROM_CUSTOM_BLE_NAME);
+  if (activeBLE.length() == 0) activeBLE = DEFAULT_BLE_NAME;
 
-    String savedSSID = readSecureStringFromEEPROM(EEPROM_WIFI_SSID_ADDR);
-    if (savedSSID.length() == 0) {
-        savedSSID = "NONE";
-    }
+  String savedSSID = readSecureStringFromEEPROM(EEPROM_WIFI_SSID_ADDR);
+  if (savedSSID.length() == 0) {
+    savedSSID = "NONE";
+  }
 
-    String configJsonPayload = "{\"wifi_ap\":\"" + activeAP + "\"" +
-                               ",\"ble_name\":\"" + activeBLE + "\"" +
-                               ",\"router_ssid\":\"" + savedSSID + "\"}";
+  String configJsonPayload = "{\"wifi_ap\":\"" + activeAP + "\"" +
+                             ",\"ble_name\":\"" + activeBLE + "\"" +
+                             ",\"router_ssid\":\"" + savedSSID + "\"}";
 
-    if (lastAdminPayload == configJsonPayload) {
-        return true; 
-    }
+  if (lastAdminPayload == configJsonPayload) {
+    return true; 
+  }
 
-    Serial.println("Payload to be transmitted to Cloudflare: " + configJsonPayload);
+  Serial.println("Payload to be transmitted to Cloudflare: " + configJsonPayload);
 
-    bool hasValidCredentials = CLOUDFLARE_HOST.length() > 5 && 
-                               CF_CLIENT_ID.length() > 5 && 
-                               CF_CLIENT_SECRET.length() > 5;
+  bool hasValidCredentials = CLOUDFLARE_HOST.length() > 5 && 
+                             CF_CLIENT_ID.length() > 5 && 
+                             CF_CLIENT_SECRET.length() > 5;
 
-    if (!hasValidCredentials) return false;
+  if (!hasValidCredentials) return false;
 
-    WiFiSSLClient secureClient;
-    Serial.println("--> [WAN HTTPS CONFIG]: Offloading identities to persistent KV vaults...");
+  WiFiSSLClient secureClient;
+  Serial.println("--> [WAN HTTPS CONFIG]: Offloading identities to persistent KV vaults...");
 
-    if (secureClient.connect(CLOUDFLARE_HOST.c_str(), 443)) {
-        secureClient.println("POST /api/admin HTTP/1.1");
-        secureClient.println("Host: " + CLOUDFLARE_HOST);
-        secureClient.println("Content-Type: text/plain");
-        secureClient.println("CF-Access-Client-Id: " + CF_CLIENT_ID);
-        secureClient.println("CF-Access-Client-Secret: " + CF_CLIENT_SECRET);
-        secureClient.println("Content-Length: " + String(configJsonPayload.length()));
-        secureClient.println("Connection: close");
-        secureClient.println();
-        secureClient.print(configJsonPayload);
+  if (secureClient.connect(CLOUDFLARE_HOST.c_str(), 443)) {
+    secureClient.println("POST /api/admin HTTP/1.1");
+    secureClient.println("Host: " + CLOUDFLARE_HOST);
+    secureClient.println("Content-Type: text/plain");
+    secureClient.println("CF-Access-Client-Id: " + CF_CLIENT_ID);
+    secureClient.println("CF-Access-Client-Secret: " + CF_CLIENT_SECRET);
+    secureClient.println("Content-Length: " + String(configJsonPayload.length()));
+    secureClient.println("Connection: close");
+    secureClient.println();
+    secureClient.print(configJsonPayload);
 
-        lastAdminPayload = configJsonPayload;
+    lastAdminPayload = configJsonPayload;
 
-        unsigned long secureBreakoutWatchdogTimer = millis();
-        while (secureClient.connected() && (millis() - secureBreakoutWatchdogTimer < 1500)) {
-            if (secureClient.available()) {
-                String responseLine = secureClient.readStringUntil('\n');
-                responseLine.trim();
-                if (responseLine.length() == 0) {
-                    break;
-                }
-            }
+    unsigned long secureBreakoutWatchdogTimer = millis();
+    while (secureClient.connected() && (millis() - secureBreakoutWatchdogTimer < 1500)) {
+      if (secureClient.available()) {
+        String responseLine = secureClient.readStringUntil('\n');
+        responseLine.trim();
+        if (responseLine.length() == 0) {
+          break;
         }
-
-        while (secureClient.available()) { 
-            secureClient.read(); 
-        }
-
-        secureClient.stop();
-        Serial.println("--> [WAN HTTPS CONFIG COMPLETE]: Persistent cloud identities populated successfully.");
-        return true;
-    } else {
-        Serial.println("--> [WAN HTTPS CONFIG ERROR]: Handshake aborted. Vaults un-hydrated.");
+      }
     }
 
-    return false;
+    while (secureClient.available()) { 
+      secureClient.read(); 
+    }
+
+    secureClient.stop();
+    Serial.println("--> [WAN HTTPS CONFIG COMPLETE]: Persistent cloud identities populated successfully.");
+    return true;
+  } else {
+    Serial.println("--> [WAN HTTPS CONFIG ERROR]: Handshake aborted. Vaults un-hydrated.");
+    
+    secureClient.flush();
+    secureClient.stop();
+  }
+
+  return false;
 }
 
 void writeLog(String txt) {

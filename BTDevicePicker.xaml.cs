@@ -12,54 +12,6 @@ public partial class BTDevicePicker : ContentView
 
     private async Task ExecuteVisualRadarScanAsync()
     {
-        bool isPermissionApproved = false;
-
-#if ANDROID
-        var nativeAndroidContext = Android.App.Application.Context;
-
-        bool hasNativeScanClearance = nativeAndroidContext.CheckSelfPermission(Android.Manifest.Permission.BluetoothScan) == Android.Content.PM.Permission.Granted;
-        bool hasNativeConnectClearance = nativeAndroidContext.CheckSelfPermission(Android.Manifest.Permission.BluetoothConnect) == Android.Content.PM.Permission.Granted;
-
-        if (!hasNativeScanClearance || !hasNativeConnectClearance)
-        {
-            Debug.WriteLine("--> [RADAR SECURITY INTERCEPT]: Hardware tokens flushed out via radio cycle. Forcing native re-request...");
-
-            var forcedStatus = await MainThread.InvokeOnMainThreadAsync(async () =>
-            {
-                return await Permissions.RequestAsync<Permissions.Bluetooth>();
-            });
-            isPermissionApproved = (forcedStatus == PermissionStatus.Granted);
-        }
-        else
-        {
-            isPermissionApproved = true;
-        }
-#else
-        var fallbackStatus = await Permissions.CheckStatusAsync<Permissions.Bluetooth>();
-        isPermissionApproved = (fallbackStatus == PermissionStatus.Granted);
-#endif
-
-        if (!isPermissionApproved)
-        {
-            Debug.WriteLine("--> [RADAR HALTED]: Missing Bluetooth security permissions to communicate with physical antennas.");
-
-            await MainThread.InvokeOnMainThreadAsync(async () =>
-            {
-                if (indicatorScanning != null)
-                {
-                    indicatorScanning.IsRunning = false;
-                    indicatorScanning.IsVisible = false;
-                }
-
-                var structuralShellPage = Application.Current?.MainPage;
-                if (structuralShellPage != null)
-                {
-                    await structuralShellPage.DisplayAlertAsync("PERMISSIONS REQUIRED", "VersaHUD cannot execute its scanning radar because the application lacks active hardware Bluetooth permissions.", "OK");
-                }
-            });
-            return;
-        }
-
         MainThread.BeginInvokeOnMainThread(() =>
         {
             if (indicatorScanning != null)
@@ -86,6 +38,9 @@ public partial class BTDevicePicker : ContentView
 
     private async void OnRefreshScanClicked(object sender, EventArgs e)
     {
+        if (!await GetBTPermissions())
+            return;
+
         MainThread.BeginInvokeOnMainThread(() =>
         {
             IsVisible = true;
@@ -180,7 +135,7 @@ public partial class BTDevicePicker : ContentView
                 if (Shell.Current?.CurrentPage is MainPage mainPage)
                 {
                     await Task.Delay(1000);
-                    await Task.Run(async () => await App.NetworkService.AutoConnectAsync());
+                    App.NetworkService.StartConnectionSupervisor();
                 }
 
                 listBleDevices.SelectedItem = null;
@@ -197,36 +152,70 @@ public partial class BTDevicePicker : ContentView
         });
     }
 
+    private async Task<bool> GetBTPermissions()
+    {
+        bool isPermissionApproved = false;
+
+#if ANDROID
+        var nativeAndroidContext = Android.App.Application.Context;
+
+        bool hasNativeScanClearance = nativeAndroidContext.CheckSelfPermission(Android.Manifest.Permission.BluetoothScan) == Android.Content.PM.Permission.Granted;
+        bool hasNativeConnectClearance = nativeAndroidContext.CheckSelfPermission(Android.Manifest.Permission.BluetoothConnect) == Android.Content.PM.Permission.Granted;
+
+        if (!hasNativeScanClearance || !hasNativeConnectClearance)
+        {
+            Debug.WriteLine("--> [RADAR SECURITY INTERCEPT]: Hardware tokens flushed out via radio cycle. Forcing native re-request...");
+
+            var forcedStatus = await MainThread.InvokeOnMainThreadAsync(async () =>
+            {
+                return await Permissions.RequestAsync<Permissions.Bluetooth>();
+            });
+            isPermissionApproved = (forcedStatus == PermissionStatus.Granted);
+        }
+        else
+        {
+            isPermissionApproved = true;
+        }
+#else
+        var fallbackStatus = await Permissions.CheckStatusAsync<Permissions.Bluetooth>();
+        isPermissionApproved = (fallbackStatus == PermissionStatus.Granted);
+#endif
+
+        return isPermissionApproved;
+    }
+
     public async Task InitializePickerLifecycleAsync()
     {
         try
         {
-#if ANDROID
-            Debug.WriteLine("--> [PICKER WATCHDOG]: Resolving custom ModernBluetooth runtime permissions matrix...");
-
-            var scanStatus = await Permissions.CheckStatusAsync<ModernBluetooth>();
-
-            if (scanStatus != PermissionStatus.Granted)
+            if (!await GetBTPermissions())
             {
-                scanStatus = await Permissions.RequestAsync<ModernBluetooth>();
-            }
+                Debug.WriteLine("--> [RADAR HALTED]: Missing Bluetooth security permissions to communicate with physical antennas.");
 
-            if (scanStatus != PermissionStatus.Granted)
-            {
-                await Application.Current.MainPage.DisplayAlertAsync("PERMISSION REQUIRED",
-                    "Android requires Nearby Devices authorization to link with your Nissan console.", "OK");
+                await MainThread.InvokeOnMainThreadAsync(async () =>
+                {
+                    if (indicatorScanning != null)
+                    {
+                        indicatorScanning.IsRunning = false;
+                        indicatorScanning.IsVisible = false;
+                    }
+
+                    var structuralShellPage = Application.Current?.MainPage;
+                    if (structuralShellPage != null)
+                    {
+                        await structuralShellPage.DisplayAlertAsync("PERMISSIONS REQUIRED", "VersaHUD cannot execute its scanning radar because the application lacks active hardware Bluetooth permissions.", "OK");
+                    }
+                });
                 return;
             }
-
-            await Task.Delay(300);
-#endif
 
             MainThread.BeginInvokeOnMainThread(async () =>
             {
                 IsVisible = true;
                 InvalidateMeasure();
-                await ExecuteVisualRadarScanAsync();
             });
+
+            await ExecuteVisualRadarScanAsync();
         }
         catch (Exception ex)
         {
@@ -234,9 +223,9 @@ public partial class BTDevicePicker : ContentView
         }
     }
 
-    public void TriggerRefreshScan()
+    public async Task TriggerRefreshScan()
     {
-        OnRefreshScanClicked(this, EventArgs.Empty);
+        await InitializePickerLifecycleAsync();
     }
 }
 

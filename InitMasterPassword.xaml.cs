@@ -59,8 +59,6 @@ public partial class InitMasterPassword : ContentView
                 {
                     var layoutContainerShell = currentMainPage.FindByName<Grid>("layoutPasswordInitShell");
                     layoutContainerShell?.IsVisible = false;
-
-                    await currentMainPage.VerifyPasswordAgainstHardwareAsync();
                 });
             }
         }

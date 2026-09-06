@@ -35,7 +35,7 @@ public class BootReceiver : BroadcastReceiver
                         await Task.Delay(500);
 
                         System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR]: Invoking AutoConnectAsync dynamically over active radio waves...");
-                        _ = Task.Run(async () => _ = App.NetworkService.AutoConnectAsync());
+                        App.NetworkService.StartConnectionSupervisor();
                     }
                     catch (Exception ex)
                     {
@@ -59,7 +59,7 @@ public class BootReceiver : BroadcastReceiver
 
                     App.NetworkService.StopRssiTracking();
 
-                    Task.Run(async () => _ = App.NetworkService.AutoConnectAsync());
+                    App.NetworkService.StartConnectionSupervisor();
                 }
             }
             

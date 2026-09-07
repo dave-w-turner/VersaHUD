@@ -115,7 +115,7 @@ public partial class MainPage : ContentPage
                     var fullTelemetry = string.Empty;
                     bool hasNewUniqueLines = false;
 
-                    foreach (JsonElement individualLine in logsNode.EnumerateArray())
+                    foreach (JsonElement individualLine in logsNode.EnumerateArray().Reverse())
                     {
                         string logText = individualLine.GetString() ?? string.Empty;
                         logText = logText.Trim();

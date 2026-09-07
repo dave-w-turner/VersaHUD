@@ -95,7 +95,7 @@ public class NetworkHubService
 
     public DateTime LastReportedWANLinkState { get; set; } = DateTime.MinValue;
     public bool IsAuthorized { get; set; } = false;
-    public bool WaitingForAuthorizationTelemetry { get; set; } = false;
+    public bool WaitingForAuthorization { get; set; } = false;
     public DateTime LastTransportSwitchTimestamp = DateTime.MinValue;
 
     public NetworkHubService()
@@ -239,7 +239,7 @@ public class NetworkHubService
                             _txCharacteristic?.ValueUpdated -= NativeCharacteristic_ValueUpdated;
                             _bLECommunicationProvisioned = false;
                             LastTransportSwitchTimestamp = DateTime.UtcNow;
-                            WaitingForAuthorizationTelemetry = false;
+                            WaitingForAuthorization = false;
 
                             Debug.WriteLine("--> [FAILOVER SUCCESS]: Vehicle node discovered live over Wi-Fi Subnet. Engaging Wi-Fi transport channels!");
                             OnConnectionStateChanged?.Invoke(false);
@@ -268,7 +268,7 @@ public class NetworkHubService
                         _txCharacteristic?.ValueUpdated -= NativeCharacteristic_ValueUpdated;
                         _bLECommunicationProvisioned = false;
                         LastTransportSwitchTimestamp = DateTime.UtcNow;
-                        WaitingForAuthorizationTelemetry = false;
+                        WaitingForAuthorization = false;
 
                         Debug.WriteLine("--> [FAILOVER SUCCESS]: Vehicle node discovered live over Wi-Fi Hotspot. Engaging Wi-Fi transport channels!");
 
@@ -325,7 +325,7 @@ public class NetworkHubService
                         _bLECommunicationProvisioned = false;
                         IsConnecting = false;
 
-                        if (IsAuthorized || WaitingForAuthorizationTelemetry)
+                        if (IsAuthorized || WaitingForAuthorization)
                         {
                             await ManageWifiTelemetryPollingLifecycle(false);
                             await ManageCloudFlareTelemetryPollingLifecycle();
@@ -365,7 +365,7 @@ public class NetworkHubService
 
         _ = Task.Run(async () =>
         {
-            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
             while (!token.IsCancellationRequested && await timer.WaitForNextTickAsync(token))
             {
                 try
@@ -385,7 +385,7 @@ public class NetworkHubService
 
     public async Task VerifyPasswordAgainstHardwareAsync()
     {
-        if (IsPromptingForMasterPassword || WaitingForAuthorizationTelemetry || IsAuthorized) return;
+        if (IsPromptingForMasterPassword || WaitingForAuthorization || IsAuthorized) return;
 
         string savedPass = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
         bool cmdResult = false;
@@ -410,21 +410,27 @@ public class NetworkHubService
             {
                 IsAuthorized = true;
                 OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
-                WaitingForAuthorizationTelemetry = false;
+                WaitingForAuthorization = false;
+                OnConnectionStateChanged?.Invoke(false);
 
                 Debug.WriteLine("--> [HANDSHAKE SECURED]: Auth validation state cleared successfully!");
                 OnAuthorizationRequestComplete?.Invoke(false);
+                StartConnectionSupervisor();
             }
             else
             {
                 OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
                 OnTelemetryReceived += PasswordVerificationTelemetryHandler;
 
-                WaitingForAuthorizationTelemetry = true;
+                WaitingForAuthorization = true;
+                OnConnectionStateChanged?.Invoke(true);
             }
         }
         else if (IsUsingWifiTransportMode || IsUsingLocalApMode)
         {
+            WaitingForAuthorization = true;
+            OnConnectionStateChanged?.Invoke(false);
+
             IsAuthorized = false;
             OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
 
@@ -442,16 +448,17 @@ public class NetworkHubService
         {
             IsAuthorized = true;
             OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
-            WaitingForAuthorizationTelemetry = false;
+            WaitingForAuthorization = false;
 
             Debug.WriteLine("--> [HANDSHAKE SECURED]: Auth validation state cleared successfully!");
             OnAuthorizationRequestComplete?.Invoke(false);
+            StartConnectionSupervisor();
         }
         else if (fullTelemetryMessage.Contains("AUTH_FAILED") || fullTelemetryMessage.Contains("ROUTER_ERROR") || fullTelemetryMessage.Contains("401") || fullTelemetryMessage.Contains("Unauthorized"))
         {
             IsAuthorized = false;
             OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
-            WaitingForAuthorizationTelemetry = false;
+            WaitingForAuthorization = false;
 
             Debug.WriteLine("--> [HANDSHAKE REJECTED]: Auth failed token caught. Displaying single alert prompt...");
             OnAuthorizationRequestComplete?.Invoke(true);
@@ -1337,6 +1344,9 @@ public class NetworkHubService
     {
         Debug.WriteLine($"--> [HARDWARE RADAR]: Phone network state shift detected. Access: {e.NetworkAccess}");
         bool hasPhysicalWifiInterface = e.ConnectionProfiles.Contains(ConnectionProfile.WiFi);
+
+        if (hasPhysicalWifiInterface)
+            IsWifiTelemetryDead = false;
 
         LastTransportSwitchTimestamp = DateTime.MinValue;
         StartConnectionSupervisor(!hasPhysicalWifiInterface);

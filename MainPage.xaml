@@ -27,6 +27,7 @@
                        Aspect="AspectFit"/>
 
                     <Button x:Name="btnAdminNavigation"
+                        IsEnabled="False"
                         Text="SETUP"
                         Clicked="OnAdminNavigationClicked"
                         AbsoluteLayout.LayoutBounds="1.05, -0.05, 90, 36"
@@ -103,7 +104,6 @@
                     </Grid>
                 </Border>
 
-
                 <Border x:Name="borderNetworkStatus" 
                         IsVisible="False"
                         BackgroundColor="#1A242D" 
@@ -131,7 +131,7 @@
                 </Border>
                 
                 <VerticalStackLayout Grid.Column="0" x:Name="layoutCrossCharging" Spacing="10" HorizontalOptions="Center" IsVisible="False" Grid.ColumnSpan="2">
-                    <Label x:Name="lblCrossChargeStatus" Text="" FontSize="28" VerticalOptions="Center"/>
+                    <Label x:Name="lblCrossChargeStatus" Text="" FontSize="16" VerticalOptions="Center"/>
                 </VerticalStackLayout>
                 
                 <Grid ColumnDefinitions="*, *" Margin="0,15,0,0">
@@ -175,6 +175,7 @@
                         x:Name="btnLock" 
                         Text="🔒 LOCK" 
                         TextColor="#FFFFFF" 
+                        IsEnabled="False"
                         BackgroundColor="#EF4444" 
                         FontSize="18" 
                         FontAttributes="Bold" 
@@ -186,6 +187,7 @@
                         x:Name="btnUnlock" 
                         Text="🔓 UNLOCK" 
                         TextColor="#FFFFFF" 
+                        IsEnabled="False"
                         BackgroundColor="#10B981" 
                         FontSize="18" 
                         FontAttributes="Bold" 

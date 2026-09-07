@@ -10,6 +10,8 @@ public partial class MainPage : ContentPage
 {
     private static readonly Regex FrontBatteryRegex = new(@"Front:\s*(?:\[[^\]]+\]\s*)?(?<volts>[\d.]+)\s*V\s*\((?<percent>\d+)%\)", RegexOptions.Compiled);
     private static readonly Regex BackBatteryRegex = new(@"Back:\s*(?:\[[^\]]+\]\s*)?(?<volts>[\d.]+)\s*V\s*\((?<percent>\d+)%\)", RegexOptions.Compiled);
+    private static string _lastTelemetryValue = string.Empty;
+    private HashSet<string> _processedVehicleLogLinesBucket = [];
 
     public event Action<string>? OnTelemetryParsed;
     public static MainPage CurrentInstance { get; private set; }
@@ -110,25 +112,40 @@ public partial class MainPage : ContentPage
                 if (logsNode.ValueKind == JsonValueKind.Array)
                 {
                     var logBuilder = new StringBuilder();
+                    var fullTelemetry = string.Empty;
+                    bool hasNewUniqueLines = false;
 
                     foreach (JsonElement individualLine in logsNode.EnumerateArray())
                     {
                         string logText = individualLine.GetString() ?? string.Empty;
+                        logText = logText.Trim();
+
                         if (!string.IsNullOrEmpty(logText))
                         {
-                            logBuilder.AppendLine(logText.Trim());
+                            fullTelemetry += logText;
+                            if (_processedVehicleLogLinesBucket.Add(logText))
+                            {
+                                logBuilder.AppendLine(logText);
+                                hasNewUniqueLines = true;
+                            }
                         }
                     }
 
-                    string combinedTelemetryString = logBuilder.ToString().TrimEnd();
-                    if (!string.IsNullOrEmpty(combinedTelemetryString))
+                    if (hasNewUniqueLines)
                     {
-                        OnTelemetryParsed?.Invoke(combinedTelemetryString);
+                        string freshTelemetryChangesOnly = logBuilder.ToString().TrimEnd();
+
+                        _lastTelemetryValue = freshTelemetryChangesOnly;
+                        OnTelemetryParsed?.Invoke(freshTelemetryChangesOnly);
                         App.NetworkService.IsWifiTelemetryDead = false;
                     }
                     else
                     {
+                        Debug.WriteLine("--> [DASHBOARD FILTER]: Duplicates detected from sliding log window. Suppressing UI redraw pass.");
+                    }
 
+                    if (string.IsNullOrEmpty(fullTelemetry))
+                    {
                         //No telemetry logs returning from endpoint. Switch transport.
                         Debug.WriteLine("--> [DASHBOARD PARSER]: No telemetry being return from Wifi endpoint. Setting flag to default to next transport type.");
                         App.NetworkService.IsWifiTelemetryDead = true;
@@ -380,6 +397,16 @@ public partial class MainPage : ContentPage
                 progressBack.Progress = 0.0f;
                 progressBack.ProgressColor = Colors.DarkSlateGray;
                 lblBackIcon.Text = "❌";
+            }
+            else if (App.NetworkService.WaitingForAuthorization)
+            {
+                borderBleStatus.BackgroundColor = Color.Parse("#2D221A");
+                borderBleStatus.Stroke = Color.Parse("#FFBF00");
+
+                lblBleDot.Text = "🔐";
+                lblBleStatusText.Text = "VERIFYING SECURITY VAULTS...";
+                lblBleStatusText.TextColor = Color.Parse("#FFBF00");
+                lblBleSignal.Text = string.Empty;
             }
             else
             {
@@ -822,6 +849,9 @@ public partial class MainPage : ContentPage
 
             Debug.WriteLine("--> [UI STATE ALIGNMENT]: Dashboard badge force-shifted to REBOOTING tracking state.");
         }
+
+        _lastTelemetryValue = string.Empty;
+        _processedVehicleLogLinesBucket = [];
 
         App.NetworkService?.UpdateLifecycleState(true);
     }

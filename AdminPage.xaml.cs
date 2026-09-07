@@ -596,7 +596,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                 entryCfHost.Text = cfHost.Equals("silent-bird-d9c0.taigon1984.workers.dev") ? string.Empty : cfHost;
                 entryCfClientId.Text = cfId.Equals("NONE") ? string.Empty : cfId;
 
-
                 if (routerSsid == "NONE" || string.IsNullOrEmpty(routerSsid))
                 {
                     entryRouterSSID.Text = string.Empty;
@@ -605,7 +604,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                 }
                 else
                 {
-                    entryRouterSSID.Text = routerSsid;
+                    lblRouterSSID.Text = routerSsid;
                     layoutUnconfiguredRouter.IsVisible = false;
                     layoutConfiguredRouter.IsVisible = true;
                 }

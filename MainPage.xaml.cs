@@ -342,8 +342,6 @@ public partial class MainPage : ContentPage
             if (App.NetworkService.IsConnecting && !(isConnected || App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode))
             {
                 Debug.WriteLine("--> [BOOT SYNC]: Historical device found. Suppressing popup and launching background tracking...");
-                btDevicePicker.IsVisible = false;
-
                 borderBleStatus.BackgroundColor = Color.Parse("#1A2D20");
                 borderBleStatus.Stroke = Color.Parse("#FFBF00");
                 lblBleDot.Text = "🔴";
@@ -441,8 +439,6 @@ public partial class MainPage : ContentPage
                         lblBleSignal?.Text = "Waiting For RSSI Update";
                     }
                 }
-
-                btDevicePicker?.IsVisible = false;
 
                 if (App.NetworkService.IsAuthorized)
                 {
@@ -559,7 +555,6 @@ public partial class MainPage : ContentPage
 
             lblBleSignal?.IsVisible = false;
             btnManualScanTrigger?.IsVisible = false;
-            btDevicePicker?.IsVisible = false;
 
             if (App.NetworkService.IsAuthorized)
             {
@@ -604,7 +599,6 @@ public partial class MainPage : ContentPage
         }
 
         btnManualScanTrigger?.IsVisible = false;
-        btDevicePicker?.IsVisible = false;
 
         if (App.NetworkService.IsAuthorized)
         {
@@ -772,51 +766,17 @@ public partial class MainPage : ContentPage
         {
             Debug.WriteLine("--> [UI CONTROL]: User requested manual scan refresh pass...");
 
-            bool isPermissionApproved = false;
-
-#if ANDROID
-            var nativeAndroidContext = Android.App.Application.Context;
-            bool hasNativeScanClearance = nativeAndroidContext.CheckSelfPermission(Android.Manifest.Permission.BluetoothScan) == Android.Content.PM.Permission.Granted;
-            bool hasNativeConnectClearance = nativeAndroidContext.CheckSelfPermission(Android.Manifest.Permission.BluetoothConnect) == Android.Content.PM.Permission.Granted;
-
-            if (!hasNativeScanClearance || !hasNativeConnectClearance)
+            await MainThread.InvokeOnMainThreadAsync(async () =>
             {
-                Debug.WriteLine("--> [WATCHDOG]: System token validation missing. Requesting dynamic hardware tracking permissions...");
-                var forcedStatus = await Permissions.RequestAsync<Permissions.Bluetooth>();
-                isPermissionApproved = forcedStatus == PermissionStatus.Granted;
-            }
-            else
-            {
-                isPermissionApproved = true;
-            }
-#else
-            var fallbackStatus = await Permissions.CheckStatusAsync<Permissions.Bluetooth>();
-            isPermissionApproved = (fallbackStatus == PermissionStatus.Granted);
-#endif
-
-            bool isRadioHardwareActive = Plugin.BLE.CrossBluetoothLE.Current.IsOn;
-
-            if (isPermissionApproved && isRadioHardwareActive)
-            {
-                MainThread.BeginInvokeOnMainThread(async () =>
+                if (btDevicePicker != null)
                 {
-                    btDevicePicker?.IsVisible = true;
-
-                    if (btDevicePicker != null)
-                    {
-                        Debug.WriteLine("--> [HARDWARE MONITOR]: Forcing active device list reset sweep over radio waves...");
-                        btnLock?.IsEnabled = false;
-                        btnUnlock?.IsEnabled = false;
-                        btnAdminNavigation?.IsEnabled = false;
-                        await btDevicePicker.InitializePickerLifecycleAsync();
-                    }
-                });
-            }
-            else
-            {
-                Debug.WriteLine("--> [CRITICAL SELECTION BLOCK]: Refresh scan blocked. Permission Approved: " + isPermissionApproved + " | Radio Active: " + isRadioHardwareActive);
-                await DisplayAlertAsync("BLUETOOTH REQUIRED", "VersaHUD cannot execute a visual radar refresh scan because your phone's Bluetooth radio switch is turned OFF or permissions were denied.\n\nPlease ensure Bluetooth is active in your drop-down panel and try again.", "OK");
-            }
+                    Debug.WriteLine("--> [HARDWARE MONITOR]: Forcing active device list reset sweep over radio waves...");
+                    btnLock?.IsEnabled = false;
+                    btnUnlock?.IsEnabled = false;
+                    btnAdminNavigation?.IsEnabled = false;
+                    await btDevicePicker.InitializePickerLifecycleAsync();
+                }
+            });
         }
         catch (Exception ex)
         {
@@ -829,12 +789,12 @@ public partial class MainPage : ContentPage
         await btDevicePicker.TriggerRefreshScan();
     }
 
-    protected override async void OnAppearing()
+    protected override void OnAppearing()
     {
         base.OnAppearing();
 
         if (!(App.NetworkService.IsBluetoothConnected || App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode))
-            await KickstartWirelessCockpitSync();
+            MainThread.BeginInvokeOnMainThread(async () => await KickstartWirelessCockpitSync());
 
         Debug.WriteLine("--> [DASHBOARD LANDING]: Repainting master layout frames...");
 
@@ -869,31 +829,29 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-
         try
         {
             string targetedMacAddress = Preferences.Default.Get(SavedDeviceMacKey, string.Empty);
-
-            MainThread.BeginInvokeOnMainThread(async () =>
+            if (string.IsNullOrEmpty(targetedMacAddress))
             {
-                if (string.IsNullOrEmpty(targetedMacAddress))
-                {
-                    Debug.WriteLine("--> [BOOT SYNC]: Zero historical pairings found. Revealing manual picker container.");
-                    btDevicePicker.IsVisible = true;
+                Debug.WriteLine("--> [BOOT SYNC]: Zero historical pairings found. Inflating UI elements before permissions...");
+
                     if (btDevicePicker != null)
                     {
+                        Debug.WriteLine("--> [HARDWARE MONITOR]: Forcing active device list reset sweep over radio waves...");
                         btnLock?.IsEnabled = false;
                         btnUnlock?.IsEnabled = false;
                         btnAdminNavigation?.IsEnabled = false;
                         await btDevicePicker.InitializePickerLifecycleAsync();
                     }
-                }
-                else
+            }
+            else
+            {
+                await MainThread.InvokeOnMainThreadAsync(async () =>
                 {
                     App.NetworkService.StartConnectionSupervisor();
-                }
-            });
+                });
+            }
         }
         catch (Exception ex)
         {

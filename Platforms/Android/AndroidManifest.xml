@@ -20,10 +20,11 @@
   <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
   <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
 
-  <application android:allowBackup="true"
+  <application android:allowBackup="false"
                android:icon="@mipmap/appicon"
                android:roundIcon="@mipmap/appicon_round"
                android:supportsRtl="true"
+               android:fullBackupContent="false"
                android:usesCleartextTraffic="true"
                android:label="Versa HUD">
 

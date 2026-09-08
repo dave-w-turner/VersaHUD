@@ -55,7 +55,7 @@ public partial class InitMasterPassword : ContentView
             var currentMainPage = Shell.Current?.CurrentPage as MainPage;
             if (currentMainPage != null)
             {
-                MainThread.BeginInvokeOnMainThread(async () =>
+                await MainThread.InvokeOnMainThreadAsync(async () =>
                 {
                     var layoutContainerShell = currentMainPage.FindByName<Grid>("layoutPasswordInitShell");
                     layoutContainerShell?.IsVisible = false;

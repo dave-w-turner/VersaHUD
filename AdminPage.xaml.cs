@@ -36,7 +36,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         if (rawPacket.Contains("Rebooting controller..."))
         {
-            MainThread.BeginInvokeOnMainThread(async () =>
+            await MainThread.InvokeOnMainThreadAsync(async () =>
             {
                 if (layoutRebootLockoutShell != null)
                 {
@@ -52,7 +52,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         if (rawPacket.Contains("ROUTER_ERROR"))
         {
-            MainThread.BeginInvokeOnMainThread(async () =>
+            await MainThread.InvokeOnMainThreadAsync(async () =>
             {
                 layoutRebootLockoutShell?.IsVisible = false;
 
@@ -71,7 +71,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         if (rawPacket.Contains("[ADMIN_SUCCESS]: Router credentials stored."))
         {
-            MainThread.BeginInvokeOnMainThread(async () =>
+            await MainThread.InvokeOnMainThreadAsync(async () =>
             {
                 if (entryRouterPass != null)
                 {
@@ -89,14 +89,14 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         {
             if (rawPacket.Contains("[SYS]") || rawPacket.Contains("AP_NAME:") || rawPacket.Contains("BLE_NAME:") || rawPacket.Contains("ROUTER_SSID:"))
             {
-                MainThread.BeginInvokeOnMainThread(() =>
+                await MainThread.InvokeOnMainThreadAsync(() =>
                 {
                     layoutRebootLockoutShell.IsVisible = false;
                 });
             }
         }
 
-        MainThread.BeginInvokeOnMainThread(async () =>
+        await MainThread.InvokeOnMainThreadAsync(async () =>
         {
             if (lblDebugTerminal != null)
             {
@@ -133,7 +133,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
                         if (parameterSegments.Length == 3)
                         {
-                            MainThread.BeginInvokeOnMainThread(() =>
+                            await MainThread.InvokeOnMainThreadAsync(() =>
                             {
                                 entryCfHost?.Text = parameterSegments[0].Trim();
                                 entryCfClientId?.Text = parameterSegments[1].Trim();
@@ -153,7 +153,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
             if (apIndex != -1 || bleIndex != -1 || routerIndex != -1)
             {
-                MainThread.BeginInvokeOnMainThread(() =>
+                await MainThread.InvokeOnMainThreadAsync(() =>
                 {
                     if (apIndex != -1)
                     {
@@ -187,9 +187,9 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         }
     }
 
-    private void OnVehicleLinkStateChanged(bool isConnected)
+    private async void OnVehicleLinkStateChanged(bool isConnected)
     {
-        MainThread.BeginInvokeOnMainThread(async () =>
+        await MainThread.InvokeOnMainThreadAsync(async () =>
         {
             if (layoutRebootLockoutShell != null && layoutRebootLockoutShell.IsVisible && !App.NetworkService.IsRebootingWatchdogActive)
             {
@@ -526,7 +526,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                     await Task.Delay(5000);
                     await App.NetworkService.ForceProactiveRebootRecoveryAsync();
 
-                    MainThread.BeginInvokeOnMainThread(async () =>
+                    await MainThread.InvokeOnMainThreadAsync(async () =>
                     {
                         layoutRebootLockoutShell?.IsVisible = false;
                         await DisplayAlertAsync("VAULT FLASH SUCCESS", "Your complete Cloudflare Zero-Trust machine passport credentials have been successfully flashed into your vehicle module's persistent memory vaults!", "DONE");
@@ -600,7 +600,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         if (isOk)
         {
-            MainThread.BeginInvokeOnMainThread(() =>
+            await MainThread.InvokeOnMainThreadAsync(() =>
             {
                 entryWifiAP.Text = wifiAp;
                 entryBleName.Text = bleName;

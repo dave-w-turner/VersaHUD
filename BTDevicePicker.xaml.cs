@@ -12,7 +12,7 @@ public partial class BTDevicePicker : ContentView
 
     private async Task ExecuteVisualRadarScanAsync()
     {
-        MainThread.BeginInvokeOnMainThread(() =>
+        await MainThread.InvokeOnMainThreadAsync(() =>
         {
             if (indicatorScanning != null)
             {
@@ -26,7 +26,7 @@ public partial class BTDevicePicker : ContentView
         int activeScanTimeoutMs = 6000;
         await Task.Delay(activeScanTimeoutMs);
 
-        MainThread.BeginInvokeOnMainThread(() =>
+        await MainThread.InvokeOnMainThreadAsync(() =>
         {
             if (indicatorScanning != null)
             {
@@ -71,7 +71,7 @@ public partial class BTDevicePicker : ContentView
                 }
                 else
                 {
-                    MainThread.BeginInvokeOnMainThread(async () =>
+                    await MainThread.InvokeOnMainThreadAsync(async () =>
                     {
                         await Application.Current.MainPage.DisplayAlertAsync("CONNECTION FAULT", "Could not save device information.", "OK");
                         return;
@@ -82,7 +82,7 @@ public partial class BTDevicePicker : ContentView
         }
 #endif
 
-        MainThread.BeginInvokeOnMainThread(async () =>
+        await MainThread.InvokeOnMainThreadAsync(async () =>
         {
             IsVisible = false;
         });
@@ -109,7 +109,7 @@ public partial class BTDevicePicker : ContentView
 
         if (!pairingSuccess)
         {
-            MainThread.BeginInvokeOnMainThread(async () =>
+            await MainThread.InvokeOnMainThreadAsync(async () =>
             {
                 listBleDevices.SelectedItem = null;
                 await App.Log("--> [PICKER CRITICAL FAULT]: Second connection pass failed. Restoring view radar states...");
@@ -125,7 +125,7 @@ public partial class BTDevicePicker : ContentView
         {
             await App.Log("--> [PICKER SUCCESS]: Handshake established successfully over stabilized channel lanes!");
 
-            MainThread.BeginInvokeOnMainThread(async () =>
+            await MainThread.InvokeOnMainThreadAsync(async () =>
             {
                 if (Shell.Current?.CurrentPage is MainPage mainPage)
                 {
@@ -138,9 +138,9 @@ public partial class BTDevicePicker : ContentView
         }
     }
 
-    private void OnClosePickerOverlayClicked(object sender, EventArgs e)
+    private async void OnClosePickerOverlayClicked(object sender, EventArgs e)
     {
-        MainThread.BeginInvokeOnMainThread(async () =>
+        await MainThread.InvokeOnMainThreadAsync(async () =>
         {
             IsVisible = false;
             await App.Log("--> [UI CONTROL]: Device selection picker overlay hidden cleanly.");

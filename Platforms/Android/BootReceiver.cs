@@ -33,9 +33,12 @@ public class BootReceiver : BroadcastReceiver
                     try
                     {
                         await Task.Delay(500);
-
                         await App.Log("--> [HARDWARE MONITOR]: Invoking AutoConnectAsync dynamically over active radio waves...");
-                        App.NetworkService.StartConnectionSupervisor();
+                        
+                        await MainThread.InvokeOnMainThreadAsync(async () =>
+                        {
+                            App.NetworkService.AutoConnectAsync(btAdapterOnOverride: true);
+                        });
                     }
                     catch (Exception ex)
                     {
@@ -58,8 +61,6 @@ public class BootReceiver : BroadcastReceiver
                     await App.Log("--> [HARDWARE MONITOR CRITICAL]: Both networks dead. Purging residual wireless cache properties...");
 
                     App.NetworkService.StopRssiTracking();
-
-                    App.NetworkService.StartConnectionSupervisor();
                 }
             }
             

@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using Plugin.BLE;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -61,7 +62,7 @@ public partial class MainPage : ContentPage
             else if (rawDataPacket.Contains("DNS_UNREACHABLE"))
                 cleanErrorMessage = "The microcontroller cannot connect to the server.\n\nVerify that the vehicle module has an active data/hotspot network connection.";
 
-            MainThread.BeginInvokeOnMainThread(async () =>
+            await MainThread.InvokeOnMainThreadAsync(async () =>
             {
                 bool userClickedFix = await DisplayAlertAsync("🚨 CLOUDFLARE CONFIG ERROR",
                     $"Your vehicle module reported a WAN tunnel connection failure:\n\n{cleanErrorMessage}",
@@ -79,7 +80,7 @@ public partial class MainPage : ContentPage
         if (rawDataPacket.Contains("SECURITY WARN") || rawDataPacket.Contains("Hash mismatch") || rawDataPacket.Contains("401") || rawDataPacket.Contains("Unauthorized"))
         {
             await App.Log("--> [PARSER SECURITY RADAR]: Encryption key mismatch caught over radio waves! Enforcing passcode input overlay rendering pass...");
-            MainThread.BeginInvokeOnMainThread(() =>
+            await MainThread.InvokeOnMainThreadAsync(() =>
             {
                 if (layoutPasswordInitShell != null && !layoutPasswordInitShell.IsVisible)
                 {
@@ -155,7 +156,7 @@ public partial class MainPage : ContentPage
 
                 await UpdateDashboardMetrics(frontVolts, frontPercent, frontIsCharging, backVolts, backPercent, backIsCharging, isCrossCharging);
 
-                MainThread.BeginInvokeOnMainThread(async () =>
+                await MainThread.InvokeOnMainThreadAsync(async () =>
                 {
                     if (lblCloudWanTelemetryStatus != null && !App.NetworkService.IsUsingCloudWanMode)
                     {
@@ -245,7 +246,7 @@ public partial class MainPage : ContentPage
                     string extractedVehicleIP = rawDataPacket.Substring(ipStartIndex, ipEndIndex - ipStartIndex).Trim();
                     bool carReportsWanIsLive = rawDataPacket.Contains("WAN_ONLINE");
 
-                    MainThread.BeginInvokeOnMainThread(async () =>
+                    await MainThread.InvokeOnMainThreadAsync(async () =>
                     {
                         if (lblCloudWanTelemetryStatus != null)
                         {
@@ -322,7 +323,6 @@ public partial class MainPage : ContentPage
 
     private async void UpdateBluetoothStatusBadge(bool isConnected)
     {
-
         bool phoneHasActiveWifiRadioLink = Connectivity.Current.ConnectionProfiles.Contains(ConnectionProfile.WiFi);
 
         if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode)
@@ -379,7 +379,30 @@ public partial class MainPage : ContentPage
                     lblBleStatusText.TextColor = Color.Parse("#EF4444");
                 }
 
-                lblActiveTransportChannel?.Text = "TRANSPORT MODE: Disconnected Fallback State Channels Active.";
+                if (App.NetworkService.IsWANReportedOnline ?? false && !(Connectivity.Current.NetworkAccess == NetworkAccess.Internet) && !NetworkHubService.HasPhysicalWifiConnection && !CrossBluetoothLE.Current.IsOn && !App.NetworkService.IsWifiTelemetryDead)
+                {
+                    lblCloudWanTelemetryStatus.Text = "☁️ CLOUD LINK: ONLINE";
+                    lblCloudWanTelemetryStatus.TextColor = Color.Parse("#10B981");
+                    lblActiveTransportChannel?.Text = "TRANSPORT MODE: Disconnected (Enable Bluetooth, Wifi, or Mobile Data to connect).";
+                }
+                else if (App.NetworkService.IsWANReportedOnline ?? false && !(Connectivity.Current.NetworkAccess == NetworkAccess.Internet) && !NetworkHubService.HasPhysicalWifiConnection && !CrossBluetoothLE.Current.IsOn)
+                {
+                    lblCloudWanTelemetryStatus.Text = "☁️ CLOUD LINK: ONLINE";
+                    lblCloudWanTelemetryStatus.TextColor = Color.Parse("#10B981");
+                    lblActiveTransportChannel?.Text = "TRANSPORT MODE: Disconnected (Enable Bluetooth or Mobile Data to connect).";
+                }
+                else if (!NetworkHubService.HasPhysicalWifiConnection && !CrossBluetoothLE.Current.IsOn && !App.NetworkService.IsWifiTelemetryDead)
+                {
+                    lblCloudWanTelemetryStatus.Text = "☁️ CLOUD LINK: OFFLINE";
+                    lblCloudWanTelemetryStatus.TextColor = Color.Parse("#EF4444");
+                    lblActiveTransportChannel?.Text = "TRANSPORT MODE: Disconnected (Enable Bluetooth or Wifi to connect).";
+                }
+                else
+                {
+                    lblCloudWanTelemetryStatus.Text = "☁️ CLOUD LINK: OFFLINE";
+                    lblCloudWanTelemetryStatus.TextColor = Color.Parse("#EF4444");
+                    lblActiveTransportChannel?.Text = "TRANSPORT MODE: Disconnected (Enable Bluetooth to connect).";
+                }
 
                 btnManualScanTrigger?.IsVisible = true;
                 btnAdminNavigation?.IsEnabled = false;
@@ -459,38 +482,35 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private void UpdateWirelessSignalBars(int rssi)
+    private async void UpdateWirelessSignalBars(int rssi)
     {
-        MainThread.BeginInvokeOnMainThread(() =>
+        await MainThread.InvokeOnMainThreadAsync(() =>
         {
-            if (!(App.NetworkService.IsUsingCloudWanMode || App.NetworkService.IsUsingWifiTransportMode))
+            if (rssi == 0)
             {
-                if (rssi == 0)
-                {
-                    lblBleSignal.Text = string.Empty;
-                    return;
-                }
+                lblBleSignal.Text = string.Empty;
+                return;
+            }
 
-                if (rssi >= -60)
-                {
-                    lblBleSignal.Text = $"📶 EXCELLENT ({rssi} dBm)";
-                    lblBleSignal.TextColor = Color.Parse("#10B981");
-                }
-                else if (rssi >= -75)
-                {
-                    lblBleSignal.Text = $"📊 GOOD ({rssi} dBm)";
-                    lblBleSignal.TextColor = Color.Parse("#3B82F6");
-                }
-                else if (rssi >= -90)
-                {
-                    lblBleSignal.Text = $"📉 WEAK ({rssi} dBm)";
-                    lblBleSignal.TextColor = Color.Parse("#F59E0B");
-                }
-                else
-                {
-                    lblBleSignal.Text = $"⚠ CRITICAL ({rssi} dBm)";
-                    lblBleSignal.TextColor = Color.Parse("#EF4444");
-                }
+            if (rssi >= -60)
+            {
+                lblBleSignal.Text = $"📶 EXCELLENT ({rssi} dBm)";
+                lblBleSignal.TextColor = Color.Parse("#10B981");
+            }
+            else if (rssi >= -75)
+            {
+                lblBleSignal.Text = $"📊 GOOD ({rssi} dBm)";
+                lblBleSignal.TextColor = Color.Parse("#3B82F6");
+            }
+            else if (rssi >= -90)
+            {
+                lblBleSignal.Text = $"📉 WEAK ({rssi} dBm)";
+                lblBleSignal.TextColor = Color.Parse("#F59E0B");
+            }
+            else
+            {
+                lblBleSignal.Text = $"⚠ CRITICAL ({rssi} dBm)";
+                lblBleSignal.TextColor = Color.Parse("#EF4444");
             }
         });
     }
@@ -661,9 +681,9 @@ public partial class MainPage : ContentPage
         });
     }
 
-    private void OnSetupFinished(object sender, EventArgs e)
+    private async void OnSetupFinished(object sender, EventArgs e)
     {
-        MainThread.BeginInvokeOnMainThread(async () =>
+        await MainThread.InvokeOnMainThreadAsync(async () =>
         {
             layoutPasswordInitShell.IsVisible = false;
             App.NetworkService.IsPromptingForMasterPassword = false;
@@ -678,7 +698,7 @@ public partial class MainPage : ContentPage
 
             App.NetworkService.IsPromptingForMasterPassword = true;
 
-            MainThread.BeginInvokeOnMainThread(async () =>
+            await MainThread.InvokeOnMainThreadAsync(async () =>
             {
                 layoutPasswordInitShell?.IsVisible = true;
 
@@ -699,13 +719,15 @@ public partial class MainPage : ContentPage
         {
             await App.Log("--> [HANDSHAKE SECURED]: Auth validation state cleared successfully!");
 
-            MainThread.BeginInvokeOnMainThread(async () =>
+            await MainThread.InvokeOnMainThreadAsync(async () =>
             {
                 if (layoutPasswordInitShell != null && layoutPasswordInitShell.IsVisible)
                 {
                     layoutPasswordInitShell.IsVisible = false;
                     await DisplayAlertAsync("VAULT SYNCED", "Your master passcode has been verified against your vehicle's registers. Security clearance accepted.", "ENTER COCKPIT");
                 }
+
+                UpdateBluetoothStatusBadge(App.NetworkService.IsBluetoothConnected);
 
                 string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
                 bool commandWasSent = await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
@@ -758,7 +780,7 @@ public partial class MainPage : ContentPage
             await App.Log("--> [RECOVERY HUB]: Wrong device selected. Executing wireless reset line...");
             if (App.NetworkService != null) await App.NetworkService.DisconnectCurrentDeviceAsync();
 
-            MainThread.BeginInvokeOnMainThread(async () =>
+            await MainThread.InvokeOnMainThreadAsync(async () =>
             {
                 layoutPasswordInitShell.IsVisible = false;
                 if (initMasterPasswordControl != null)
@@ -817,7 +839,7 @@ public partial class MainPage : ContentPage
         base.OnAppearing();
 
         if (!(App.NetworkService.IsBluetoothConnected || App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode))
-            MainThread.BeginInvokeOnMainThread(async () => await KickstartWirelessCockpitSync());
+            await MainThread.InvokeOnMainThreadAsync(async () => await KickstartWirelessCockpitSync());
 
         await App.Log("--> [DASHBOARD LANDING]: Repainting master layout frames...");
 

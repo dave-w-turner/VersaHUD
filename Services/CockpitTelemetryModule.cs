@@ -5,9 +5,9 @@ public class CockpitTelemetryModule
 {
     private bool _isModuleRunning = false;
 
-    public void Initialize()
+    public async void Initialize()
     {
-        Debug.WriteLine("--> [TELEMETRY MODULE]: Ground systems initialized. Registering event pipelines...");
+        await App.Log("--> [TELEMETRY MODULE]: Ground systems initialized. Registering event pipelines...");
         App.NetworkService.OnTelemetryReceived += ProcessIncomingAirwavesFrame;
     }
 
@@ -16,7 +16,7 @@ public class CockpitTelemetryModule
         if (_isModuleRunning) return;
 
 #if ANDROID
-        Debug.WriteLine("--> [TELEMETRY MODULE]: Executing pre-flight Target SDK 36 validation gates...");
+        await App.Log("--> [TELEMETRY MODULE]: Executing pre-flight Target SDK 36 validation gates...");
 
         var notificationStatus = await Permissions.CheckStatusAsync<Permissions.PostNotifications>();
         if (notificationStatus != PermissionStatus.Granted)
@@ -40,26 +40,26 @@ public class CockpitTelemetryModule
             }
 
             _isModuleRunning = true;
-            Debug.WriteLine("--> [TELEMETRY MODULE]: Persistent background lock screen panel successfully deployed.");
+            await App.Log("--> [TELEMETRY MODULE]: Persistent background lock screen panel successfully deployed.");
         }
         else
         {
-            Debug.WriteLine("--> [TELEMETRY MODULE CRITICAL]: Deployment halted due to missing PostNotifications clearance.");
+            await App.Log("--> [TELEMETRY MODULE CRITICAL]: Deployment halted due to missing PostNotifications clearance.");
         }
 #endif
     }
 
-    private void ProcessIncomingAirwavesFrame(string rawPacket)
+    private async void ProcessIncomingAirwavesFrame(string rawPacket)
     {
         if (string.IsNullOrEmpty(rawPacket)) return;
 
-        Debug.WriteLine($"--> [TELEMETRY MODULE RX]: Routed {rawPacket.Length} data bytes to status drawer.");
+        await App.Log($"--> [TELEMETRY MODULE RX]: Routed {rawPacket.Length} data bytes to status drawer.");
     }
 
-    public void Shutdown()
+    public async void Shutdown()
     {
         App.NetworkService.OnTelemetryReceived -= ProcessIncomingAirwavesFrame;
         _isModuleRunning = false;
-        Debug.WriteLine("--> [TELEMETRY MODULE]: Channels safely de-provisioned.");
+        await App.Log("--> [TELEMETRY MODULE]: Channels safely de-provisioned.");
     }
 }

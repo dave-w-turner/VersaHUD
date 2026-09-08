@@ -52,7 +52,7 @@ public partial class BTDevicePicker : ContentView
         indicatorScanning.IsRunning = false;
         indicatorScanning.IsVisible = false;
 
-        Debug.WriteLine($"--> [PICKER ACTION]: Staging persistent storage commit for ID: {selectedDevice.Id}");
+        await App.Log($"--> [PICKER ACTION]: Staging persistent storage commit for ID: {selectedDevice.Id}");
 
         Preferences.Default.Set(MainPage.SavedDeviceMacKey, selectedDevice.Id.ToString());
         Preferences.Default.Set(MainPage.SavedDeviceNameKey, selectedDevice.Name ?? "VersaHub_BLE");
@@ -78,7 +78,7 @@ public partial class BTDevicePicker : ContentView
                     });
                 }
             }
-            Debug.WriteLine("--> [PICKER SUCCESS]: Hard disk serialization finalized cleanly.");
+            await App.Log("--> [PICKER SUCCESS]: Hard disk serialization finalized cleanly.");
         }
 #endif
 
@@ -96,14 +96,14 @@ public partial class BTDevicePicker : ContentView
 
             if (!pairingSuccess)
             {
-                Debug.WriteLine("--> [PICKER WATCHDOG]: First clean-install handshake timed out. Initializing silent stabilization retry...");
+                await App.Log("--> [PICKER WATCHDOG]: First clean-install handshake timed out. Initializing silent stabilization retry...");
                 await Task.Delay(500);
                 pairingSuccess = await Task.Run(async () => await App.NetworkService.PairAndConnectDeviceAsync(selectedDevice));
             }
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"--> [PICKER EXCEPTION]: Bluetooth stack fault in Release Profile: {ex.Message}");
+            await App.Log($"--> [PICKER EXCEPTION]: Bluetooth stack fault in Release Profile: {ex.Message}");
             pairingSuccess = false;
         }
 
@@ -112,7 +112,7 @@ public partial class BTDevicePicker : ContentView
             MainThread.BeginInvokeOnMainThread(async () =>
             {
                 listBleDevices.SelectedItem = null;
-                Debug.WriteLine("--> [PICKER CRITICAL FAULT]: Second connection pass failed. Restoring view radar states...");
+                await App.Log("--> [PICKER CRITICAL FAULT]: Second connection pass failed. Restoring view radar states...");
                 await Application.Current.MainPage.DisplayAlertAsync("CONNECTION FAULT", "Cockpit connection timed out. Tap your device node to re-link.", "OK");
 
                 IsVisible = true;
@@ -123,7 +123,7 @@ public partial class BTDevicePicker : ContentView
         }
         else
         {
-            Debug.WriteLine("--> [PICKER SUCCESS]: Handshake established successfully over stabilized channel lanes!");
+            await App.Log("--> [PICKER SUCCESS]: Handshake established successfully over stabilized channel lanes!");
 
             MainThread.BeginInvokeOnMainThread(async () =>
             {
@@ -140,14 +140,14 @@ public partial class BTDevicePicker : ContentView
 
     private void OnClosePickerOverlayClicked(object sender, EventArgs e)
     {
-        MainThread.BeginInvokeOnMainThread(() =>
+        MainThread.BeginInvokeOnMainThread(async () =>
         {
             IsVisible = false;
-            Debug.WriteLine("--> [UI CONTROL]: Device selection picker overlay hidden cleanly.");
+            await App.Log("--> [UI CONTROL]: Device selection picker overlay hidden cleanly.");
         });
     }
 
-    private async Task<bool> GetBTPermissions()
+    private static async Task<bool> GetBTPermissions()
     {
         await Task.Delay(250);
         bool isPermissionApproved = false;
@@ -159,7 +159,7 @@ public partial class BTDevicePicker : ContentView
 
         if (!hasNativeScanClearance || !hasNativeConnectClearance)
         {
-            Debug.WriteLine("--> [WATCHDOG]: System token validation missing. Requesting dynamic hardware tracking permissions...");
+            await App.Log("--> [WATCHDOG]: System token validation missing. Requesting dynamic hardware tracking permissions...");
 
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
@@ -205,13 +205,13 @@ public partial class BTDevicePicker : ContentView
             }
             else
             {
-                Debug.WriteLine("--> [CRITICAL SELECTION BLOCK]: Refresh scan blocked. Permission Approved: " + isPermissionApproved + " | Radio Active: " + isRadioHardwareActive);
+                await App.Log("--> [CRITICAL SELECTION BLOCK]: Refresh scan blocked. Permission Approved: " + isPermissionApproved + " | Radio Active: " + isRadioHardwareActive);
                 await MainPage.CurrentInstance.DisplayAlertAsync("BLUETOOTH REQUIRED", "VersaHUD cannot execute a visual radar refresh scan because your phone's Bluetooth radio switch is turned OFF or permissions were denied.\n\nPlease ensure Bluetooth is active in your drop-down panel and try again.", "OK");
             }
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"--> [PICKER RUNTIME CRASH SHIELD]: {ex.Message}");
+            await App.Log($"--> [PICKER RUNTIME CRASH SHIELD]: {ex.Message}");
         }
     }
 

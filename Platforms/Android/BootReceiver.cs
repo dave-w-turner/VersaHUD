@@ -14,9 +14,9 @@ namespace VersaHUD;
 })]
 public class BootReceiver : BroadcastReceiver
 {
-    public override void OnReceive(Context context, Intent intent)
+    public override async void OnReceive(Context context, Intent intent)
     {
-        System.Diagnostics.Debug.WriteLine($"--> [HARDWARE MONITOR]: Intercepted native phone radio event: {intent.Action}");
+        await App.Log($"--> [HARDWARE MONITOR]: Intercepted native phone radio event: {intent.Action}");
 
         if (intent.Action == BluetoothAdapter.ActionStateChanged)
         {
@@ -26,7 +26,7 @@ public class BootReceiver : BroadcastReceiver
 
             if (stateCode == (int)State.On)
             {
-                System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR]: Bluetooth hardware initialized. Triggering rapid background reconnection pipeline...");
+                await App.Log("--> [HARDWARE MONITOR]: Bluetooth hardware initialized. Triggering rapid background reconnection pipeline...");
 
                 Task.Run(async () =>
                 {
@@ -34,28 +34,28 @@ public class BootReceiver : BroadcastReceiver
                     {
                         await Task.Delay(500);
 
-                        System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR]: Invoking AutoConnectAsync dynamically over active radio waves...");
+                        await App.Log("--> [HARDWARE MONITOR]: Invoking AutoConnectAsync dynamically over active radio waves...");
                         App.NetworkService.StartConnectionSupervisor();
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"--> [HARDWARE MONITOR RECOVERY CHOKE]: {ex.Message}");
+                        await App.Log($"--> [HARDWARE MONITOR RECOVERY CHOKE]: {ex.Message}");
                     }
                 });
             }
             else if (stateCode == (int)State.Off || stateCode == (int)State.TurningOff)
             {
-                System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR]: Physical Bluetooth radio switch toggled OFF. Verifying active transport channels...");
+                await App.Log("--> [HARDWARE MONITOR]: Physical Bluetooth radio switch toggled OFF. Verifying active transport channels...");
 
                 if (App.NetworkService != null)
                 {
                     if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingCloudWanMode || App.NetworkService.IsUsingLocalApMode)
                     {
-                        System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR RADAR]: Bluetooth radio severed, but active Wi-Fi transport link is live! Suppressing disconnect alert.");
+                        await App.Log("--> [HARDWARE MONITOR RADAR]: Bluetooth radio severed, but active Wi-Fi transport link is live! Suppressing disconnect alert.");
                         return;
                     }
 
-                    System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR CRITICAL]: Both networks dead. Purging residual wireless cache properties...");
+                    await App.Log("--> [HARDWARE MONITOR CRITICAL]: Both networks dead. Purging residual wireless cache properties...");
 
                     App.NetworkService.StopRssiTracking();
 
@@ -81,7 +81,7 @@ public class BootReceiver : BroadcastReceiver
                 context.StartService(serviceIntent);
             }
 
-            System.Diagnostics.Debug.WriteLine("--> [HARDWARE MONITOR]: TelemetryForegroundService successfully launched on device boot.");
+            await App.Log("--> [HARDWARE MONITOR]: TelemetryForegroundService successfully launched on device boot.");
         }
     }
 }

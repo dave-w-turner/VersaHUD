@@ -28,11 +28,10 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         entryCfClientSecret?.Text = runningSecret.Equals("PASTE_YOUR_CF_ACCESS_CLIENT_SECRET_HERE") ? "" : runningSecret;
     }
 
-    private void LogIncomingStreamToTerminal(string rawPacket)
+    private async void LogIncomingStreamToTerminal(string rawPacket)
     {
-        if (string.IsNullOrEmpty(rawPacket)) return;
-
-        if ((App.NetworkService.IsUsingCloudWanMode || App.NetworkService.IsUsingWifiTransportMode) && rawPacket.StartsWith('{'))
+        if (string.IsNullOrEmpty(rawPacket) || ((App.NetworkService.IsUsingCloudWanMode || App.NetworkService.IsUsingWifiTransportMode) && rawPacket.StartsWith('{')) || scrollTerminal == null ||
+            (App.IsDebugOutputEnabled && !(switchRemoteTelemetry?.IsToggled ?? false) && !rawPacket.StartsWith("[DEBUG] -->")))
             return;
 
         if (rawPacket.Contains("Rebooting controller..."))
@@ -126,7 +125,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                     int payloadHeaderIndex = rawPacket.IndexOf("CF_KEYS:") + 8;
                     string base64CipherString = rawPacket[payloadHeaderIndex..].Trim();
 
-                    string decryptedPlaintextBlock = Services.NetworkHubService.DecryptLocalPayloadAES128CBC(base64CipherString);
+                    string decryptedPlaintextBlock = await Services.NetworkHubService.DecryptLocalPayloadAES128CBC(base64CipherString);
 
                     if (!string.IsNullOrWhiteSpace(decryptedPlaintextBlock) && decryptedPlaintextBlock.Contains(","))
                     {
@@ -543,7 +542,19 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             await DisplayAlertAsync("LINK FAULT", $"The transmission stream encountered an exception: {ex.Message}", "OK");
         }
     }
-  
+
+    private async void OnDebugLogsToggled(object sender, ToggledEventArgs e)
+    {
+        if (e.Value)
+        {
+            App.IsDebugOutputEnabled = true;
+        }
+        else
+        {
+            App.IsDebugOutputEnabled = false;
+        }
+    }
+
     protected override async void OnAppearing()
     {
         base.OnAppearing();
@@ -613,17 +624,19 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
     }
 
-    protected override void OnDisappearing()
+    protected override async void OnDisappearing()
     {
         base.OnDisappearing();
 
         _adminWifiWatchdogCancelSource?.Cancel();
         _adminWifiWatchdogCancelSource = null;
+        App.IsDebugOutputEnabled = false;
+        await Navigation.PushAsync(new MainPage());
     }
 
     ~AdminPage()
     {
         App.NetworkService.OnConnectionStateChanged -= OnVehicleLinkStateChanged;
-        App.NetworkService.OnTelemetryReceived -= LogIncomingStreamToTerminal;
+        MainPage.CurrentInstance?.OnTelemetryParsed -= LogIncomingStreamToTerminal;
     }
 }

@@ -37,7 +37,7 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private void ParseVehicleTelemetryStream(string rawDataPacket)
+    private async void ParseVehicleTelemetryStream(string rawDataPacket)
     {
         if (rawDataPacket.Contains("[CF_ERR]"))
         {
@@ -49,7 +49,7 @@ public partial class MainPage : ContentPage
                 string.IsNullOrEmpty(currentSavedClientId) || currentSavedClientId.Equals("PASTE_YOUR_CF_ACCESS_CLIENT_ID_HERE") ||
                 string.IsNullOrEmpty(currentSavedSecret) || currentSavedSecret.Equals("PASTE_YOUR_CF_ACCESS_CLIENT_SECRET_HERE"))
             {
-                Debug.WriteLine("--> [UI FILTER]: Cloudflare exception caught, but credentials match factory defaults. Suppressing alert.");
+                await App.Log("--> [UI FILTER]: Cloudflare exception caught, but credentials match factory defaults. Suppressing alert.");
                 return;
             }
 
@@ -69,7 +69,7 @@ public partial class MainPage : ContentPage
 
                 if (userClickedFix)
                 {
-                    Debug.WriteLine("--> [UI INTENT ROUTER]: Driver requested configuration fix. Pushing AdminPage view...");
+                    await App.Log("--> [UI INTENT ROUTER]: Driver requested configuration fix. Pushing AdminPage view...");
                     await Navigation.PushAsync(new AdminPage());
                 }
             });
@@ -78,7 +78,7 @@ public partial class MainPage : ContentPage
 
         if (rawDataPacket.Contains("SECURITY WARN") || rawDataPacket.Contains("Hash mismatch") || rawDataPacket.Contains("401") || rawDataPacket.Contains("Unauthorized"))
         {
-            Debug.WriteLine("--> [PARSER SECURITY RADAR]: Encryption key mismatch caught over radio waves! Enforcing passcode input overlay rendering pass...");
+            await App.Log("--> [PARSER SECURITY RADAR]: Encryption key mismatch caught over radio waves! Enforcing passcode input overlay rendering pass...");
             MainThread.BeginInvokeOnMainThread(() =>
             {
                 if (layoutPasswordInitShell != null && !layoutPasswordInitShell.IsVisible)
@@ -141,21 +141,22 @@ public partial class MainPage : ContentPage
                     }
                     else
                     {
-                        Debug.WriteLine("--> [DASHBOARD FILTER]: Duplicates detected from sliding log window. Suppressing UI redraw pass.");
+                        await App.Log("--> [DASHBOARD FILTER]: Duplicates detected from sliding log window. Suppressing UI redraw pass.");
                     }
 
                     if (string.IsNullOrEmpty(fullTelemetry))
                     {
                         //No telemetry logs returning from endpoint. Switch transport.
-                        Debug.WriteLine("--> [DASHBOARD PARSER]: No telemetry being return from Wifi endpoint. Setting flag to default to next transport type.");
+                        await App.Log("--> [DASHBOARD PARSER]: No telemetry being return from Wifi endpoint. Setting flag to default to next transport type.");
                         App.NetworkService.IsWifiTelemetryDead = true;
                     }
                 }
 
+
+                await UpdateDashboardMetrics(frontVolts, frontPercent, frontIsCharging, backVolts, backPercent, backIsCharging, isCrossCharging);
+
                 MainThread.BeginInvokeOnMainThread(async () =>
                 {
-                    await UpdateDashboardMetrics(frontVolts, frontPercent, frontIsCharging, backVolts, backPercent, backIsCharging, isCrossCharging);
-
                     if (lblCloudWanTelemetryStatus != null && !App.NetworkService.IsUsingCloudWanMode)
                     {
                         if (isArduinoCloudTunnelConnected)
@@ -183,9 +184,9 @@ public partial class MainPage : ContentPage
                             borderNetworkStatus?.IsVisible = true;
                         }
                     }
-
-                    ExecuteWifiThemeRedrawPass();
                 });
+
+                ExecuteWifiThemeRedrawPass();
                 return;
             }
             else
@@ -193,7 +194,7 @@ public partial class MainPage : ContentPage
                 OnTelemetryParsed?.Invoke(rawDataPacket);
             }
 
-            Debug.WriteLine($"--> [DASHBOARD PARSER INPUT]: Processing BLE Text: {rawDataPacket}");
+            await App.Log($"--> [DASHBOARD PARSER INPUT]: Processing BLE Text: {rawDataPacket}");
 
             if (rawDataPacket.Contains("CF_KEYS:") && !rawDataPacket.Contains("ERR_EMPTY_VAULTS"))
             {
@@ -202,7 +203,7 @@ public partial class MainPage : ContentPage
                     int keysHeaderIndex = rawDataPacket.IndexOf("CF_KEYS:") + 8;
                     string encryptedBase64Envelope = rawDataPacket.Substring(keysHeaderIndex).Trim();
 
-                    string decryptedPlaintextKeys = NetworkHubService.DecryptLocalPayloadAES128CBC(encryptedBase64Envelope);
+                    string decryptedPlaintextKeys = await NetworkHubService.DecryptLocalPayloadAES128CBC(encryptedBase64Envelope);
 
                     if (!string.IsNullOrWhiteSpace(decryptedPlaintextKeys) && decryptedPlaintextKeys.Contains(","))
                     {
@@ -222,13 +223,13 @@ public partial class MainPage : ContentPage
                             Preferences.Default.Set("CloudflareClientIdKey", extractedId);
                             Preferences.Default.Set("CloudflareClientSecretKey", extractedSecret);
 
-                            Debug.WriteLine("--> [APP SYNC SUCCESS]: Secure Zero-Trust credentials pulled, decrypted, and saved to handset storage vaults!");
+                            await App.Log("--> [APP SYNC SUCCESS]: Secure Zero-Trust credentials pulled, decrypted, and saved to handset storage vaults!");
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"--> [KEY DECRYPTION CHOKE]: Failed to unpack over-the-air parameters: {ex.Message}");
+                    await App.Log($"--> [KEY DECRYPTION CHOKE]: Failed to unpack over-the-air parameters: {ex.Message}");
                 }
                 return;
             }
@@ -310,38 +311,37 @@ public partial class MainPage : ContentPage
                     crossChargingActive = true;
                 }
 
-                MainThread.BeginInvokeOnMainThread(() =>
-                {
-                    _ = UpdateDashboardMetrics(currentFrontVolts, currentFrontPercent, currentFrontIsCharging, currentBackVolts, currentBackPercent, currentBackIsCharging, crossChargingActive);
-                });
+                await UpdateDashboardMetrics(currentFrontVolts, currentFrontPercent, currentFrontIsCharging, currentBackVolts, currentBackPercent, currentBackIsCharging, crossChargingActive);
             }
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"--> [DASHBOARD PARSER CHOKE]: {ex.Message}");
+            await App.Log($"--> [DASHBOARD PARSER CHOKE]: {ex.Message}");
         }
     }
 
-    private void UpdateBluetoothStatusBadge(bool isConnected)
+    private async void UpdateBluetoothStatusBadge(bool isConnected)
     {
-        MainThread.BeginInvokeOnMainThread(() =>
+
+        bool phoneHasActiveWifiRadioLink = Connectivity.Current.ConnectionProfiles.Contains(ConnectionProfile.WiFi);
+
+        if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode)
         {
-            bool phoneHasActiveWifiRadioLink = Connectivity.Current.ConnectionProfiles.Contains(ConnectionProfile.WiFi);
+            ExecuteWifiThemeRedrawPass();
+            return;
+        }
+        else if (App.NetworkService.IsUsingCloudWanMode)
+        {
+            ExecuteCloudWanThemeRedrawPass();
+            return;
+        }
 
-            if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode)
-            {
-                ExecuteWifiThemeRedrawPass();
-                return;
-            }
-            else if (App.NetworkService.IsUsingCloudWanMode)
-            {
-                ExecuteCloudWanThemeRedrawPass();
-                return;
-            }
+        if (App.NetworkService.IsConnecting && !(isConnected || App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode))
+        {
+            await App.Log("--> [BOOT SYNC]: Historical device found. Suppressing popup and launching background tracking...");
 
-            if (App.NetworkService.IsConnecting && !(isConnected || App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode))
+            await MainThread.InvokeOnMainThreadAsync(() =>
             {
-                Debug.WriteLine("--> [BOOT SYNC]: Historical device found. Suppressing popup and launching background tracking...");
                 borderBleStatus.BackgroundColor = Color.Parse("#1A2D20");
                 borderBleStatus.Stroke = Color.Parse("#FFBF00");
                 lblBleDot.Text = "🔴";
@@ -353,11 +353,14 @@ public partial class MainPage : ContentPage
                 btnAdminNavigation?.IsEnabled = false;
                 btnUnlock?.IsEnabled = false;
                 btnLock?.IsEnabled = false;
-            }
-            else if (!(isConnected || App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode))
-            {
-                Debug.WriteLine("--> [DASHBOARD COCKPIT DETACH]: All transport networks are completely OFFLINE. Initializing absolute zero-out reset passes...");
+            });
+        }
+        else if (!(isConnected || App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode))
+        {
+            await App.Log("--> [DASHBOARD COCKPIT DETACH]: All transport networks are completely OFFLINE. Initializing absolute zero-out reset passes...");
 
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
                 borderNetworkStatus?.IsVisible = false;
 
                 if (borderBleStatus != null)
@@ -395,8 +398,11 @@ public partial class MainPage : ContentPage
                 progressBack.Progress = 0.0f;
                 progressBack.ProgressColor = Colors.DarkSlateGray;
                 lblBackIcon.Text = "❌";
-            }
-            else if (App.NetworkService.WaitingForAuthorization)
+            });
+        }
+        else if (App.NetworkService.WaitingForAuthorization)
+        {
+            await MainThread.InvokeOnMainThreadAsync(() =>
             {
                 borderBleStatus.BackgroundColor = Color.Parse("#2D221A");
                 borderBleStatus.Stroke = Color.Parse("#FFBF00");
@@ -405,12 +411,15 @@ public partial class MainPage : ContentPage
                 lblBleStatusText.Text = "VERIFYING SECURITY VAULTS...";
                 lblBleStatusText.TextColor = Color.Parse("#FFBF00");
                 lblBleSignal.Text = string.Empty;
-            }
-            else
-            {
-                string currentBleName = Preferences.Default.Get(MainPage.SavedDeviceNameKey, "VersaHub_BLE");
-                if (Guid.TryParse(currentBleName, out _) || currentBleName.Contains('-')) currentBleName = "VersaHub_BLE";
+            });
+        }
+        else
+        {
+            string currentBleName = Preferences.Default.Get(MainPage.SavedDeviceNameKey, "VersaHub_BLE");
+            if (Guid.TryParse(currentBleName, out _) || currentBleName.Contains('-')) currentBleName = "VersaHub_BLE";
 
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
                 if (borderBleStatus != null)
                 {
                     borderBleStatus.BackgroundColor = Color.Parse("#1A2D20");
@@ -446,8 +455,8 @@ public partial class MainPage : ContentPage
                     btnUnlock?.IsEnabled = true;
                     btnAdminNavigation?.IsEnabled = true;
                 }
-            }
-        });
+            });
+        }
     }
 
     private void UpdateWirelessSignalBars(int rssi)
@@ -488,72 +497,83 @@ public partial class MainPage : ContentPage
 
     private async Task UpdateDashboardMetrics(float frontVolts, int frontPercent, bool frontIsCharging, float backVolts, int backPercent, bool backIsCharging, bool isCrossCharging)
     {
-        lblFrontVolts.Text = $"{frontVolts:F2} V";
-        lblFrontPercent.Text = $"{frontPercent}%";
-        progressFront.Progress = frontPercent / 100.0f;
+        await MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            lblFrontVolts.Text = $"{frontVolts:F2} V";
+            lblFrontPercent.Text = $"{frontPercent}%";
+            progressFront.Progress = frontPercent / 100.0f;
 
-        if (frontIsCharging)
-        {
-            lblFrontIcon.Text = "⚡";
-            progressFront.ProgressColor = Colors.Yellow;
-            lblFrontVolts.TextColor = Colors.Yellow;
-        }
-        else if (frontPercent < 15)
-        {
-            lblFrontIcon.Text = "❌";
-            progressFront.ProgressColor = Colors.Red;
-            lblFrontVolts.TextColor = Colors.Red;
-        }
-        else
-        {
-            lblFrontIcon.Text = "🔋";
-            progressFront.ProgressColor = Color.Parse("#10B981");
-            lblFrontVolts.TextColor = Color.Parse("#10B981");
-        }
+            if (frontIsCharging)
+            {
+                lblFrontIcon.Text = "⚡";
+                progressFront.ProgressColor = Colors.Yellow;
+                lblFrontVolts.TextColor = Colors.Yellow;
+            }
+            else if (frontPercent < 15)
+            {
+                lblFrontIcon.Text = "❌";
+                progressFront.ProgressColor = Colors.Red;
+                lblFrontVolts.TextColor = Colors.Red;
+            }
+            else
+            {
+                lblFrontIcon.Text = "🔋";
+                progressFront.ProgressColor = Color.Parse("#10B981");
+                lblFrontVolts.TextColor = Color.Parse("#10B981");
+            }
 
-        lblBackVolts.Text = $"{backVolts:F2} V";
-        lblBackPercent.Text = $"{backPercent}%";
-        progressBack.Progress = backPercent / 100.0f;
+            lblBackVolts.Text = $"{backVolts:F2} V";
+            lblBackPercent.Text = $"{backPercent}%";
+            progressBack.Progress = backPercent / 100.0f;
 
-        if (backIsCharging)
-        {
-            lblBackIcon.Text = "⚡";
-            progressBack.ProgressColor = Colors.Yellow;
-            lblBackVolts.TextColor = Colors.Yellow;
-        }
-        else if (backPercent < 15)
-        {
-            lblBackIcon.Text = "❌";
-            progressBack.ProgressColor = Colors.Red;
-            lblBackVolts.TextColor = Colors.Red;
-        }
-        else
-        {
-            lblBackIcon.Text = "🔋";
-            progressBack.ProgressColor = Color.Parse("#3B82F6");
-            lblBackVolts.TextColor = Color.Parse("#3B82F6");
-        }
+            if (backIsCharging)
+            {
+                lblBackIcon.Text = "⚡";
+                progressBack.ProgressColor = Colors.Yellow;
+                lblBackVolts.TextColor = Colors.Yellow;
+            }
+            else if (backPercent < 15)
+            {
+                lblBackIcon.Text = "❌";
+                progressBack.ProgressColor = Colors.Red;
+                lblBackVolts.TextColor = Colors.Red;
+            }
+            else
+            {
+                lblBackIcon.Text = "🔋";
+                progressBack.ProgressColor = Color.Parse("#3B82F6");
+                lblBackVolts.TextColor = Color.Parse("#3B82F6");
+            }
 
-        if (isCrossCharging)
-        {
-            lblCrossChargeStatus.Text = "⚡ CROSS-CHARGING ACTIVE";
-            lblCrossChargeStatus.TextColor = Colors.Yellow;
-            layoutCrossCharging.IsVisible = true;
-        }
-        else
-        {
-            layoutCrossCharging.IsVisible = false;
-        }
+            if (isCrossCharging)
+            {
+                lblCrossChargeStatus.Text = "⚡ CROSS-CHARGING ACTIVE";
+                lblCrossChargeStatus.TextColor = Colors.Yellow;
+                layoutCrossCharging.IsVisible = true;
+            }
+            else
+            {
+                layoutCrossCharging.IsVisible = false;
+            }
+        });
     }
 
-    private void ExecuteWifiThemeRedrawPass()
+    private async void ExecuteWifiThemeRedrawPass()
     {
-        if (!App.NetworkService.IsUsingCloudWanMode)
-        {
-            string cachedIP = Preferences.Default.Get("LastKnownVehicleIP", "0.0.0.0");
-            if (string.IsNullOrEmpty(cachedIP) || cachedIP == "0.0.0.0") return;            
+        string cachedIP = Preferences.Default.Get("LastKnownVehicleIP", "0.0.0.0");
+        if (string.IsNullOrEmpty(cachedIP) || cachedIP == "0.0.0.0") return;
 
-            lblBleSignal?.IsVisible = false;
+        await MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            if (App.NetworkService.IsBluetoothConnected)
+            {
+                lblBleSignal?.IsVisible = true;
+            }
+            else
+            {
+                lblBleSignal?.IsVisible = false;
+            }
+
             btnManualScanTrigger?.IsVisible = false;
 
             if (App.NetworkService.IsAuthorized)
@@ -582,60 +602,63 @@ public partial class MainPage : ContentPage
             if (lblBleStatusText != null)
             {
                 lblBleStatusText.Text = "LOCAL WI-FI SUBNET ONLINE";
-                lblBleStatusText.TextColor = Color.Parse("#3B82F6");               
+                lblBleStatusText.TextColor = Color.Parse("#3B82F6");
             }
 
             lblActiveTransportChannel?.Text = $"TRANSPORT MODE: REST API LINK ({cachedIP})";
-        }
+        });
     }
 
-    private void ExecuteCloudWanThemeRedrawPass()
+    private async void ExecuteCloudWanThemeRedrawPass()
     {
-        if (lblBleSignal != null)
+        await MainThread.InvokeOnMainThreadAsync(() =>
         {
-            lblBleSignal.Text = " 📶 WAN LIVE";
-            lblBleSignal.TextColor = Color.Parse("#F59E0B");
-            lblBleSignal.IsVisible = true;
-        }
+            if (lblBleSignal != null)
+            {
+                lblBleSignal.Text = " 📶 WAN LIVE";
+                lblBleSignal.TextColor = Color.Parse("#F59E0B");
+                lblBleSignal.IsVisible = true;
+            }
 
-        btnManualScanTrigger?.IsVisible = false;
+            btnManualScanTrigger?.IsVisible = false;
 
-        if (App.NetworkService.IsAuthorized)
-        {
-            btnLock?.IsEnabled = true;
-            btnUnlock?.IsEnabled = true;
-            btnAdminNavigation?.IsEnabled = true;
-        }
-        else
-        {
-            btnLock?.IsEnabled = false;
-            btnUnlock?.IsEnabled = false;
-            btnAdminNavigation?.IsEnabled = false;
-        }
+            if (App.NetworkService.IsAuthorized)
+            {
+                btnLock?.IsEnabled = true;
+                btnUnlock?.IsEnabled = true;
+                btnAdminNavigation?.IsEnabled = true;
+            }
+            else
+            {
+                btnLock?.IsEnabled = false;
+                btnUnlock?.IsEnabled = false;
+                btnAdminNavigation?.IsEnabled = false;
+            }
 
-        borderNetworkStatus?.IsVisible = true;
-        lblVehicleIPText?.Text = "Cloudflare Proxy";
+            borderNetworkStatus?.IsVisible = true;
+            lblVehicleIPText?.Text = "Cloudflare Proxy";
 
-        if (borderBleStatus != null)
-        {
-            borderBleStatus.BackgroundColor = Color.Parse("#2D221A");
-            borderBleStatus.Stroke = Color.Parse("#F59E0B");
-        }
+            if (borderBleStatus != null)
+            {
+                borderBleStatus.BackgroundColor = Color.Parse("#2D221A");
+                borderBleStatus.Stroke = Color.Parse("#F59E0B");
+            }
 
-        lblBleDot?.Text = "☁️";
-        if (lblBleStatusText != null)
-        {
-            lblBleStatusText.Text = "WAN CONNECTED";
-            lblBleStatusText.TextColor = Color.Parse("#F59E0B");
-        }
+            lblBleDot?.Text = "☁️";
+            if (lblBleStatusText != null)
+            {
+                lblBleStatusText.Text = "WAN CONNECTED";
+                lblBleStatusText.TextColor = Color.Parse("#F59E0B");
+            }
 
-        lblActiveTransportChannel?.Text = "TRANSPORT MODE: Encrypted WAN Link Active";
+            lblActiveTransportChannel?.Text = "TRANSPORT MODE: Encrypted WAN Link Active";
 
-        if (lblCloudWanTelemetryStatus != null)
-        {
-            lblCloudWanTelemetryStatus.Text = "☁️ CLOUD LINK: ONLINE";
-            lblCloudWanTelemetryStatus.TextColor = Color.Parse("#10B981");
-        }
+            if (lblCloudWanTelemetryStatus != null)
+            {
+                lblCloudWanTelemetryStatus.Text = "☁️ CLOUD LINK: ONLINE";
+                lblCloudWanTelemetryStatus.TextColor = Color.Parse("#10B981");
+            }
+        });
     }
 
     private void OnSetupFinished(object sender, EventArgs e)
@@ -647,11 +670,11 @@ public partial class MainPage : ContentPage
         });
     }
 
-    private void HandleAuthorizationRequest(bool promptForMasterPassword)
+    private async void HandleAuthorizationRequest(bool promptForMasterPassword)
     {
         if (promptForMasterPassword)
         {
-            Debug.WriteLine("--> [HANDSHAKE REJECTED]: Auth failed token caught. Displaying single alert prompt...");
+            await App.Log("--> [HANDSHAKE REJECTED]: Auth failed token caught. Displaying single alert prompt...");
 
             App.NetworkService.IsPromptingForMasterPassword = true;
 
@@ -674,7 +697,7 @@ public partial class MainPage : ContentPage
         }
         else
         {
-            Debug.WriteLine("--> [HANDSHAKE SECURED]: Auth validation state cleared successfully!");
+            await App.Log("--> [HANDSHAKE SECURED]: Auth validation state cleared successfully!");
 
             MainThread.BeginInvokeOnMainThread(async () =>
             {
@@ -688,7 +711,7 @@ public partial class MainPage : ContentPage
                 bool commandWasSent = await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
 
                 if (commandWasSent)
-                    Debug.WriteLine("--> [BOOT LINK SUCCESS]: Secure WIFI key-pull verification request offloaded natively on boot pass!");
+                    await App.Log("--> [BOOT LINK SUCCESS]: Secure WIFI key-pull verification request offloaded natively on boot pass!");
             });
         }
     }
@@ -698,13 +721,13 @@ public partial class MainPage : ContentPage
         try
         {
             string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-            Debug.WriteLine("--> [UI CONTROL]: Dispatching secure over-the-air LOCK token packet...");
+            await App.Log("--> [UI CONTROL]: Dispatching secure over-the-air LOCK token packet...");
 
             await App.NetworkService.SendSecureCommandAsync(activeKey, "LOCK");
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"--> [LOCK UI CHOKE]: {ex.Message}");
+            await App.Log($"--> [LOCK UI CHOKE]: {ex.Message}");
         }
     }
 
@@ -713,13 +736,13 @@ public partial class MainPage : ContentPage
         try
         {
             string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-            Debug.WriteLine("--> [UI CONTROL]: Dispatching secure over-the-air UNLOCK token packet...");
+            await App.Log("--> [UI CONTROL]: Dispatching secure over-the-air UNLOCK token packet...");
 
             await App.NetworkService.SendSecureCommandAsync(activeKey, "UNLOCK");
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"--> [UNLOCK UI CHOKE]: {ex.Message}");
+            await App.Log($"--> [UNLOCK UI CHOKE]: {ex.Message}");
         }
     }
 
@@ -732,7 +755,7 @@ public partial class MainPage : ContentPage
     {
         try
         {
-            Debug.WriteLine("--> [RECOVERY HUB]: Wrong device selected. Executing wireless reset line...");
+            await App.Log("--> [RECOVERY HUB]: Wrong device selected. Executing wireless reset line...");
             if (App.NetworkService != null) await App.NetworkService.DisconnectCurrentDeviceAsync();
 
             MainThread.BeginInvokeOnMainThread(async () =>
@@ -756,7 +779,7 @@ public partial class MainPage : ContentPage
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"--> [RECOVERY EXCEPTION SHIELD]: {ex.Message}");
+            await App.Log($"--> [RECOVERY EXCEPTION SHIELD]: {ex.Message}");
         }
     }
 
@@ -764,13 +787,13 @@ public partial class MainPage : ContentPage
     {
         try
         {
-            Debug.WriteLine("--> [UI CONTROL]: User requested manual scan refresh pass...");
+            await App.Log("--> [UI CONTROL]: User requested manual scan refresh pass...");
 
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
                 if (btDevicePicker != null)
                 {
-                    Debug.WriteLine("--> [HARDWARE MONITOR]: Forcing active device list reset sweep over radio waves...");
+                    await App.Log("--> [HARDWARE MONITOR]: Forcing active device list reset sweep over radio waves...");
                     btnLock?.IsEnabled = false;
                     btnUnlock?.IsEnabled = false;
                     btnAdminNavigation?.IsEnabled = false;
@@ -780,7 +803,7 @@ public partial class MainPage : ContentPage
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"--> [MANUAL SCAN TRIGGER FAULT]: Dynamic security check failed: {ex.Message}");
+            await App.Log($"--> [MANUAL SCAN TRIGGER FAULT]: Dynamic security check failed: {ex.Message}");
         }
     }
 
@@ -789,14 +812,14 @@ public partial class MainPage : ContentPage
         await btDevicePicker.TriggerRefreshScan();
     }
 
-    protected override void OnAppearing()
+    protected override async void OnAppearing()
     {
         base.OnAppearing();
 
         if (!(App.NetworkService.IsBluetoothConnected || App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode))
             MainThread.BeginInvokeOnMainThread(async () => await KickstartWirelessCockpitSync());
 
-        Debug.WriteLine("--> [DASHBOARD LANDING]: Repainting master layout frames...");
+        await App.Log("--> [DASHBOARD LANDING]: Repainting master layout frames...");
 
         if (App.NetworkService != null && App.NetworkService.IsRebootingWatchdogActive)
         {
@@ -807,7 +830,7 @@ public partial class MainPage : ContentPage
             lblBleStatusText.TextColor = Color.Parse("#EF4444");
             lblBleSignal.Text = string.Empty;
 
-            Debug.WriteLine("--> [UI STATE ALIGNMENT]: Dashboard badge force-shifted to REBOOTING tracking state.");
+            await App.Log("--> [UI STATE ALIGNMENT]: Dashboard badge force-shifted to REBOOTING tracking state.");
         }
 
         _lastTelemetryValue = string.Empty;
@@ -825,7 +848,7 @@ public partial class MainPage : ContentPage
     {
         if (App.NetworkService != null && App.NetworkService.IsRebootingWatchdogActive)
         {
-            Debug.WriteLine("--> [BOOT SYNC GUARD]: Active reboot watchdog detected. Standing down dashboard autoconnect tasks.");
+            await App.Log("--> [BOOT SYNC GUARD]: Active reboot watchdog detected. Standing down dashboard autoconnect tasks.");
             return;
         }
 
@@ -834,11 +857,11 @@ public partial class MainPage : ContentPage
             string targetedMacAddress = Preferences.Default.Get(SavedDeviceMacKey, string.Empty);
             if (string.IsNullOrEmpty(targetedMacAddress))
             {
-                Debug.WriteLine("--> [BOOT SYNC]: Zero historical pairings found. Inflating UI elements before permissions...");
+                await App.Log("--> [BOOT SYNC]: Zero historical pairings found. Inflating UI elements before permissions...");
 
                     if (btDevicePicker != null)
                     {
-                        Debug.WriteLine("--> [HARDWARE MONITOR]: Forcing active device list reset sweep over radio waves...");
+                        await App.Log("--> [HARDWARE MONITOR]: Forcing active device list reset sweep over radio waves...");
                         btnLock?.IsEnabled = false;
                         btnUnlock?.IsEnabled = false;
                         btnAdminNavigation?.IsEnabled = false;
@@ -855,8 +878,13 @@ public partial class MainPage : ContentPage
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"--> [BOOT WORKFLOW SHIELD]: {ex.Message}");
+            await App.Log($"--> [BOOT WORKFLOW SHIELD]: {ex.Message}");
         }
+    }
+
+    public async Task LogDebugToTerminal(string value)
+    {
+        OnTelemetryParsed?.Invoke(value.Replace("--> -->", "-->"));
     }
 
     ~MainPage()

@@ -142,14 +142,29 @@
                         <RoundRectangle CornerRadius="8"/>
                     </Border.StrokeShape>
                     <VerticalStackLayout Padding="15" Spacing="10">
-                        <Grid ColumnDefinitions="*, Auto, Auto" ColumnSpacing="12" VerticalOptions="Center">
-                            <HorizontalStackLayout Grid.Column="0" Spacing="8" VerticalOptions="Center">
-                                <Label Text="🟢" VerticalOptions="Center" FontSize="10"/>
-                                <Label Text="LIVE PACKET MONITOR" TextColor="#8E8E93" FontSize="11" FontAttributes="Bold" CharacterSpacing="1" VerticalOptions="Center"/>
-                            </HorizontalStackLayout>
-                            <Label Grid.Column="1" Text="AUTOSCROLL" TextColor="#8E8E93" FontSize="10" FontAttributes="Bold" VerticalOptions="Center"/>
-                            <Switch Grid.Column="2" x:Name="switchAutoscroll" IsToggled="True" OnColor="#10B981" ThumbColor="#FFFFFF" VerticalOptions="Center" Scale="0.85" />
+                        <Grid RowDefinitions="Auto, Auto" RowSpacing="10" VerticalOptions="Center">
+                            <Grid Grid.Row="0" ColumnDefinitions="*, Auto, Auto" ColumnSpacing="12" VerticalOptions="Center">
+                                <HorizontalStackLayout Grid.Column="0" Spacing="8" VerticalOptions="Center">
+                                    <Label Text="🟢" VerticalOptions="Center" FontSize="10"/>
+                                    <Label Text="LIVE PACKET MONITOR" TextColor="#8E8E93" FontSize="11" FontAttributes="Bold" CharacterSpacing="1" VerticalOptions="Center"/>
+                                </HorizontalStackLayout>
+                                <Label Grid.Column="1" Text="AUTOSCROLL" TextColor="#8E8E93" FontSize="10" FontAttributes="Bold" VerticalOptions="Center"/>
+                                <Switch Grid.Column="2" x:Name="switchAutoscroll" IsToggled="True" OnColor="#10B981" ThumbColor="#FFFFFF" VerticalOptions="Center" Scale="0.85" />
+                            </Grid>
+
+                            <Grid Grid.Row="1" ColumnDefinitions="*, *" ColumnSpacing="16" VerticalOptions="Center">
+                                <HorizontalStackLayout Grid.Column="0" Spacing="8" HorizontalOptions="Start" VerticalOptions="Center">
+                                    <Label Text="DEBUG LOGS" TextColor="#8E8E93" FontSize="10" FontAttributes="Bold" VerticalOptions="Center"/>
+                                    <Switch x:Name="switchDebugLogs" IsToggled="False" OnColor="#3B82F6" ThumbColor="#FFFFFF" VerticalOptions="Center" Scale="0.80" Toggled="OnDebugLogsToggled" />
+                                </HorizontalStackLayout>
+
+                                <HorizontalStackLayout Grid.Column="1" Spacing="8" HorizontalOptions="End" VerticalOptions="Center">
+                                    <Label Text="REMOTE TELEMETRY" TextColor="#8E8E93" FontSize="10" FontAttributes="Bold" VerticalOptions="Center"/>
+                                    <Switch x:Name="switchRemoteTelemetry" IsToggled="True" OnColor="#F59E0B" ThumbColor="#FFFFFF" VerticalOptions="Center" Scale="0.80" />
+                                </HorizontalStackLayout>
+                            </Grid>
                         </Grid>
+
                         <ScrollView x:Name="scrollTerminal" HeightRequest="150" BackgroundColor="#000000">
                             <Label x:Name="lblDebugTerminal" Text="[SYS] Terminal initialized. Awaiting vehicle telemetry frames..." TextColor="#10B981" FontFamily="monospace" FontSize="11" Padding="10" LineBreakMode="WordWrap"/>
                         </ScrollView>

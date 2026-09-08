@@ -270,12 +270,19 @@ public class TelemetryForegroundService : Service
                 var bluetoothToggleFilter = new IntentFilter(Android.Bluetooth.BluetoothAdapter.ActionStateChanged);
 
                 RegisterReceiver(_dynamicBluetoothStateReceiver, bluetoothToggleFilter);
-                System.Diagnostics.Debug.WriteLine("--> [SERVICE LAUNCH]: Programmatic Runtime Bluetooth State Receiver successfully injected into Android kernel.");
+
+                Task.Run(async () =>
+                {
+                    await App.Log("--> [SERVICE LAUNCH]: Programmatic Runtime Bluetooth State Receiver successfully injected into Android kernel.");
+                });
             }
         }
         catch (Exception rxEx)
         {
-            System.Diagnostics.Debug.WriteLine($"--> [SERVICE LAUNCH WARNING]: Runtime receiver registry bypassed: {rxEx.Message}");
+            Task.Run(async () =>
+            {
+                await App.Log($"--> [SERVICE LAUNCH WARNING]: Runtime receiver registry bypassed: {rxEx.Message}");
+            });
         }
 
         App.NetworkService.OnConnectionStateChanged += (isConnected) =>
@@ -296,7 +303,10 @@ public class TelemetryForegroundService : Service
             {
                 UnregisterReceiver(_dynamicBluetoothStateReceiver);
                 _dynamicBluetoothStateReceiver = null;
-                System.Diagnostics.Debug.WriteLine("--> [SERVICE SHUTDOWN]: Runtime Bluetooth receiver safely de-provisioned.");
+                Task.Run(async () =>
+                {
+                    await App.Log("--> [SERVICE SHUTDOWN]: Runtime Bluetooth receiver safely de-provisioned.");
+                });
             }
         }
         catch { }

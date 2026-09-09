@@ -8,7 +8,7 @@
 #include <RTC.h>
 
 #define CRITICAL_BATTERY_LOW      15  // 15% Trigger threshold
-#define SAFE_BATTERY_CEILING      35  // 35% Release threshold
+#define SAFE_BATTERY_CEILING      30  // 30% Release threshold
 
 String CLOUDFLARE_HOST     = "silent-bird-d9c0.taigon1984.workers.dev";
 const uint16_t CLOUDFLARE_PORT  = 443;
@@ -22,7 +22,7 @@ String lastAdminPayload = "";
 
 String globalLastUploadedLogTimestamp = ""; 
 
-unsigned long maintenanceModeIsolationTimerAnchor = 0; 
+unsigned long cloudLimitLockoutTimestampAnchor = 0;
 
 const String DEFAULT_MASTER_PASSWORD = "VersaPasscode99"; 
 const String DEFAULT_WIFI_AP_NAME = "Versa_Automation_Hub"; 
@@ -98,7 +98,7 @@ static int longRangeAdminSyncCounter = 999;
 
 static unsigned long lastCloudUploadTimestamp = 0;
 static unsigned long rapidResponseWindowExpiration = 0;
-unsigned long activeCloudPacingInterval = 10000;
+unsigned long activeCloudPacingInterval = 30000;
 
 bool crossChargeProtectionActiveFlag = false; 
 
@@ -183,8 +183,8 @@ void loop() {
         int rawBack = analogRead(VOLTAGE_BACK);
         globalBackVolts = ((rawBack * ARDUINO_REF_VOLTAGE) / 1023.0) * CALIBRATION_BACK;
 
-        frontIsCharging = (globalFrontVolts >= frontChargingVolts);
-        backIsCharging = (globalBackVolts >= backChargingVolts);
+        frontIsCharging = (globalFrontVolts >= frontChargingVolts) || crossChargeProtectionActiveFlag;
+        backIsCharging = (globalBackVolts >= backChargingVolts) || crossChargeProtectionActiveFlag;
 
         bool radioSenseIsActive = (digitalRead(RADIO_SENSOR) == HIGH); 
 
@@ -228,14 +228,14 @@ void loop() {
             if (globalFrontVolts < 6.50) telemetryString += "Front: [❌ DISCONNECTED]"; 
             else { 
                 telemetryString += "Front: "; 
-                if (frontIsCharging) telemetryString += "[🔋 CHARGING] "; 
+                if ((frontIsCharging && !backIsCharging) || crossChargeProtectionActiveFlag) telemetryString += "[🔋 CHARGING] "; 
                 telemetryString += String(globalFrontVolts, 1) + "V (" + String(frontBatteryPercent) + "%)"; 
             } 
             telemetryString += " | "; 
             if (globalBackVolts < 6.50) telemetryString += "Back: [❌ DISCONNECTED]"; 
             else { 
                 telemetryString += "Back: "; 
-                if (backIsCharging && !frontIsCharging) telemetryString += "[ 🔋 CHARGING] "; 
+                if ((backIsCharging && !frontIsCharging) || crossChargeProtectionActiveFlag) telemetryString += "[ 🔋 CHARGING] "; 
                 telemetryString += String(globalBackVolts, 1) + "V (" + String(backBatteryPercent) + "%)"; 
             } 
         } 
@@ -243,41 +243,27 @@ void loop() {
         writeLog(telemetryString); 
 
         if (!crossChargeProtectionActiveFlag) { 
-            if ((frontBatteryPercent <= CRITICAL_BATTERY_LOW && backBatteryPercent > 30) ||  
-                (backBatteryPercent <= CRITICAL_BATTERY_LOW && frontBatteryPercent > 30)) { 
-                
+            if ((frontBatteryPercent <= CRITICAL_BATTERY_LOW && backBatteryPercent >= SAFE_BATTERY_CEILING) ||  
+                (backBatteryPercent <= CRITICAL_BATTERY_LOW && frontBatteryPercent >= SAFE_BATTERY_CEILING) ||
+                (frontIsCharging && globalBackVolts < 14.00) ||
+                (backIsCharging && globalFrontVolts < 14.00)) { 
                 crossChargeProtectionActiveFlag = true; 
                 writeLog("--> [BATTERY CRITICAL]: Threshold protection tripped! Bridging cells for emergency cross-charge."); 
             } 
         }  
-        else { 
-            if ((frontBatteryPercent >= SAFE_BATTERY_CEILING && backBatteryPercent >= 30) ||  
-                (backBatteryPercent >= SAFE_BATTERY_CEILING && frontBatteryPercent > 30)) { 
-                
-                crossChargeProtectionActiveFlag = false; 
-                writeLog("--> [BATTERY RECOVERY]: Weak bank recovered past safe 35% margin. Isolating cells."); 
-            } 
-            else if (frontBatteryPercent <= 5 && backBatteryPercent <= 5) { 
-                crossChargeProtectionActiveFlag = false; 
-                writeLog("--> [BATTERY EMERGENCY]: Both banks completely flattened! Breaking cross-charge to save core cell hardware."); 
-            } 
+        else if (frontBatteryPercent <= 5 && backBatteryPercent <= 5) { 
+            crossChargeProtectionActiveFlag = false;
+            writeLog("--> [BATTERY EMERGENCY]: Both banks completely flattened! Breaking cross-charge to save core cell hardware."); 
         } 
 
         if (globalFrontVolts >= 14.00 && globalBackVolts >= 14.00) {
-            maintenanceModeIsolationTimerAnchor = currentMillis;
-
-            if (crossChargeProtectionActiveFlag || digitalRead(RELAY_SOLENOID) == LOW) {
+            if (crossChargeProtectionActiveFlag) {
                 crossChargeProtectionActiveFlag = false;
                 digitalWrite(RELAY_SOLENOID, HIGH);
                 writeLog("--> [CHARGER SAFETY]: Both banks saturated over 14V. Breaking cross-charge link to allow float maintenance mode.");
             }
         }
-        else if (currentMillis - maintenanceModeIsolationTimerAnchor < 300000 && !crossChargeProtectionActiveFlag) {
-            if (digitalRead(RELAY_SOLENOID) == LOW) {
-                digitalWrite(RELAY_SOLENOID, HIGH);
-            }
-        }
-        else if (frontIsCharging || backIsCharging || crossChargeProtectionActiveFlag) { 
+        else if (crossChargeProtectionActiveFlag) { 
             if (digitalRead(RELAY_SOLENOID) == HIGH) {  
                 digitalWrite(RELAY_SOLENOID, LOW);
                 writeLog("--> [ISOLATOR ACTION]: Solenoid engaged. RELAY_SOLENOID CLOSED."); 
@@ -291,13 +277,13 @@ void loop() {
         } 
 
         if (globalFrontVolts >= 11.20) { 
-            if (radioSenseIsActive) { 
+            if (radioSenseIsActive && digitalRead(RELAY_AMP_REM) != LOW) { 
                 if (digitalRead(RELAY_AMP_REM) == HIGH) { 
                     digitalWrite(RELAY_AMP_REM, LOW);
                     writeLog("--> [AUDIO]: Radio detected active. K4 SNAP CLOSED."); 
                 } 
             }
-            else { 
+            else if (!radioSenseIsActive) { 
                 if (digitalRead(RELAY_AMP_REM) == LOW) { 
                     digitalWrite(RELAY_AMP_REM, HIGH);
                     writeLog("--> [AUDIO]: Radio detected sleeping. K4 CLICK OPEN."); 
@@ -350,10 +336,10 @@ void loop() {
         unsigned long activeCloudPacingInterval = 10000; 
         
         if (currentMillis < rapidResponseWindowExpiration) { 
-            activeCloudPacingInterval = 2000;
+            activeCloudPacingInterval = 5000; 
         } 
-        else if (!radioSenseIsActive) {
-            activeCloudPacingInterval = 30000;
+        else if (digitalRead(RADIO_SENSOR) == LOW) { 
+            activeCloudPacingInterval = 300000; 
         }
 
         if (currentMillis - lastCloudUploadTimestamp >= activeCloudPacingInterval) { 
@@ -767,8 +753,7 @@ void maintainNetworkHealth() {
       
       if (WiFi.status() == WL_CONNECTED) {
         writeLog("--> [WAN RECOVERY]: Home network re-established. Dismantling local hotspot loop.");
-        systemIsCurrentlyInFallbackApMode = false;
-        lastCloudTransmitSuccessful = true;
+        systemIsCurrentlyInFallbackApMode = false;        
       } else {
         WiFi.beginAP(currentBroadcastAP.c_str(), "VersaCore99");
       }
@@ -1279,6 +1264,13 @@ String encryptPayloadAES128CBC(const String& plainInput) {
 }
 
 void transmitSecureHTTPTelemetry(String jsonPayload) {
+    if (cloudLimitLockoutTimestampAnchor > 0 && (millis() - cloudLimitLockoutTimestampAnchor < 600000)) {
+        return; 
+    }
+    else {
+        cloudLimitLockoutTimestampAnchor = 0;
+    }
+    
     bool isWifiConnected = (WiFi.status() == WL_CONNECTED);
     if (!isWifiConnected) return;
 
@@ -1352,6 +1344,14 @@ void transmitSecureHTTPTelemetry(String jsonPayload) {
 
             writeLog("--> [WAN OVER-THE-AIR COMMAND]: Intercepted active remote payload envelope!");
             writeLog("--> [WAN COMMAND PAYLOAD]: " + inboundWanCommandBody);
+
+            if (inboundWanCommandBody.indexOf("limit exceeded") != -1 || inboundWanCommandBody.indexOf("KV put() limit") != -1) {
+                writeLog("--> [CRITICAL CAP]: Cloudflare Daily Limit reached. Muting secure cloud uploads for 10 minutes.");
+                lastCloudTransmitSuccessful = false;
+                cloudLimitLockoutTimestampAnchor = millis();
+                secureClient.stop();
+                return;
+            }
 
             String fullyDecryptedBodyString = decryptPayloadAES128CBC(inboundWanCommandBody);
             fullyDecryptedBodyString.trim();

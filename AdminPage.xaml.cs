@@ -553,7 +553,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
     private async Task HandleWifiAndCloudData()
     {
-        var (wifiAp, bleName, routerSsid, cfHost, cfId, isOk) = App.NetworkService.IsUsingWifiTransportMode ?
+        var (wifiAp, bleName, routerSsid, cfHost, cfId, isOk) = App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode ?
             await Services.NetworkHubService.FetchWifiAdminParametersAsync() : await Services.NetworkHubService.FetchCloudAdminParametersAsync();
 
         if (isOk)

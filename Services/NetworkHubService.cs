@@ -137,12 +137,12 @@ public class NetworkHubService
 
         IsConnecting = true;
 
-        if (!(IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
+        if (!(IsBluetoothConnected || btAdapterOnOverride || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
             OnConnectionStateChanged?.Invoke(false);
 
         var activeProfiles = Connectivity.Current.ConnectionProfiles;
         bool hasPhysicalWifiInterface = activeProfiles.Contains(ConnectionProfile.WiFi) &&
-                                       (Connectivity.Current.NetworkAccess == NetworkAccess.Internet || Connectivity.Current.NetworkAccess == NetworkAccess.Local);
+                                       (Connectivity.Current.NetworkAccess != NetworkAccess.None || Connectivity.Current.NetworkAccess == NetworkAccess.Unknown);
         bool phoneHasInternetAccess = Connectivity.Current.NetworkAccess == NetworkAccess.Internet;
 
         if (!(CrossBluetoothLE.Current.IsOn || hasPhysicalWifiInterface || phoneHasInternetAccess))
@@ -181,6 +181,7 @@ public class NetworkHubService
                     await App.Log($"--> [CACHE HIT]: Reconnecting straight to historical device: {cachedId}");
                     Guid deviceGuid = Guid.Parse(cachedId);
 
+                    await Task.Delay(2500);
                     _targetDevice = await _adapter.ConnectToKnownDeviceAsync(deviceGuid);
 
                     if (IsBluetoothConnected)
@@ -226,11 +227,17 @@ public class NetworkHubService
             if (hasPhysicalWifiInterface)
             {
                 string lastKnownIp = Preferences.Default.Get("LastKnownVehicleIP", "0.0.0.0");
-                if (!string.IsNullOrEmpty(lastKnownIp) && (lastKnownIp == "0.0.0.0" || lastKnownIp.Equals("STA_HOTSPOT")))
+                if (!string.IsNullOrEmpty(lastKnownIp) && (lastKnownIp == "0.0.0.0" || lastKnownIp == "192.168.4.1" || lastKnownIp.Equals("STA_HOTSPOT")) && !IsUsingLocalApMode)
                 {
-                    lastKnownIp = "192.168.4.1";
-                    IsUsingLocalApMode = true;
-                    await App.Log("--> [AUTO-CONNECT]: Vehicle node is in hotspot mode. Attempting to connect over Wi-Fi transport...");
+                    var currentSubnet = GetCurrentWifiSubnetBase();
+
+                    if (!string.IsNullOrEmpty(currentSubnet) && currentSubnet == "192.168.4.")
+                    {
+                        lastKnownIp = "192.168.4.1";
+                        IsUsingLocalApMode = true;
+                        IsWifiTelemetryDead = false;
+                        await App.Log("--> [AUTO-CONNECT]: Vehicle node is in hotspot mode. Attempting to connect over Wi-Fi transport...");
+                    }
                 }
 
                 if (!string.IsNullOrEmpty(lastKnownIp) && !lastKnownIp.Equals("0.0.0.0") && !lastKnownIp.Equals("STA_HOTSPOT") && !IsWifiTelemetryDead)
@@ -259,7 +266,7 @@ public class NetworkHubService
                             IsConnecting = false;
                             OnConnectionStateChanged?.Invoke(false);
 
-                            if (IsAuthorized && !_isTelemetryActive)
+                            if (IsAuthorized)
                             {
                                 await ManageWifiTelemetryPollingLifecycle(true);
                             }
@@ -400,6 +407,9 @@ public class NetworkHubService
 
                         await Task.Delay(1500);
                         await VerifyPasswordAgainstHardwareAsync();
+
+                        if (IsAuthorized && (IsUsingLocalApMode || IsUsingWifiTransportMode))
+                            await ManageWifiTelemetryPollingLifecycle(true);
                     }
                 }
                 catch (Exception ex)
@@ -561,11 +571,16 @@ public class NetworkHubService
 
             string cachedVehicleIP = Preferences.Default.Get("LastKnownVehicleIP", "0.0.0.0");
 
-            if (string.IsNullOrEmpty(cachedVehicleIP) || cachedVehicleIP == "0.0.0.0")
+            if (string.IsNullOrEmpty(cachedVehicleIP) || cachedVehicleIP == "0.0.0.0" || cachedVehicleIP == "STA_HOTSPOT")
             {
                 if (IsUsingLocalApMode)
                 {
                     cachedVehicleIP = "192.168.4.1";
+                }
+                else
+                {
+                    await App.Log("--> Local AP mode node configured and no previous vehicle IP found.");
+                    throw new Exception("--> [ADMIN]: Unable to send command.");
                 }
             }
 
@@ -779,7 +794,7 @@ public class NetworkHubService
             {
                 string cachedVehicleIP = Preferences.Default.Get("LastKnownVehicleIP", "0.0.0.0");
 
-                if (string.IsNullOrEmpty(cachedVehicleIP) || cachedVehicleIP == "0.0.0.0")
+                if (string.IsNullOrEmpty(cachedVehicleIP) || cachedVehicleIP == "0.0.0.0" || cachedVehicleIP == "STA_HOTSPOT")
                 {
                     if (App.NetworkService.IsUsingLocalApMode)
                     {
@@ -1019,7 +1034,9 @@ public class NetworkHubService
 
     public async Task ManageWifiTelemetryPollingLifecycle(bool startWorker)
     {
-       
+        if (_isTelemetryActive)
+            return;
+
         _wifiTelemetryCancelSource?.Cancel();
         _wifiTelemetryCancelSource = null;
 
@@ -1058,7 +1075,7 @@ public class NetworkHubService
                     await App.Log("--> [WIFI POLLING] - Initiating telemetry poll");
                     string targetIP = Preferences.Default.Get("LastKnownVehicleIP", "0.0.0.0");
 
-                    if (string.IsNullOrEmpty(targetIP) || targetIP == "0.0.0.0")
+                    if (string.IsNullOrEmpty(targetIP) || targetIP == "0.0.0.0" || targetIP == "STA_HOTSPOT")
                     {
                         if (IsUsingLocalApMode)
                         {
@@ -1066,8 +1083,8 @@ public class NetworkHubService
                         }
                         else
                         {
-                            try { await Task.Delay(2000, executionPassToken); } catch (TaskCanceledException) { break; }
-                            continue;
+                            await App.Log("--> [WIFI POLLING]: Local AP mode node configured and no previous vehicle IP found.");
+                            await ManageWifiTelemetryPollingLifecycle(false);
                         }
                     }
 
@@ -1358,6 +1375,64 @@ public class NetworkHubService
         _rssiLoopCts?.Dispose();
         _rssiLoopCts = null;
         ActiveRssi = -100;
+    }
+
+    private static string GetCurrentWifiSubnetBase()
+    {
+#if ANDROID
+        try
+        {
+            var context = Android.App.Application.Context;
+            var connectivityManager = (Android.Net.ConnectivityManager)context.GetSystemService(Android.Content.Context.ConnectivityService);
+            if (connectivityManager == null) return string.Empty;
+
+            var activeNetwork = connectivityManager.ActiveNetwork;
+            var linkProperties = connectivityManager.GetLinkProperties(activeNetwork);
+            if (linkProperties == null) return string.Empty;
+
+            foreach (var linkAddress in linkProperties.LinkAddresses)
+            {
+                if (linkAddress?.Address is Java.Net.Inet4Address inet4Address)
+                {
+                    string ipAddressString = inet4Address.HostAddress;
+                    int prefixLength = linkAddress.PrefixLength;
+
+                    return CalculateSubnetBase(ipAddressString, prefixLength);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"--> [SUBNET DETECTOR ERROR]: {ex.Message}");
+        }
+#endif
+
+        return string.Empty;
+    }
+
+    private static string CalculateSubnetBase(string ipAddress, int prefixLength)
+    {
+        try
+        {
+            var ipBytes = System.Net.IPAddress.Parse(ipAddress).GetAddressBytes();
+            uint mask = ~(0xFFFFFFFF >> prefixLength);
+            byte[] maskBytes = BitConverter.GetBytes(mask);
+
+            if (BitConverter.IsLittleEndian)
+                Array.Reverse(maskBytes);
+
+            byte[] subnetBytes = new byte[4];
+            for (int i = 0; i < 4; i++)
+            {
+                subnetBytes[i] = (byte)(ipBytes[i] & maskBytes[i]);
+            }
+
+            return $"{subnetBytes[0]}.{subnetBytes[1]}.{subnetBytes[2]}.";
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 
     private async Task PollRssiAsync(CancellationToken cancellationToken)

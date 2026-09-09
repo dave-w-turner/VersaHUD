@@ -333,8 +333,8 @@ void loop() {
                             ",\"front_p\":" + String(frontBatteryPercent) +
                             ",\"background_v\":" + String(globalBackVolts, 2) +  
                             ",\"back_p\":" + String(backBatteryPercent) +  
-                            ",\"charging_f\":" + (frontIsCharging ? String("true") : String("false")) +  
-                            ",\"charging_b\":" + (backIsCharging ? String("true") : String("false")) +  
+                            ",\"charging_f\":" + (frontIsCharging || crossChargeProtectionActiveFlag ? String("true") : String("false")) +  
+                            ",\"charging_b\":" + (backIsCharging || crossChargeProtectionActiveFlag ? String("true") : String("false")) +  
                             ",\"cross_charging\":" + (crossChargeProtectionActiveFlag ? String("true") : String("false")) +  
                             ",\"wan_link\":" + (lastCloudTransmitSuccessful ? String("true") : String("false")) +  
                             ",\"system_logs\":" + jsonLogArrayPayload + "}"; 
@@ -699,8 +699,21 @@ void setupWiFiAPI() {
   if (!stationConnectedSuccess) {
     writeLog("[WAN ALERT]: Station link dropped. Starting Fallback Access Point...");
     
-    WiFi.beginAP(currentBroadcastAP.c_str(), "VersaCore99");
+    unsigned int activeLockHash = readHashFromEEPROM(EEPROM_LOCK_HASH_ADDR);
+    
+    char hexBuffer[12];
+    sprintf(hexBuffer, "%08X", activeLockHash);
+    String dynamicApPassword = String(hexBuffer);
+    
+    if (activeLockHash == 0xFFFF || activeLockHash == 0) {
+      dynamicApPassword = DEFAULT_MASTER_PASSWORD;
+    }
+
+    WiFi.beginAP(currentBroadcastAP.c_str(), dynamicApPassword.c_str());
     systemIsCurrentlyInFallbackApMode = true;
+    
+    Serial.print("--> [AP BOOT SUCCESS]: Local hotspot online. Secure AP Key is: ");
+    Serial.println(dynamicApPassword);
   } else {
     writeLog("[SYS] Station Linked! Synchronizing Network Time...");
     systemIsCurrentlyInFallbackApMode = false;
@@ -806,8 +819,8 @@ void handleWiFiAPI() {
                                           ",\"front_p\":" + String(frontBatteryPercent) + 
                                           ",\"background_v\":" + String(globalBackVolts, 2) + 
                                           ",\"back_p\":" + String(backBatteryPercent) + 
-                                          ",\"charging_f\":" + String(frontIsCharging ? "true" : "false") + 
-                                          ",\"charging_b\":" + String(backIsCharging ? "true" : "false") + 
+                                          ",\"charging_f\":" + String(frontIsCharging || crossChargeProtectionActiveFlag ? "true" : "false") + 
+                                          ",\"charging_b\":" + String(backIsCharging || crossChargeProtectionActiveFlag ? "true" : "false") + 
                                           ",\"cross_charging\":" + (crossChargeProtectionActiveFlag ? String("true") : String("false")) + 
                                           ",\"wan_link\":" + (lastCloudTransmitSuccessful ? String("true") : String("false")) + 
                                           ",\"system_logs\":" + jsonLogArrayPayload + "}";

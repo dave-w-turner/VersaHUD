@@ -92,7 +92,7 @@ public partial class MainPage : ContentPage
 
         try
         {
-            if (rawDataPacket.Trim().StartsWith('{') && (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingCloudWanMode))
+            if (rawDataPacket.Trim().StartsWith('{') && (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode))
             {
                 using JsonDocument jsonDoc = JsonDocument.Parse(rawDataPacket);
                 var root = jsonDoc.RootElement;
@@ -260,17 +260,20 @@ public partial class MainPage : ContentPage
                             App.NetworkService.LastReportedWANLinkState = DateTime.UtcNow;
                         }
 
-                        if (extractedVehicleIP == "STA_HOTSPOT" || extractedVehicleIP == "0.0.0.0")
+                        if (!string.IsNullOrEmpty(extractedVehicleIP))
                         {
-                            lblVehicleIPText?.Text = "ONLINE (Standalone AP Mode)";
-                            borderNetworkStatus?.IsVisible = true;
-                        }
-                        else if (!string.IsNullOrEmpty(extractedVehicleIP))
-                        {
-                            lblVehicleIPText?.Text = extractedVehicleIP;
-                            borderNetworkStatus?.IsVisible = true;
+                            if (extractedVehicleIP == "STA_HOTSPOT" || extractedVehicleIP == "0.0.0.0")
+                            {
+                                lblVehicleIPText?.Text = "ONLINE (Standalone AP Mode)";
+                                App.NetworkService.IsWifiTelemetryDead = false;
+                            }
+                            else
+                            {
+                                lblVehicleIPText?.Text = extractedVehicleIP;
+                            }
 
                             Preferences.Default.Set("LastKnownVehicleIP", extractedVehicleIP);
+                            borderNetworkStatus?.IsVisible = true;
                         }
                     });
                 }
@@ -852,6 +855,7 @@ public partial class MainPage : ContentPage
         _processedVehicleLogLinesBucket = [];
 
         App.NetworkService?.UpdateLifecycleState(true);
+        UpdateBluetoothStatusBadge(App.NetworkService?.IsBluetoothConnected ?? false);
     }
 
     protected override void OnDisappearing()

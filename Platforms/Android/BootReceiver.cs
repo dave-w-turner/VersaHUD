@@ -48,19 +48,18 @@ public class BootReceiver : BroadcastReceiver
             }
             else if (stateCode == (int)State.Off || stateCode == (int)State.TurningOff)
             {
-                await App.Log("--> [HARDWARE MONITOR]: Physical Bluetooth radio switch toggled OFF. Verifying active transport channels...");
-
                 if (App.NetworkService != null)
                 {
+                    App.NetworkService.StopRssiTracking();
+
                     if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingCloudWanMode || App.NetworkService.IsUsingLocalApMode)
                     {
-                        await App.Log("--> [HARDWARE MONITOR RADAR]: Bluetooth radio severed, but active Wi-Fi transport link is live! Suppressing disconnect alert.");
-                        return;
+                        await App.Log("--> [HARDWARE MONITOR RADAR]: Bluetooth radio severed, but active Wi-Fi transport or WAN link is live!");
                     }
-
-                    await App.Log("--> [HARDWARE MONITOR CRITICAL]: Both networks dead. Purging residual wireless cache properties...");
-
-                    App.NetworkService.StopRssiTracking();
+                    else
+                    {
+                        await App.Log("--> [HARDWARE MONITOR CRITICAL]: Bluetooth off and all networks dead....");
+                    }
                 }
             }
             

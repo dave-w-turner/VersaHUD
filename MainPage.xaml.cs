@@ -140,10 +140,6 @@ public partial class MainPage : ContentPage
                         OnTelemetryParsed?.Invoke(freshTelemetryChangesOnly);
                         App.NetworkService.IsWifiTelemetryDead = false;
                     }
-                    else
-                    {
-                        await App.Log("--> [DASHBOARD FILTER]: Duplicates detected from sliding log window. Suppressing UI redraw pass.");
-                    }
 
                     if (string.IsNullOrEmpty(fullTelemetry))
                     {
@@ -194,8 +190,6 @@ public partial class MainPage : ContentPage
             {
                 OnTelemetryParsed?.Invoke(rawDataPacket);
             }
-
-            await App.Log($"--> [DASHBOARD PARSER INPUT]: Processing BLE Text: {rawDataPacket}");
 
             if (rawDataPacket.Contains("CF_KEYS:") && !rawDataPacket.Contains("ERR_EMPTY_VAULTS"))
             {
@@ -266,15 +260,12 @@ public partial class MainPage : ContentPage
                             App.NetworkService.LastReportedWANLinkState = DateTime.UtcNow;
                         }
 
-                        if (extractedVehicleIP == "STA_HOTSPOT")
+                        if (extractedVehicleIP == "STA_HOTSPOT" || extractedVehicleIP == "0.0.0.0")
                         {
-                            App.NetworkService.IsUsingWifiTransportMode = false;
-                            App.NetworkService.IsUsingLocalApMode = true;
-
                             lblVehicleIPText?.Text = "ONLINE (Standalone AP Mode)";
                             borderNetworkStatus?.IsVisible = true;
                         }
-                        else if (!string.IsNullOrEmpty(extractedVehicleIP) && extractedVehicleIP != "STA_HOTSPOT")
+                        else if (!string.IsNullOrEmpty(extractedVehicleIP))
                         {
                             lblVehicleIPText?.Text = extractedVehicleIP;
                             borderNetworkStatus?.IsVisible = true;
@@ -324,6 +315,21 @@ public partial class MainPage : ContentPage
     private async void UpdateBluetoothStatusBadge(bool isConnected)
     {
         bool phoneHasActiveWifiRadioLink = Connectivity.Current.ConnectionProfiles.Contains(ConnectionProfile.WiFi);
+
+        if (App.NetworkService.WaitingForAuthorization)
+        {
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                borderBleStatus.BackgroundColor = Color.Parse("#2D221A");
+                borderBleStatus.Stroke = Color.Parse("#FFBF00");
+
+                lblBleDot.Text = "🔐";
+                lblBleStatusText.Text = "VERIFYING SECURITY VAULTS...";
+                lblBleStatusText.TextColor = Color.Parse("#FFBF00");
+            });
+
+            return;
+        }
 
         if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode)
         {
@@ -421,19 +427,6 @@ public partial class MainPage : ContentPage
                 progressBack.Progress = 0.0f;
                 progressBack.ProgressColor = Colors.DarkSlateGray;
                 lblBackIcon.Text = "❌";
-            });
-        }
-        else if (App.NetworkService.WaitingForAuthorization)
-        {
-            await MainThread.InvokeOnMainThreadAsync(() =>
-            {
-                borderBleStatus.BackgroundColor = Color.Parse("#2D221A");
-                borderBleStatus.Stroke = Color.Parse("#FFBF00");
-
-                lblBleDot.Text = "🔐";
-                lblBleStatusText.Text = "VERIFYING SECURITY VAULTS...";
-                lblBleStatusText.TextColor = Color.Parse("#FFBF00");
-                lblBleSignal.Text = string.Empty;
             });
         }
         else

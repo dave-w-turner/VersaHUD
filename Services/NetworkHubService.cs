@@ -226,7 +226,7 @@ public class NetworkHubService
             if (hasPhysicalWifiInterface)
             {
                 string lastKnownIp = Preferences.Default.Get("LastKnownVehicleIP", "0.0.0.0");
-                if (string.IsNullOrEmpty(lastKnownIp) || lastKnownIp == "0.0.0.0" || lastKnownIp.Equals("STA_HOTSPOT"))
+                if (!string.IsNullOrEmpty(lastKnownIp) && (lastKnownIp == "0.0.0.0" || lastKnownIp.Equals("STA_HOTSPOT")))
                 {
                     lastKnownIp = "192.168.4.1";
                     IsUsingLocalApMode = true;
@@ -370,17 +370,32 @@ public class NetworkHubService
                 {
                     if (!await AutoConnectAsync(false))
                     {
+                        IsMonitorActive = false;
+
+                        _ = Task.Run(async () =>
+                        {
+                            await Task.Delay(30000); //Wait a 30 seconds and try reconnecting.
+                            StartConnectionSupervisor();
+                        });
+
                         _autoConnectLoopCts?.Cancel();
                         _autoConnectLoopCts?.Dispose();
-                        IsMonitorActive = false;
+
                         return;
                     }
 
-                    if (!(IsAuthorized || WaitingForAuthorization) && (IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
+                    if (!IsAuthorized && (IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
                     {
-                        if (IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode)
+                        if (IsWifiTelemetryDead)
                         {
-                            IsWifiTelemetryDead = false;
+                            if (IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode)
+                            {
+                                return;
+                            }
+                            else if (IsBluetoothConnected)
+                            {
+                                await AutoConnectAsync(false);
+                            }
                         }
 
                         await Task.Delay(1500);
@@ -399,6 +414,8 @@ public class NetworkHubService
     {
         if (IsPromptingForMasterPassword || WaitingForAuthorization || IsAuthorized) return;
 
+        WaitingForAuthorization = true;
+
         string savedPass = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
         bool cmdResult = false;
 
@@ -411,6 +428,7 @@ public class NetworkHubService
             if (ex.Message == "--> [ADMIN]: Unable to send command." && (IsUsingWifiTransportMode || IsUsingLocalApMode))
             {
                 await App.Log("--> [ADMIN]: Failure verify master password over Wifi channels. Default to alternate communication routes.");
+                WaitingForAuthorization = false;
                 return;
             }
         }
@@ -431,14 +449,12 @@ public class NetworkHubService
             {
                 OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
                 OnTelemetryReceived += PasswordVerificationTelemetryHandler;
-
-                WaitingForAuthorization = true;
                 OnConnectionStateChanged?.Invoke(true);
             }
         }
         else if (IsUsingWifiTransportMode || IsUsingLocalApMode)
         {
-            WaitingForAuthorization = true;
+            WaitingForAuthorization = false;
             OnConnectionStateChanged?.Invoke(false);
 
             IsAuthorized = false;
@@ -447,7 +463,7 @@ public class NetworkHubService
             await App.Log("--> [HANDSHAKE REJECTED]: Auth failed token caught. Displaying single alert prompt...");
             OnAuthorizationRequestComplete?.Invoke(true);
         }
-        else if (IsUsingCloudWanMode)
+        else if (!cmdResult && IsUsingCloudWanMode)
         {
             _isWANReportedOnline = false;
             IsWifiTelemetryDead = true;
@@ -576,21 +592,17 @@ public class NetworkHubService
                         }
                     }
                 }
-                catch (TaskCanceledException)
+                catch (Exception)
                 {
                     postRetries++;
-                    await Task.Delay(1000);
                 }
-                catch (Exception wifiEx)
-                {
-                    postRetries++;
+            }
 
-                    if (postRetries > maxPostRetries)
-                    {
-                        IsWifiTelemetryDead = true;
-                        await App.Log($"--> [HYBRID WARNING]: Wi-Fi transport lane faulted: {wifiEx.Message}. Cascading to WAN if available...");
-                    }
-                }
+            if (postRetries == maxPostRetries)
+            {
+                IsWifiTelemetryDead = true;
+                await App.Log($"--> [HYBRID WARNING]: Wi-Fi transport lane faulted....");
+                throw new Exception("--> [ADMIN]: Unable to send command.");
             }
         }
 

@@ -119,7 +119,9 @@ void setup() {
     Serial.begin(9600);
     matrix.begin(); 
     displayMatrixText(" START ");
-    
+
+    analogReadResolution(14); 
+
     if (EEPROM.read(EEPROM_INIT_FLAG_ADDR) != 0xAA) {
         unsigned int initialHash = generateFletcher16Hash(DEFAULT_MASTER_PASSWORD);
         saveHashToEEPROM(EEPROM_LOCK_HASH_ADDR, initialHash);
@@ -162,8 +164,8 @@ void loop() {
     }
 
     if (pendingSystemHardwareRebootFlag && (currentMillis - hardwareRebootTimestampCount >= 2500)) {
-        Serial.println("--> [WATCHDOG]: Drainage pad completed. Re-flashing core system architecture registers now and rebooting!");
-        delay(10);
+        writeLog("--> [WATCHDOG]: Drainage pad completed. Re-flashing core system architecture registers now and rebooting!");
+        delay(2500);
         NVIC_SystemReset();
     }
 
@@ -177,24 +179,33 @@ void loop() {
 
         pinMode(RADIO_SENSOR, INPUT);
 
-        int rawFront = analogRead(VOLTAGE_FRONT);
-        globalFrontVolts = ((rawFront * ARDUINO_REF_VOLTAGE) / 1023.0) * CALIBRATION_FRONT;
+        long accumulatedRawFront = 0;
+        long accumulatedRawBack = 0;
 
-        int rawBack = analogRead(VOLTAGE_BACK);
-        globalBackVolts = ((rawBack * ARDUINO_REF_VOLTAGE) / 1023.0) * CALIBRATION_BACK;
+        for (int i = 0; i < 8; i++) {
+            accumulatedRawFront += analogRead(VOLTAGE_FRONT);
+            accumulatedRawBack += analogRead(VOLTAGE_BACK);
+            delayMicroseconds(50);
+        }
 
-        frontIsCharging = (globalFrontVolts >= frontChargingVolts) || crossChargeProtectionActiveFlag;
-        backIsCharging = (globalBackVolts >= backChargingVolts) || crossChargeProtectionActiveFlag;
+        int rawFront = accumulatedRawFront / 8;
+        int rawBack = accumulatedRawBack / 8;
+
+        globalFrontVolts = (globalFrontVolts * 0.90) + (((rawFront * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_FRONT * 0.10);
+        globalBackVolts = ((rawBack * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_BACK;
+
+        frontIsCharging = globalFrontVolts >= frontChargingVolts;
+        backIsCharging = globalBackVolts >= backChargingVolts;
 
         bool radioSenseIsActive = (digitalRead(RADIO_SENSOR) == HIGH); 
 
-        if (globalFrontVolts >= 12.60) frontBatteryPercent = 100;
+        if (globalFrontVolts >= 12.80) frontBatteryPercent = 100;
         else if (globalFrontVolts <= 11.50) frontBatteryPercent = 0;
-        else frontBatteryPercent = (int)((globalFrontVolts - 11.50) / (12.60 - 11.50) * 100.0);
+        else frontBatteryPercent = (int)((globalFrontVolts - 11.50) / (12.80 - 11.50) * 100.0);
 
-        if (globalBackVolts >= 12.80) backBatteryPercent = 100;
+        if (globalBackVolts >= 13.00) backBatteryPercent = 100;
         else if (globalBackVolts <= 10.50) backBatteryPercent = 0;
-        else backBatteryPercent = (int)((globalBackVolts - 10.50) / (12.80 - 10.50) * 100.0);
+        else backBatteryPercent = (int)((globalBackVolts - 10.50) / (13.00 - 10.50) * 100.0);
 
         String telemetryString = "[SYS] ";
 
@@ -240,13 +251,13 @@ void loop() {
             } 
         } 
 
-        writeLog(telemetryString); 
+        writeLog(telemetryString);      
 
         if (!crossChargeProtectionActiveFlag) { 
             if ((frontBatteryPercent <= CRITICAL_BATTERY_LOW && backBatteryPercent >= SAFE_BATTERY_CEILING) ||  
                 (backBatteryPercent <= CRITICAL_BATTERY_LOW && frontBatteryPercent >= SAFE_BATTERY_CEILING) ||
-                (frontIsCharging && globalBackVolts < 14.00) ||
-                (backIsCharging && globalFrontVolts < 14.00)) { 
+                (backIsCharging && frontBatteryPercent < 50) ||
+                (frontIsCharging && backBatteryPercent < 50)) { 
                 crossChargeProtectionActiveFlag = true; 
                 writeLog("--> [BATTERY CRITICAL]: Threshold protection tripped! Bridging cells for emergency cross-charge."); 
             } 
@@ -256,25 +267,20 @@ void loop() {
             writeLog("--> [BATTERY EMERGENCY]: Both banks completely flattened! Breaking cross-charge to save core cell hardware."); 
         } 
 
-        if (globalFrontVolts >= 14.00 && globalBackVolts >= 14.00) {
+        if (globalFrontVolts >= 14.1 && globalBackVolts >= 14.2) {
             if (crossChargeProtectionActiveFlag) {
                 crossChargeProtectionActiveFlag = false;
-                digitalWrite(RELAY_SOLENOID, HIGH);
                 writeLog("--> [CHARGER SAFETY]: Both banks saturated over 14V. Breaking cross-charge link to allow float maintenance mode.");
             }
         }
-        else if (crossChargeProtectionActiveFlag) { 
-            if (digitalRead(RELAY_SOLENOID) == HIGH) {  
-                digitalWrite(RELAY_SOLENOID, LOW);
-                writeLog("--> [ISOLATOR ACTION]: Solenoid engaged. RELAY_SOLENOID CLOSED."); 
-            } 
-        }  
-        else { 
-            if (digitalRead(RELAY_SOLENOID) == LOW) { 
-                digitalWrite(RELAY_SOLENOID, HIGH);
-                writeLog("--> [ISOLATOR ACTION]: Isolation active. RELAY_SOLENOID OPENED."); 
-            } 
-        } 
+        
+        if (crossChargeProtectionActiveFlag) {        
+            delay(500);
+            digitalWrite(RELAY_SOLENOID, LOW);
+        }
+        else {
+            digitalWrite(RELAY_SOLENOID, HIGH);
+        }
 
         if (globalFrontVolts >= 11.20) { 
             if (radioSenseIsActive && digitalRead(RELAY_AMP_REM) != LOW) { 
@@ -344,20 +350,20 @@ void loop() {
 
         if (currentMillis - lastCloudUploadTimestamp >= activeCloudPacingInterval) { 
             lastCloudUploadTimestamp = currentMillis; 
+
+            writeLog("--> [WAN REFRESH]: Uploading telemetry to Cloudflare..."); 
             transmitSecureHTTPTelemetry(jsonOutput); 
-        } 
 
-        longRangeAdminSyncCounter++; 
+            longRangeAdminSyncCounter++; 
 
-        if (longRangeAdminSyncCounter >= 180) { 
-            writeLog("--> [WAN REFRESH]: Executing scheduled background identity synchronization pass..."); 
-            if (flushAdminConfigurationToCloud()) { 
+            if (longRangeAdminSyncCounter >= 180) { 
+                writeLog("--> [WAN REFRESH]: Uploading admin settings to Cloudflare..."); 
+                if (!flushAdminConfigurationToCloud()) { 
+                    writeLog("--> [WAN REFRESH]: Failed to flush configuration to Cloudflare."); 
+                } 
                 longRangeAdminSyncCounter = 0; 
-            } 
-            else { 
-                writeLog("--> [WAN REFRESH]: Failed to flush configuration to Cloudflare."); 
-            } 
-        } 
+            }
+        }
     } 
 
     while (Serial.available() > 0) { 
@@ -405,7 +411,7 @@ bool processSecureCommand(String rawPacket, String source) {
     
     if (actionPayload == "REBOOT") {
         writeLog("--> [WATCHDOG]: Request to reboot. Rebooting controller now...");
-        delay(1500); 
+        delay(2500); 
         NVIC_SystemReset();       
         return true; 
     }
@@ -441,11 +447,9 @@ bool processSecureCommand(String rawPacket, String source) {
 
             flushAdminConfigurationToCloud(); 
             
-            if (source == "BLE_LINK" || source == "LOCAL_USB" || source == "CLOUDFLARE_WAN_LINK") {
-                writeLog("--> [WATCHDOG]: Remote origin detected. Rebooting controller now...");
-                delay(1500); 
-                NVIC_SystemReset();
-            }
+            writeLog("--> [WATCHDOG]: Remote origin detected. Resetting controller now...");
+            delay(2500); 
+            NVIC_SystemReset();
         } else {
             writeLog("--> [ADMIN_ERROR]: WIFI AP string failed length gate constraint.");
         }
@@ -464,11 +468,9 @@ bool processSecureCommand(String rawPacket, String source) {
 
             flushAdminConfigurationToCloud();
             
-            if (source == "BLE_LINK" || source == "LOCAL_USB" || source == "CLOUDFLARE_WAN_LINK") {
-                writeLog("--> [WATCHDOG]: Remote origin detected. Rebooting controller now...");
-                delay(1500); 
-                NVIC_SystemReset();
-            }
+            writeLog("--> [WATCHDOG]: Remote origin detected. Resetting controller now...");
+            delay(2500); 
+            NVIC_SystemReset();
         } else {
             writeLog("--> [ADMIN_ERROR]: BLE name string failed length gate constraint.");
         }
@@ -491,11 +493,9 @@ bool processSecureCommand(String rawPacket, String source) {
                 writeSecureStringToEEPROM(EEPROM_WIFI_PASS_ADDR, "");
                 writeLog("--> [ADMIN_SUCCESS]: Router storage wiped out. Rebooting controller...");
                 
-                if (source == "BLE_LINK" || source == "LOCAL_USB" || source == "CLOUDFLARE_WAN_LINK") {
-                    writeLog("--> [WATCHDOG]: Remote origin detected. Rebooting controller now...");
-                    delay(1500); 
-                    NVIC_SystemReset();
-                }
+                writeLog("--> [WATCHDOG]: Remote origin detected. Resetting controller now...");
+                delay(2500); 
+                NVIC_SystemReset();
                 return true;
             }
             
@@ -528,11 +528,9 @@ bool processSecureCommand(String rawPacket, String source) {
 
                     flushAdminConfigurationToCloud();
                     
-                    if (source == "BLE_LINK" || source == "LOCAL_USB" || source == "CLOUDFLARE_WAN_LINK") {
-                        writeLog("--> [WATCHDOG]: Remote origin detected. Resetting controller now...");
-                        delay(1500); 
-                        NVIC_SystemReset();
-                    }
+                    writeLog("--> [WATCHDOG]: Remote origin detected. Resetting controller now...");
+                    delay(2500); 
+                    NVIC_SystemReset();
                 }
                 else {
                     writeLog("--> [ADMIN_ERROR]: Connection probe failed! Reverting back to standalone access point.");
@@ -572,14 +570,14 @@ bool processSecureCommand(String rawPacket, String source) {
         String activeAP = readStringFromEEPROM(EEPROM_CUSTOM_WIFI_AP);
         if (activeAP.length() == 0) activeAP = DEFAULT_WIFI_AP_NAME;
         writeLog("[SYS] AP_NAME:" + activeAP);
-        Serial.println("--> [ADMIN]: Queried active Wi-Fi AP name.");
+        writeLog("--> [ADMIN]: Queried active Wi-Fi AP name.");
         return true;
     } 
     else if (actionPayload == "GETBLENAME") {
         String activeBLE = readStringFromEEPROM(EEPROM_CUSTOM_BLE_NAME);
         if (activeBLE.length() == 0) activeBLE = DEFAULT_BLE_NAME;
         writeLog("[SYS] BLE_NAME:" + activeBLE);
-        Serial.println("--> [ADMIN]: Queried active Bluetooth name.");
+        writeLog("--> [ADMIN]: Queried active Bluetooth name.");
         return true;
     } 
     else if (actionPayload == "GETROUTER") {
@@ -589,11 +587,11 @@ bool processSecureCommand(String rawPacket, String source) {
         } else {
             writeLog("[SYS] ROUTER_SSID:" + savedSSID);
         }
-        Serial.println("--> [ADMIN]: Queried link router bridge SSID properties safely.");
+        writeLog("--> [ADMIN]: Queried link router bridge SSID properties safely.");
         return true;
     }
     else if (actionPayload == "SCANWIFI") {
-        Serial.println("--> [ADMIN]: Initializing environment Wi-Fi network band scan...");
+        writeLog("--> [ADMIN]: Initializing environment Wi-Fi network band scan...");
         int networksFoundCount = WiFi.scanNetworks(); 
         String payloadStringResponse = "[SYS] WIFI_LIST:";
         int accumulatedItems = 0;
@@ -612,7 +610,7 @@ bool processSecureCommand(String rawPacket, String source) {
             }
         }
         writeLog(payloadStringResponse);
-        Serial.println("--> [ADMIN_SUCCESS]: Wireless environment catalog transmitted.");
+        writeLog("--> [ADMIN_SUCCESS]: Wireless environment catalog transmitted.");
         return true;
     }
     else if (actionPayload.startsWith("SAVECFKEYS=")) {
@@ -640,7 +638,7 @@ bool processSecureCommand(String rawPacket, String source) {
                 
                 writeLog("--> [ADMIN_SUCCESS]: Complete Zero-Trust profile committed to storage vaults! Rebooting controller...");
                 
-                delay(1500); 
+                delay(2500); 
                 NVIC_SystemReset();
                 return true;
             } else {
@@ -652,7 +650,7 @@ bool processSecureCommand(String rawPacket, String source) {
         return true;
     }
     else if (actionPayload == "GETCFKEYS") {
-        Serial.println("--> [ADMIN]: App requested secure remote configuration sync pass...");
+        writeLog("--> [ADMIN]: App requested secure remote configuration sync pass...");
         
         String activeCfHost   = readStringFromEEPROM(EEPROM_CF_HOST_ADDR);
         String activeCfId     = readSecureStringFromEEPROM(EEPROM_CF_CLIENT_ID_ADDR);
@@ -665,11 +663,11 @@ bool processSecureCommand(String rawPacket, String source) {
             
             String cfKeysPayloadResponse = "[SYS] CF_KEYS:" + encryptedKeysBase64;
             writeLog(cfKeysPayloadResponse);
-            Serial.println("--> [ADMIN_SUCCESS]: Stored Zero-Trust key vectors encrypted and off-loaded safely.");
+            writeLog("--> [ADMIN_SUCCESS]: Stored Zero-Trust key vectors encrypted and off-loaded safely.");
         } 
         else {
             writeLog("[SYS] CF_KEYS:ERR_EMPTY_VAULTS");
-            Serial.println("--> [ADMIN_WARN]: Key retrieval aborted. Stored vaults are currently unconfigured.");
+            writeLog("--> [ADMIN_WARN]: Key retrieval aborted. Stored vaults are currently unconfigured.");
         }
         return true;
     }
@@ -684,7 +682,7 @@ void setupWiFiAPI() {
   bool stationConnectedSuccess = false;
 
   if (savedSSID.length() > 0) {
-    Serial.println("[SYS] Attempting Link to Home Station...");
+    writeLog("[SYS] Attempting Link to Home Station...");
     WiFi.begin(savedSSID.c_str(), savedPASS.c_str());
     
     int attempts = 0;
@@ -699,12 +697,12 @@ void setupWiFiAPI() {
   }
 
   if (!stationConnectedSuccess) {
-    Serial.println("[WAN ALERT]: Station link dropped. Starting Fallback Access Point...");
+    writeLog("[WAN ALERT]: Station link dropped. Starting Fallback Access Point...");
     
     WiFi.beginAP(currentBroadcastAP.c_str(), "VersaCore99");
     systemIsCurrentlyInFallbackApMode = true;
   } else {
-    Serial.println("[SYS] Station Linked! Synchronizing Network Time...");
+    writeLog("[SYS] Station Linked! Synchronizing Network Time...");
     systemIsCurrentlyInFallbackApMode = false;
     
     RTC.begin();
@@ -726,7 +724,7 @@ void maintainNetworkHealth() {
   }
 
   if (millis() - continuousDisconnectAnchorMillis > maxDowntimeBeforeHardReset) {
-    Serial.println("[CRITICAL WATCHDOG]: Network stack lockup detected. Resetting Core MCU registers...");
+    writeLog("[CRITICAL WATCHDOG]: Network stack lockup detected. Resetting Core MCU registers...");
     Serial.flush();
     NVIC_SystemReset();
   }
@@ -745,7 +743,7 @@ void maintainNetworkHealth() {
     String savedPASS = readSecureStringFromEEPROM(EEPROM_WIFI_PASS_ADDR);
     
     if (savedSSID.length() > 0) {
-      Serial.println("[WAN MONITOR]: Testing background probe to target router...");
+      writeLog("[WAN MONITOR]: Testing background probe to target router...");
       
       WiFi.begin(savedSSID.c_str(), savedPASS.c_str());
       
@@ -876,7 +874,7 @@ void handleWiFiAPI() {
                     break;
                 }
                 else if (requestBuffer.indexOf("GET /api/status") != -1) {
-                    Serial.println("--> [NET REST STATUS]: Discovery probe received. Responding Ready.");
+                    writeLog("--> [NET REST STATUS]: Discovery probe received. Responding Ready.");
                     client.println("HTTP/1.1 200 OK");
                     client.println("Content-Type: application/json");
                     client.println("Connection: close");
@@ -885,7 +883,7 @@ void handleWiFiAPI() {
                     break;
                 }
                 else if (requestBuffer.indexOf("GET /api/admin") != -1) {
-                    Serial.println("--> [NET REST API]: Generating clean administration profile payload...");
+                    writeLog("--> [NET REST API]: Generating clean administration profile payload...");
                     
                     String activeAP = readStringFromEEPROM(EEPROM_CUSTOM_WIFI_AP);
                     if (activeAP.length() == 0) activeAP = DEFAULT_WIFI_AP_NAME;
@@ -916,7 +914,7 @@ void handleWiFiAPI() {
                     client.println();
                     client.print(encryptedPayload);
 
-                    Serial.println("--> [ADMIN REST SUCCESS]: Transmitted encrypted administrative payload profile string.");
+                    writeLog("--> [ADMIN REST SUCCESS]: Transmitted encrypted administrative payload profile string.");
                     break;
                 }
             }
@@ -1291,10 +1289,10 @@ void transmitSecureHTTPTelemetry(String jsonPayload) {
 
     WiFiSSLClient secureClient;
 
-    Serial.println("--> [WAN HTTPS]: Opening hardware-accelerated TLS 443 channel to Cloudflare edge...");
+    writeLog("--> [WAN HTTPS]: Opening hardware-accelerated TLS 443 channel to Cloudflare edge...");
 
     if (secureClient.connect(CLOUDFLARE_HOST.c_str(), 443)) { 
-        Serial.println("--> [WAN HTTPS SUCCESS]: Handshake authorized! Flushing data payload..."); 
+        writeLog("--> [WAN HTTPS SUCCESS]: Handshake authorized! Flushing data payload..."); 
 
         secureClient.println("POST /api/telemetry HTTP/1.1");
         secureClient.println("Host: " + CLOUDFLARE_HOST);
@@ -1422,8 +1420,6 @@ bool flushAdminConfigurationToCloud() {
     return true; 
   }
 
-  Serial.println("Payload to be transmitted to Cloudflare: " + configJsonPayload);
-
   bool hasValidCredentials = CLOUDFLARE_HOST.length() > 5 && 
                              CF_CLIENT_ID.length() > 5 && 
                              CF_CLIENT_SECRET.length() > 5;
@@ -1431,7 +1427,7 @@ bool flushAdminConfigurationToCloud() {
   if (!hasValidCredentials) return false;
 
   WiFiSSLClient secureClient;
-  Serial.println("--> [WAN HTTPS CONFIG]: Offloading identities to persistent KV vaults...");
+  writeLog("--> [WAN HTTPS CONFIG]: Offloading identities to persistent KV vaults...");
 
   if (secureClient.connect(CLOUDFLARE_HOST.c_str(), 443)) {
     secureClient.println("POST /api/admin HTTP/1.1");
@@ -1462,10 +1458,10 @@ bool flushAdminConfigurationToCloud() {
     }
 
     secureClient.stop();
-    Serial.println("--> [WAN HTTPS CONFIG COMPLETE]: Persistent cloud identities populated successfully.");
+    writeLog("--> [WAN HTTPS CONFIG COMPLETE]: Persistent cloud identities populated successfully.");
     return true;
   } else {
-    Serial.println("--> [WAN HTTPS CONFIG ERROR]: Handshake aborted. Vaults un-hydrated.");
+    writeLog("--> [WAN HTTPS CONFIG ERROR]: Handshake aborted. Vaults un-hydrated.");
     
     secureClient.flush();
     secureClient.stop();

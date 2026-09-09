@@ -34,7 +34,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             (App.IsDebugOutputEnabled && !(switchRemoteTelemetry?.IsToggled ?? false) && !rawPacket.StartsWith("[DEBUG] -->")))
             return;
 
-        if (rawPacket.Contains("Rebooting controller..."))
+        if (rawPacket.Contains("Rebooting"))
         {
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
@@ -292,14 +292,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         if (commandWasDelivered)
         {
-            layoutRebootLockoutShell?.IsVisible = true;
-            _ = Task.Run(async () =>
-            {
-                await Task.Delay(1500);
-                await App.NetworkService.ForceProactiveRebootRecoveryAsync();
-                layoutRebootLockoutShell?.IsVisible = false;
-            });
-
             await DisplayAlertAsync("IDENTITY ROTATED", "The parameter update was delivered successfully. System reboot initiated.", "OK");
         }
         else
@@ -321,13 +313,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         if (commandWasDelivered)
         {
-            layoutRebootLockoutShell?.IsVisible = true;
-            _ = Task.Run(async () =>
-            {
-                await Task.Delay(1500);
-                await App.NetworkService.ForceProactiveRebootRecoveryAsync();
-            });
-
             await DisplayAlertAsync("IDENTITY ROTATED", "The parameter update was delivered successfully. System reboot initiated.", "OK");
         }
         else
@@ -346,13 +331,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         if (commandWasDelivered)
         {
-            layoutRebootLockoutShell?.IsVisible = true;
-            _ = Task.Run(async () =>
-            {
-                await Task.Delay(1500);
-                await App.NetworkService.ForceProactiveRebootRecoveryAsync();
-            });
-
             await DisplayAlertAsync("Wi-Fi SETTINGS SAVED", "The parameter update was delivered successfully. System reboot initiated.", "OK");
         }
         else
@@ -441,13 +419,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         if (commandWasDelivered)
         {
-            layoutRebootLockoutShell?.IsVisible = true;
-            _ = Task.Run(async () =>
-            {
-                await Task.Delay(1500);
-                await App.NetworkService.ForceProactiveRebootRecoveryAsync();
-            });
-
             entryRouterSSID.Text = string.Empty;
             layoutUnconfiguredRouter.IsVisible = true;
             layoutConfiguredRouter.IsVisible = false;
@@ -473,13 +444,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         if (commandWasDelivered)
         {
-            layoutRebootLockoutShell?.IsVisible = true;
-            _ = Task.Run(async () =>
-            {
-                await Task.Delay(1500);
-                await App.NetworkService.ForceProactiveRebootRecoveryAsync();
-            });
-
             entryRouterSSID.Text = string.Empty;
             layoutUnconfiguredRouter.IsVisible = true;
             layoutConfiguredRouter.IsVisible = false;
@@ -518,19 +482,13 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             {
                 string unifiedCloudflarePayload = $"SAVECFKEYS={targetHost},{targetClientId},{targetClientSecret}";
 
-                layoutRebootLockoutShell?.IsVisible = true;
-
                 await Task.Run(async () =>
                 {
                     await App.NetworkService.SendSecureCommandAsync(activeKey, unifiedCloudflarePayload);
-                    await Task.Delay(5000);
-                    await App.NetworkService.ForceProactiveRebootRecoveryAsync();
 
                     await MainThread.InvokeOnMainThreadAsync(async () =>
                     {
-                        layoutRebootLockoutShell?.IsVisible = false;
                         await DisplayAlertAsync("VAULT FLASH SUCCESS", "Your complete Cloudflare Zero-Trust machine passport credentials have been successfully flashed into your vehicle module's persistent memory vaults!", "DONE");
-                        await Navigation.PopAsync();
                     });
                 });
             });

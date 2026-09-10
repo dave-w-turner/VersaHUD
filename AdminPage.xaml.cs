@@ -30,9 +30,10 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
     private async void LogIncomingStreamToTerminal(string rawPacket)
     {
-        if (string.IsNullOrEmpty(rawPacket) || ((App.NetworkService.IsUsingCloudWanMode || App.NetworkService.IsUsingWifiTransportMode) && rawPacket.StartsWith('{')) || scrollTerminal == null ||
-            (App.IsDebugOutputEnabled && !(switchRemoteTelemetry?.IsToggled ?? false) && !rawPacket.StartsWith("[DEBUG] -->")))
+        if (string.IsNullOrEmpty(rawPacket) || scrollTerminal == null || ((App.NetworkService.IsUsingCloudWanMode || App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode)
+            && rawPacket.StartsWith('{')))
             return;
+
 
         if (rawPacket.Contains("Rebooting"))
         {
@@ -85,37 +86,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             });
         }
 
-        if (layoutRebootLockoutShell != null && layoutRebootLockoutShell.IsVisible)
-        {
-            if (rawPacket.Contains("[SYS]") || rawPacket.Contains("AP_NAME:") || rawPacket.Contains("BLE_NAME:") || rawPacket.Contains("ROUTER_SSID:"))
-            {
-                await MainThread.InvokeOnMainThreadAsync(() =>
-                {
-                    layoutRebootLockoutShell.IsVisible = false;
-                });
-            }
-        }
-
-        await MainThread.InvokeOnMainThreadAsync(async () =>
-        {
-            if (lblDebugTerminal != null)
-            {
-                lblDebugTerminal.Text += $"\nrx: {rawPacket.Trim()}";
-
-                if (lblDebugTerminal.Text.Length > 10000)
-                {
-                    lblDebugTerminal.Text = string.Concat("[SYS] Buffer optimized.\n", lblDebugTerminal.Text.AsSpan(lblDebugTerminal.Text.Length - 5000));
-                }
-            }
-
-            if (switchAutoscroll != null && switchAutoscroll.IsToggled && scrollTerminal != null)
-            {
-                await scrollTerminal.ScrollToAsync(0, lblDebugTerminal.Height, true);
-            }
-        });
-
-        if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingCloudWanMode) return;
-
         if (entryWifiAP.Text == "Loading..." || entryBleName.Text == "Loading..." || entryRouterSSID.Text == "Loading..." || rawPacket.Contains("CF_KEYS:"))
         {
             if (rawPacket.Contains("CF_KEYS:") && !rawPacket.Contains("ERR_EMPTY_VAULTS"))
@@ -127,7 +97,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
                     string decryptedPlaintextBlock = await Services.NetworkHubService.DecryptLocalPayloadAES128CBC(base64CipherString);
 
-                    if (!string.IsNullOrWhiteSpace(decryptedPlaintextBlock) && decryptedPlaintextBlock.Contains(","))
+                    if (!string.IsNullOrWhiteSpace(decryptedPlaintextBlock) && decryptedPlaintextBlock.Contains(','))
                     {
                         string[] parameterSegments = decryptedPlaintextBlock.Split(',');
 
@@ -145,9 +115,15 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                 {
                     Debug.WriteLine($"--> [ADMIN CRYPTO EXCEPTION]: Failure unpacking over-the-air parameters: {ex.Message}");
                 }
+
+                await MainThread.InvokeOnMainThreadAsync(async () =>
+                {
+                    layoutAdminPage.IsEnabled = true;
+                });
             }
 
             int apIndex = rawPacket.IndexOf("AP_NAME:");
+            int apPwIndex = rawPacket.IndexOf("AP_PASSWORD:");
             int bleIndex = rawPacket.IndexOf("BLE_NAME:");
             int routerIndex = rawPacket.IndexOf("ROUTER_SSID:");
 
@@ -158,6 +134,11 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                     if (apIndex != -1)
                     {
                         entryWifiAP.Text = rawPacket.Substring(apIndex + 8).Trim();
+                    }
+
+                    if (apPwIndex != -1)
+                    {
+                        lblAPPassword.Text = $"CURRENT AP PASSWORD: {rawPacket.Substring(apPwIndex + 12).Trim()}";
                     }
 
                     if (bleIndex != -1)
@@ -185,6 +166,38 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                 });
             }
         }
+
+        if (layoutRebootLockoutShell != null && layoutRebootLockoutShell.IsVisible)
+        {
+            if (rawPacket.Contains("[SYS]") || rawPacket.Contains("AP_NAME:") || rawPacket.Contains("BLE_NAME:") || rawPacket.Contains("ROUTER_SSID:"))
+            {
+                await MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    layoutRebootLockoutShell.IsVisible = false;
+                });
+            }
+        }
+
+        if (App.IsDebugOutputEnabled && !(switchRemoteTelemetry?.IsToggled ?? false) && !rawPacket.StartsWith("[DEBUG] -->"))
+            return;
+
+        await MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            if (lblDebugTerminal != null)
+            {
+                lblDebugTerminal.Text += $"\nrx: {rawPacket.Trim()}";
+
+                if (lblDebugTerminal.Text.Length > 10000)
+                {
+                    lblDebugTerminal.Text = string.Concat("[SYS] Buffer optimized.\n", lblDebugTerminal.Text.AsSpan(lblDebugTerminal.Text.Length - 5000));
+                }
+            }
+
+            if (switchAutoscroll != null && switchAutoscroll.IsToggled && scrollTerminal != null)
+            {
+                await scrollTerminal.ScrollToAsync(0, lblDebugTerminal.Height, true);
+            }
+        });
     }
 
     private async void OnVehicleLinkStateChanged(bool isConnected)
@@ -196,6 +209,8 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                 layoutRebootLockoutShell.IsVisible = false;
             }
         });
+
+        await UpdateAdminData();
     }
 
     private async void OnRotateMasterPassClicked(object sender, EventArgs e)
@@ -233,8 +248,17 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         string currentActiveKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
         string payloadCommand = $"UPDATEMASTERPASS={newPassInput}";
+        bool commandTransmitted = false;
 
-        bool commandTransmitted = await App.NetworkService.SendSecureCommandAsync(currentActiveKey, payloadCommand);
+        try
+        {
+             commandTransmitted = await App.NetworkService.SendSecureCommandAsync(currentActiveKey, payloadCommand);
+        }
+        catch (Exception ex)
+        {
+            if (ex.Message != "--> [ADMIN]: Unable to send command.")
+                throw;
+        }
 
         if (!commandTransmitted)
         {
@@ -288,9 +312,19 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         Debug.WriteLine($"--> [ADMIN CONTROL HUB]: Dispatching secure over-the-air Wifi AP ID swap to '{targetNewAPId}'...");
 
-        bool commandWasDelivered = await App.NetworkService.SendSecureCommandAsync(currentActiveKey, $"SETWIFINAME={targetNewAPId}");
+        bool commandTransmitted = false;
 
-        if (commandWasDelivered)
+        try
+        {
+            commandTransmitted = await App.NetworkService.SendSecureCommandAsync(currentActiveKey, $"SETWIFINAME={targetNewAPId}");
+        }
+        catch (Exception ex)
+        {
+            if (ex.Message != "--> [ADMIN]: Unable to send command.")
+                throw;
+        }
+
+        if (commandTransmitted)
         {
             await DisplayAlertAsync("IDENTITY ROTATED", "The parameter update was delivered successfully. System reboot initiated.", "OK");
         }
@@ -309,9 +343,19 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         Debug.WriteLine($"--> [ADMIN CONTROL HUB]: Dispatching secure over-the-air BLE ID swap to '{targetNewBleId}'...");
 
-        bool commandWasDelivered = await App.NetworkService.SendSecureCommandAsync(currentActiveKey, $"SETBLENAME={targetNewBleId}");
+        bool commandTransmitted = false;
 
-        if (commandWasDelivered)
+        try
+        {
+            commandTransmitted = await App.NetworkService.SendSecureCommandAsync(currentActiveKey, $"SETBLENAME={targetNewBleId}");
+        }
+        catch (Exception ex)
+        {
+            if (ex.Message != "--> [ADMIN]: Unable to send command.")
+                throw;
+        }
+
+        if (commandTransmitted)
         {
             await DisplayAlertAsync("IDENTITY ROTATED", "The parameter update was delivered successfully. System reboot initiated.", "OK");
         }
@@ -327,9 +371,19 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         string currentActiveKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
         string payload = $"SAVEROUTER={entryRouterSSID.Text.Trim()},{entryRouterPass.Text.Trim()}";
 
-        bool commandWasDelivered = await App.NetworkService.SendSecureCommandAsync(currentActiveKey, payload);
+        bool commandTransmitted = false;
 
-        if (commandWasDelivered)
+        try
+        {
+            commandTransmitted = await App.NetworkService.SendSecureCommandAsync(currentActiveKey, payload);
+        }
+        catch (Exception ex)
+        {
+            if (ex.Message != "--> [ADMIN]: Unable to send command.")
+                throw;
+        }
+
+        if (commandTransmitted)
         {
             await DisplayAlertAsync("Wi-Fi SETTINGS SAVED", "The parameter update was delivered successfully. System reboot initiated.", "OK");
         }
@@ -350,18 +404,26 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             Debug.WriteLine("--> [WIFI RADAR]: Initializing live vehicle airwave scan pass...");
             string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
 
-            bool transmitted = await App.NetworkService.SendSecureCommandAsync(activeKey, "SCANWIFI");
+            bool commandTransmitted = false;
 
-            if (!transmitted)
+            try
+            {
+                commandTransmitted = await App.NetworkService.SendSecureCommandAsync(activeKey, "SCANWIFI");
+            }
+            catch (Exception ex)
+            {
+                if (ex.Message != "--> [ADMIN]: Unable to send command.")
+                    throw;
+            }
+
+            if (!commandTransmitted)
             {
                 await DisplayAlertAsync("LINK FAULT", "Could not talk to the vehicle module. Verify your Bluetooth badge is green.", "OK");
                 return;
             }
 
             var scanCompletedSource = new TaskCompletionSource<string>();
-            Action<string> scanResultInterceptor = null;
-
-            scanResultInterceptor = (incomingStreamMessage) =>
+            void scanResultInterceptor(string incomingStreamMessage)
             {
                 if (incomingStreamMessage.Contains("WIFI_LIST:"))
                 {
@@ -369,7 +431,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                     string rawSsidList = incomingStreamMessage.Substring(incomingStreamMessage.IndexOf("WIFI_LIST:") + 10).Trim();
                     scanCompletedSource.TrySetResult(rawSsidList);
                 }
-            };
+            }
 
             App.NetworkService.OnTelemetryReceived += scanResultInterceptor;
             lblDebugTerminal.Text += $"\n[{DateTime.Now:HH:mm:ss}] info: Arduino scanning Wi-Fi channels... please wait.";
@@ -415,9 +477,19 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         if (!doubleCheck) return;
 
         string currentActiveKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-        bool commandWasDelivered = await App.NetworkService.SendSecureCommandAsync(currentActiveKey, "SAVEROUTER=CLEAR,CLEAR");
+        bool commandTransmitted = false;
 
-        if (commandWasDelivered)
+        try
+        {
+            commandTransmitted = await App.NetworkService.SendSecureCommandAsync(currentActiveKey, "SAVEROUTER=CLEAR,CLEAR");
+        }
+        catch (Exception ex)
+        {
+            if (ex.Message != "--> [ADMIN]: Unable to send command.")
+                throw;
+        }
+
+        if (commandTransmitted)
         {
             entryRouterSSID.Text = string.Empty;
             layoutUnconfiguredRouter.IsVisible = true;
@@ -440,9 +512,19 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         if (!doubleCheck) return;
 
         string currentActiveKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-        bool commandWasDelivered = await App.NetworkService.SendSecureCommandAsync(currentActiveKey, "REBOOT");
+        bool commandTransmitted = false;
 
-        if (commandWasDelivered)
+        try
+        {
+            commandTransmitted = await App.NetworkService.SendSecureCommandAsync(currentActiveKey, "REBOOT");
+        }
+        catch (Exception ex)
+        {
+            if (ex.Message != "--> [ADMIN]: Unable to send command.")
+                throw;
+        }
+
+        if (commandTransmitted)
         {
             entryRouterSSID.Text = string.Empty;
             layoutUnconfiguredRouter.IsVisible = true;
@@ -484,12 +566,29 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
                 await Task.Run(async () =>
                 {
-                    await App.NetworkService.SendSecureCommandAsync(activeKey, unifiedCloudflarePayload);
+                    bool commandTransmitted = false;
 
-                    await MainThread.InvokeOnMainThreadAsync(async () =>
+                    try
                     {
-                        await DisplayAlertAsync("VAULT FLASH SUCCESS", "Your complete Cloudflare Zero-Trust machine passport credentials have been successfully flashed into your vehicle module's persistent memory vaults!", "DONE");
-                    });
+                        commandTransmitted = await App.NetworkService.SendSecureCommandAsync(activeKey, unifiedCloudflarePayload);
+                    }
+                    catch (Exception ex)
+                    {
+                        if (ex.Message != "--> [ADMIN]: Unable to send command.")
+                            throw;
+                    }
+
+                    if (commandTransmitted)
+                    {
+                        await MainThread.InvokeOnMainThreadAsync(async () =>
+                        {
+                            await DisplayAlertAsync("VAULT FLASH SUCCESS", "Your complete Cloudflare Zero-Trust machine passport credentials have been successfully flashed into your vehicle module's persistent memory vaults!", "DONE");
+                        });
+                    }
+                    else
+                    {
+                        await DisplayAlertAsync("LINK FAULT", "Could not deliver the parameters update packet. Verify your active communication transport channels are clear and try again.", "OK");
+                    }
                 });
             });
         }
@@ -529,31 +628,13 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         if (App.NetworkService != null && !App.NetworkService.IsRebootingWatchdogActive)
         {
-            if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode)
-            {
-                Debug.WriteLine("--> [ADMIN CONTROL HUB]: Fetching clean configuration matrices straight from API...");
-
-                await HandleWifiAndCloudData();
-                return;
-            }
-
-            Debug.WriteLine("--> [ADMIN CONTROL HUB]: Fetching parameters over-the-air via serial text scraping...");
-            string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-
-            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETWIFINAME");
-            await Task.Delay(500);
-            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETBLENAME");
-            await Task.Delay(500);
-            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETROUTER");
-            await Task.Delay(500);
-            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
-            await Task.Delay(500);
+            await UpdateAdminData();
         }
     }
 
     private async Task HandleWifiAndCloudData()
     {
-        var (wifiAp, bleName, routerSsid, cfHost, cfId, isOk) = App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode ?
+        var (wifiAp, wifiApPw, bleName, routerSsid, cfHost, cfId, isOk) = App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode ?
             await Services.NetworkHubService.FetchWifiAdminParametersAsync() : await Services.NetworkHubService.FetchCloudAdminParametersAsync();
 
         if (isOk)
@@ -561,6 +642,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
                 entryWifiAP.Text = wifiAp;
+                lblAPPassword.Text = $"CURRENT AP PASSWORD: {wifiApPw}";
                 entryBleName.Text = bleName;
                 entryCfHost.Text = cfHost.Equals("silent-bird-d9c0.taigon1984.workers.dev") ? string.Empty : cfHost;
                 entryCfClientId.Text = cfId.Equals("NONE") ? string.Empty : cfId;
@@ -582,12 +664,96 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
     }
 
+    private async Task UpdateAdminData()
+    {
+        if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode)
+        {
+            Debug.WriteLine("--> [ADMIN CONTROL HUB]: Fetching clean configuration matrices straight from API...");
+
+            await HandleWifiAndCloudData();
+
+            await MainThread.InvokeOnMainThreadAsync(async () =>
+            {
+                layoutAdminPage.IsEnabled = true;
+            });
+
+            return;
+        }
+
+        Debug.WriteLine("--> [ADMIN CONTROL HUB]: Fetching parameters over-the-air via serial text scraping...");
+        string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
+
+        try
+        {
+            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETWIFINAME");
+        }
+        catch (Exception)
+        {
+            await DisplayAlertAsync("Unable to send command to obtain local AP name over bluetooth communication!", "Error", "OK");
+            return;
+        }
+
+        await Task.Delay(500);
+
+        try
+        {
+            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETAPPASSWORD");
+        }
+        catch (Exception)
+        {
+            await DisplayAlertAsync("Unable to send command to obtain local AP password over bluetooth communication!", "Error", "OK");
+            return;
+        }
+
+        await Task.Delay(500);
+
+        try
+        {
+            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETBLENAME");
+        }
+        catch (Exception)
+        {
+            await DisplayAlertAsync("Unable to send command to obtain the bluetooth name over bluetooth communication!", "Error", "OK");
+            return;
+        }
+
+        await Task.Delay(500);
+
+        try
+        {
+            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETROUTER");
+        }
+        catch (Exception)
+        {
+            await DisplayAlertAsync("Unable to send command to obtain Wifi name over bluetooth communication!", "Error", "OK");
+            return;
+        }
+
+        await Task.Delay(500);
+
+        try
+        {
+            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
+        }
+        catch (Exception)
+        {
+            await DisplayAlertAsync("Unable to send command to obtain Cloudflare keys over bluetooth communication!", "Error", "OK");
+            return;
+        }
+
+        await Task.Delay(500);
+    }
+
     protected override async void OnDisappearing()
     {
         base.OnDisappearing();
 
         _adminWifiWatchdogCancelSource?.Cancel();
         _adminWifiWatchdogCancelSource = null;
+
+        App.NetworkService.OnConnectionStateChanged -= OnVehicleLinkStateChanged;
+        MainPage.CurrentInstance?.OnTelemetryParsed -= LogIncomingStreamToTerminal;
+
         App.IsDebugOutputEnabled = false;
         await Navigation.PushAsync(new MainPage());
     }

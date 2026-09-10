@@ -69,6 +69,7 @@ export default {
 
           if (parsedConfigData.router_ssid) await env.VERSAHUB_KV.put("ROUTER_BRIDGE_SSID", parsedConfigData.router_ssid.trim());
           if (parsedConfigData.wifi_ap)    await env.VERSAHUB_KV.put("WIFI_AP_NAME", parsedConfigData.wifi_ap.trim());
+		  if (parsedConfigData.wifi_ap_pw) await env.VERSAHUB_KV.put("WIFI_AP_PASSWORD", parsedConfigData.wifi_ap_pw.trim());
           if (parsedConfigData.ble_name)   await env.VERSAHUB_KV.put("BLE_BROADCAST_NAME", parsedConfigData.ble_name.trim());
 
           return new Response("TELEMETRY_VAULTS_HYDRATED_SUCCESSFULLY", { status: 200 });
@@ -88,11 +89,14 @@ export default {
 
           let activeWifiAp = await env.VERSAHUB_KV.get("WIFI_AP_NAME");
           if (!activeWifiAp) activeWifiAp = "NONE";
+		  
+		  let activeWifiApPw = await env.VERSAHUB_KV.get("WIFI_AP_PASSWORD");
+		  if (!activeWifiApPw) activeWifiAp = "NONE";
 
           let activeBleName = await env.VERSAHUB_KV.get("BLE_BROADCAST_NAME");
           if (!activeBleName) activeBleName = "NONE";
 
-          const jsonAdminProfile = { wifi_ap: activeWifiAp, ble_name: activeBleName, router_ssid: activeRouterSsid, cf_host: activeHost, cf_id: activeId };
+          const jsonAdminProfile = { wifi_ap: activeWifiAp, wifi_ap_pw: activeWifiApPw, ble_name: activeBleName, router_ssid: activeRouterSsid, cf_host: activeHost, cf_id: activeId };
           return new Response(JSON.stringify(jsonAdminProfile), { status: 200, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
         } 
         catch (err) {

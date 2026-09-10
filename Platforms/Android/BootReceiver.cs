@@ -27,24 +27,6 @@ public class BootReceiver : BroadcastReceiver
             if (stateCode == (int)State.On)
             {
                 await App.Log("--> [HARDWARE MONITOR]: Bluetooth hardware initialized. Triggering rapid background reconnection pipeline...");
-
-                Task.Run(async () =>
-                {
-                    try
-                    {
-                        await Task.Delay(500);
-                        await App.Log("--> [HARDWARE MONITOR]: Invoking AutoConnectAsync dynamically over active radio waves...");
-                        
-                        await MainThread.InvokeOnMainThreadAsync(async () =>
-                        {
-                            App.NetworkService.AutoConnectAsync(btAdapterOnOverride: true);
-                        });
-                    }
-                    catch (Exception ex)
-                    {
-                        await App.Log($"--> [HARDWARE MONITOR RECOVERY CHOKE]: {ex.Message}");
-                    }
-                });
             }
             else if (stateCode == (int)State.Off || stateCode == (int)State.TurningOff)
             {
@@ -62,7 +44,25 @@ public class BootReceiver : BroadcastReceiver
                     }
                 }
             }
-            
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(500);
+                    await App.Log("--> [HARDWARE MONITOR]: Invoking AutoConnectAsync dynamically over active radio waves...");
+
+                    await MainThread.InvokeOnMainThreadAsync(async () =>
+                    {
+                        App.NetworkService.AutoConnectAsync();
+                    });
+                }
+                catch (Exception ex)
+                {
+                    await App.Log($"--> [HARDWARE MONITOR RECOVERY CHOKE]: {ex.Message}");
+                }
+            });
+
             return;
         }
 

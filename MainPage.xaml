@@ -129,7 +129,11 @@
                                VerticalOptions="Center"/>
                     </HorizontalStackLayout>
                 </Border>
-                
+
+                <VerticalStackLayout Grid.Column="0" x:Name="layoutReconnecting" Spacing="10" HorizontalOptions="Center" IsVisible="False" Grid.ColumnSpan="2">
+                    <Label x:Name="lblReconnecting" Text="" FontSize="16" VerticalOptions="Center"/>
+                </VerticalStackLayout>
+
                 <VerticalStackLayout Grid.Column="0" x:Name="layoutCrossCharging" Spacing="10" HorizontalOptions="Center" IsVisible="False" Grid.ColumnSpan="2">
                     <Label x:Name="lblCrossChargeStatus" Text="" FontSize="16" VerticalOptions="Center"/>
                 </VerticalStackLayout>

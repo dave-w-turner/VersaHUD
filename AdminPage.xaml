@@ -7,8 +7,7 @@
 
     <Grid RowDefinitions="*" ColumnDefinitions="*">
         <ScrollView Grid.Row="0" Grid.Column="0">
-            <VerticalStackLayout Padding="20" Spacing="25" VerticalOptions="Center">
-
+            <VerticalStackLayout x:Name="layoutAdminPage" Padding="20" Spacing="25" VerticalOptions="Center" IsEnabled="False">
                 <Label Text="COCKPIT CONFIGURATION"
                        TextColor="#FFFFFF"
                        FontSize="22"
@@ -36,6 +35,7 @@
                     </Border.StrokeShape>
                     <VerticalStackLayout Padding="15" Spacing="15">
                         <VerticalStackLayout Spacing="5">
+                            <Label x:Name="lblAPPassword" Text="CURRENT AP PASSWORD: NONE" TextColor="#3B82F6" FontSize="11" FontAttributes="Bold"/>
                             <Label Text="LOCAL WI-FI AP NAME SSID" TextColor="#8E8E93" FontSize="11" FontAttributes="Bold"/>
                             <Entry x:Name="entryWifiAP" Text="Loading..." TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
                             <Button Text="UPDATE AP SSID" BackgroundColor="#3B82F6" TextColor="#FFFFFF" Clicked="OnUpdateWifiAPClicked" HeightRequest="40"/>

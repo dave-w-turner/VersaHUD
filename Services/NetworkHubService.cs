@@ -16,7 +16,8 @@ public class NetworkHubService
     private ICharacteristic? _txCharacteristic;
 
     private CancellationTokenSource? _rssiLoopCts;
-    private CancellationTokenSource? _wifiTelemetryCancelSource;
+    private CancellationTokenSource? _wifiTelemetryCts;
+    private CancellationTokenSource? _passwordVerificationCts;
 
     private const string DeviceCacheKey = "LastConnectedBleId";
 
@@ -32,13 +33,14 @@ public class NetworkHubService
         Timeout = TimeSpan.FromMilliseconds(1500)
     };
 
+    private bool _hasShownNoRadioAlert = false;
     private bool _isAppInForeground = true;
     private bool? _isWANReportedOnline = false;
     private static readonly SemaphoreSlim _wifiRadarLockoutMutedGate = new(1, 1);
     private static DateTime _lastWifiHandshakeTimestamp = DateTime.MinValue;
     private bool _bLECommunicationProvisioned = false;
     private bool _isTelemetryActive = false;
-
+    private readonly Lock _rssiLock = new();
 
     public bool IsConnecting { get; private set; } = false;
     private const int TRANSPORT_FLAPPING_COOLDOWN_SECONDS = 30;
@@ -46,6 +48,7 @@ public class NetworkHubService
     private const int MIN_PASS_RSSI_VALUE = -80;
 
     private CancellationTokenSource? _autoConnectLoopCts;
+    private CancellationTokenSource? _reconnectLoopCts = null;
 
     public event Action<int> OnRssiUpdated;
     public event Action<string>? OnTelemetryReceived;
@@ -102,6 +105,7 @@ public class NetworkHubService
     public DateTime LastTransportSwitchTimestamp = DateTime.MinValue;
     public static bool HasPhysicalWifiConnection { get; private set; } = Connectivity.Current.ConnectionProfiles.Contains(ConnectionProfile.WiFi);
     public bool IsMonitorActive { get; private set; } = false;
+    public int ReconnectCountdown { get; private set; } = 0;
 
     public NetworkHubService()
     {
@@ -130,14 +134,18 @@ public class NetworkHubService
         Connectivity.Current.ConnectivityChanged += OnSystemWirelessHardwareStateChanged;
     }
 
-    public async Task<bool> AutoConnectAsync(bool wifiAdapterOffOverride = false, bool btAdapterOnOverride = false)
+    public async Task<bool> AutoConnectAsync(bool wifiAdapterOffOverride = false)
     {
-        if (IsConnecting && !wifiAdapterOffOverride && !btAdapterOnOverride)
+        if (IsConnecting)
             return false;
 
         IsConnecting = true;
 
-        if (!(IsBluetoothConnected || btAdapterOnOverride || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
+        if (ReconnectCountdown > 0)
+        {
+            _reconnectLoopCts?.Cancel();
+        }
+        else if (!(IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
             OnConnectionStateChanged?.Invoke(false);
 
         var activeProfiles = Connectivity.Current.ConnectionProfiles;
@@ -145,23 +153,47 @@ public class NetworkHubService
                                        (Connectivity.Current.NetworkAccess != NetworkAccess.None || Connectivity.Current.NetworkAccess == NetworkAccess.Unknown);
         bool phoneHasInternetAccess = Connectivity.Current.NetworkAccess == NetworkAccess.Internet;
 
-        if (!(CrossBluetoothLE.Current.IsOn || hasPhysicalWifiInterface || phoneHasInternetAccess))
-        {
-            await MainThread.InvokeOnMainThreadAsync(async () =>
-            {
-                await MainPage.CurrentInstance.DisplayAlertAsync("Network Error", "No active network interfaces detected. Please enable Bluetooth, Wi-Fi, or Cellular data to continue.", "OK");
-            });
+        bool allRadiosOff = !(CrossBluetoothLE.Current.IsOn || hasPhysicalWifiInterface || phoneHasInternetAccess);
 
+        if (allRadiosOff)
+        {
+            if (!_hasShownNoRadioAlert)
+            {
+                _hasShownNoRadioAlert = true;
+
+                await MainThread.InvokeOnMainThreadAsync(async () =>
+                {
+                    await MainPage.CurrentInstance.DisplayAlertAsync(
+                        "Network Error",
+                        "No active network interfaces detected. Please enable Bluetooth, Wi-Fi, or Cellular data to continue.",
+                        "OK");
+                });
+            }
+
+            IsUsingCloudWanMode = false;
+            IsUsingLocalApMode = false;
+            IsUsingWifiTransportMode = false;
+            IsWifiTelemetryDead = false;
             IsConnecting = false;
+            _passwordVerificationCts?.Cancel();
+
+            while (WaitingForAuthorization)
+            {
+                await Task.Delay(500);
+            }
 
             OnConnectionStateChanged?.Invoke(false);
             return false;
         }
+        else
+        {
+            _hasShownNoRadioAlert = false;
+        }
+
+        var secondsSinceLastTransportSwitch = (DateTime.UtcNow - LastTransportSwitchTimestamp).TotalSeconds;
 
         try
         {
-            var secondsSinceLastTransportSwitch = (DateTime.UtcNow - LastTransportSwitchTimestamp).TotalSeconds;
-
             if ((!hasPhysicalWifiInterface || wifiAdapterOffOverride) && (IsUsingWifiTransportMode || IsUsingLocalApMode))
             {
                 IsUsingWifiTransportMode = false;
@@ -186,29 +218,26 @@ public class NetworkHubService
 
                     if (IsBluetoothConnected)
                     {
-                        await ProvisionBLECommunication();
                         LastTransportSwitchTimestamp = DateTime.MinValue;
                         IsUsingCloudWanMode = false;
-                        IsUsingWifiTransportMode = false;
-                        IsUsingLocalApMode = false;
+                        await ProvisionBLECommunication();
                     }
                 }
             }
-            else if (IsBluetoothConnected && secondsSinceLastTransportSwitch >= TRANSPORT_FLAPPING_COOLDOWN_SECONDS)
+            else if (IsBluetoothConnected)
             {
+                IsUsingCloudWanMode = false;
+
                 if (!_bLECommunicationProvisioned)
                 {
-                    if (!(IsUsingWifiTransportMode || IsUsingLocalApMode))
-                    {
-                        IsUsingCloudWanMode = false;
-                        OnConnectionStateChanged?.Invoke(true);
-                        await ProvisionBLECommunication();
+                    OnConnectionStateChanged?.Invoke(true);
+                    await ProvisionBLECommunication();
 
-                        if (hasPhysicalWifiInterface)
-                            LastTransportSwitchTimestamp = DateTime.MinValue;
-                    }
+                    if (hasPhysicalWifiInterface)
+                        LastTransportSwitchTimestamp = DateTime.MinValue;
                 }
-                else if ((ActiveRssi >= MIN_PASS_RSSI_VALUE && (IsUsingWifiTransportMode || IsUsingLocalApMode)) || IsWifiTelemetryDead)
+                else if (secondsSinceLastTransportSwitch >= TRANSPORT_FLAPPING_COOLDOWN_SECONDS &&
+                    (ActiveRssi >= MIN_PASS_RSSI_VALUE && (IsUsingWifiTransportMode || IsUsingLocalApMode)) || IsWifiTelemetryDead)
                 {
                     await App.Log("--> [AUTO-CONNECT]: BLE signal strength is acceptable. Using BLE transport.");
 
@@ -223,126 +252,129 @@ public class NetworkHubService
                     LastTransportSwitchTimestamp = DateTime.UtcNow;
                 }
             }
-
-            if (hasPhysicalWifiInterface)
-            {
-                string lastKnownIp = Preferences.Default.Get("LastKnownVehicleIP", "0.0.0.0");
-                if (!string.IsNullOrEmpty(lastKnownIp) && (lastKnownIp == "0.0.0.0" || lastKnownIp == "192.168.4.1" || lastKnownIp.Equals("STA_HOTSPOT")) && !IsUsingLocalApMode)
-                {
-                    var currentSubnet = GetCurrentWifiSubnetBase();
-
-                    if (!string.IsNullOrEmpty(currentSubnet) && currentSubnet == "192.168.4.")
-                    {
-                        lastKnownIp = "192.168.4.1";
-                        IsUsingLocalApMode = true;
-                        IsWifiTelemetryDead = false;
-                        await App.Log("--> [AUTO-CONNECT]: Vehicle node is in hotspot mode. Attempting to connect over Wi-Fi transport...");
-                    }
-                }
-
-                if (!string.IsNullOrEmpty(lastKnownIp) && !lastKnownIp.Equals("0.0.0.0") && !lastKnownIp.Equals("STA_HOTSPOT") && !IsWifiTelemetryDead)
-                {
-                    if (secondsSinceLastTransportSwitch >= TRANSPORT_FLAPPING_COOLDOWN_SECONDS)
-                    {
-                        await App.Log("--> [AUTO-CONNECT]: Evaluating network transport route preference to Wifi route...");
-                        var debounceResult = await VerifyWifiHealthWithDebounceAsync(lastKnownIp);
-                        bool isWifiServerActive = ActiveRssi < MIN_PASS_RSSI_VALUE && debounceResult || !(IsBluetoothConnected && debounceResult);
-
-                        if (isWifiServerActive)
-                        {
-                            if (IsUsingLocalApMode)
-                                IsUsingWifiTransportMode = false;
-                            else
-                                IsUsingWifiTransportMode = true;
-                            
-                            IsUsingCloudWanMode = false;                            
-                            _txCharacteristic?.ValueUpdated -= NativeCharacteristic_ValueUpdated;
-                            _bLECommunicationProvisioned = false;
-                            LastTransportSwitchTimestamp = DateTime.UtcNow;
-                            WaitingForAuthorization = false;
-
-                            await App.Log("--> [FAILOVER SUCCESS]: Vehicle node discovered live over Wi-Fi Subnet. Engaging Wi-Fi transport channels!");
-                            
-                            IsConnecting = false;
-                            OnConnectionStateChanged?.Invoke(false);
-
-                            if (IsAuthorized)
-                            {
-                                await ManageWifiTelemetryPollingLifecycle(true);
-                            }
-
-                            return true;
-                        }
-                    }
-                }
-            }
-
-            if (!IsBluetoothConnected && IsWifiTelemetryDead && hasPhysicalWifiInterface && (IsUsingWifiTransportMode || IsUsingLocalApMode))
-            {
-                await App.Log("--> [AUTO-CONNECT]: No bluetooth available. Retaining WIFI connection regardless of empty telemetry.");
-                IsWifiTelemetryDead = false;
-            }
-
-            if ((!hasPhysicalWifiInterface || IsWifiTelemetryDead) && (IsUsingWifiTransportMode || IsUsingLocalApMode))
-            {
-                await ManageWifiTelemetryPollingLifecycle(false);
-                IsUsingWifiTransportMode = false;
-                IsUsingLocalApMode = false;
-            }
-
-            if (IsBluetoothConnected && !(IsUsingWifiTransportMode || IsUsingLocalApMode))
-            {
-                IsConnecting = false;
-                return true;
-            }
-
-            var minutesSinceWANStatusReported = (DateTime.UtcNow - LastReportedWANLinkState).TotalMinutes;
-
-            if (!(IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode) && !IsWifiTelemetryDead && !IsUsingCloudWanMode)
-            {
-                var wanActive = await VerifyTrueInternetRouteToHostAsync();
-
-                if (((IsWANReportedOnline ?? true) || minutesSinceWANStatusReported >= 20) && wanActive)
-                {
-                    await App.Log("--> [AUTO-CONNECT SUCCESS]: Bluetooth and Wifi off, but Internet path to Cloudflare verified live. Activating Cloud WAN fallback...");
-                    
-                    _txCharacteristic?.ValueUpdated -= NativeCharacteristic_ValueUpdated;
-                    _bLECommunicationProvisioned = false;
-                    _isTelemetryActive = false;
-                    IsWifiTelemetryDead = false;
-                    IsUsingWifiTransportMode = false;
-                    IsUsingLocalApMode = false;
-                    IsUsingCloudWanMode = true;
-
-                    await ManageWifiTelemetryPollingLifecycle(false);
-                    OnConnectionStateChanged?.Invoke(false);
-                }
-            }
-            else if (IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode)
-            {
-                IsConnecting = false;
-                OnConnectionStateChanged?.Invoke(IsBluetoothConnected);
-                return true;
-            }
         }
         catch (Exception ex)
         {
             await App.Log($"--> [BLE RECOVERY TRACK CHOKE]: {ex.Message}");
         }
 
+        if (hasPhysicalWifiInterface)
+        {
+            string lastKnownIp = Preferences.Default.Get("LastKnownVehicleIP", "0.0.0.0");
+            if (!string.IsNullOrEmpty(lastKnownIp) && (lastKnownIp == "0.0.0.0" || lastKnownIp == "192.168.4.1" || lastKnownIp.Equals("STA_HOTSPOT")) && !IsUsingLocalApMode)
+            {
+                var currentSubnet = GetCurrentWifiSubnetBase();
+
+                if (!string.IsNullOrEmpty(currentSubnet) && currentSubnet == "192.168.4.")
+                {
+                    lastKnownIp = "192.168.4.1";
+                    IsUsingLocalApMode = true;
+                    IsWifiTelemetryDead = false;
+                    await App.Log("--> [AUTO-CONNECT]: Vehicle node is in hotspot mode. Attempting to connect over Wi-Fi transport...");
+                }
+            }
+
+            if (!string.IsNullOrEmpty(lastKnownIp) && !lastKnownIp.Equals("0.0.0.0") && !lastKnownIp.Equals("STA_HOTSPOT") && !IsWifiTelemetryDead)
+            {
+                if (secondsSinceLastTransportSwitch >= TRANSPORT_FLAPPING_COOLDOWN_SECONDS)
+                {
+                    await App.Log("--> [AUTO-CONNECT]: Evaluating network transport route preference to Wifi route...");
+                    var debounceResult = await VerifyWifiHealthWithDebounceAsync(lastKnownIp);
+                    bool isWifiServerActive = ActiveRssi < MIN_PASS_RSSI_VALUE && debounceResult || !(IsBluetoothConnected && debounceResult);
+
+                    if (isWifiServerActive)
+                    {
+                        if (IsUsingLocalApMode)
+                            IsUsingWifiTransportMode = false;
+                        else
+                            IsUsingWifiTransportMode = true;
+
+                        IsUsingCloudWanMode = false;
+                        _txCharacteristic?.ValueUpdated -= NativeCharacteristic_ValueUpdated;
+                        _bLECommunicationProvisioned = false;
+                        LastTransportSwitchTimestamp = DateTime.UtcNow;
+                        WaitingForAuthorization = false;
+
+                        await App.Log("--> [FAILOVER SUCCESS]: Vehicle node discovered live over Wi-Fi Subnet. Engaging Wi-Fi transport channels!");
+
+                        IsConnecting = false;
+                        OnConnectionStateChanged?.Invoke(false);
+
+                        if (IsAuthorized)
+                        {
+                            await ManageWifiTelemetryPollingLifecycle(true);
+                        }
+
+                        return true;
+                    }
+                }
+            }
+        }
+
+        if (!IsBluetoothConnected && IsWifiTelemetryDead && hasPhysicalWifiInterface && (IsUsingWifiTransportMode || IsUsingLocalApMode))
+        {
+            await App.Log("--> [AUTO-CONNECT]: No bluetooth available. Retaining WIFI connection regardless of empty telemetry.");
+            IsWifiTelemetryDead = false;
+        }
+
+        if ((!hasPhysicalWifiInterface || IsWifiTelemetryDead) && (IsUsingWifiTransportMode || IsUsingLocalApMode))
+        {
+            await ManageWifiTelemetryPollingLifecycle(false);
+            IsUsingWifiTransportMode = false;
+            IsUsingLocalApMode = false;
+        }
+
+        if (IsBluetoothConnected && !(IsUsingWifiTransportMode || IsUsingLocalApMode))
+        {
+            IsConnecting = false;
+            return true;
+        }
+
+        var minutesSinceWANStatusReported = (DateTime.UtcNow - LastReportedWANLinkState).TotalMinutes;
+
+        if (!(IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode) && !IsWifiTelemetryDead && !IsUsingCloudWanMode)
+        {
+            var wanActive = await VerifyTrueInternetRouteToHostAsync();
+
+            if (((IsWANReportedOnline ?? true) || minutesSinceWANStatusReported >= 20) && wanActive)
+            {
+                await App.Log("--> [AUTO-CONNECT SUCCESS]: Bluetooth and Wifi off, but Internet path to Cloudflare verified live. Activating Cloud WAN fallback...");
+
+                _txCharacteristic?.ValueUpdated -= NativeCharacteristic_ValueUpdated;
+                _bLECommunicationProvisioned = false;
+                _isTelemetryActive = false;
+                IsWifiTelemetryDead = false;
+                IsUsingWifiTransportMode = false;
+                IsUsingLocalApMode = false;
+                IsUsingCloudWanMode = true;
+
+                await ManageWifiTelemetryPollingLifecycle(false);
+                OnConnectionStateChanged?.Invoke(false);
+            }
+        }
+        else if (IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode)
+        {
+            IsConnecting = false;
+            OnConnectionStateChanged?.Invoke(IsBluetoothConnected);
+            return true;
+        }
+
+
         if (IsUsingCloudWanMode)
         {
             if ((IsAuthorized || WaitingForAuthorization) && !_isTelemetryActive && !IsWifiTelemetryDead)
             {
-                await ManageCloudFlareTelemetryPollingLifecycle();                    
+                await ManageCloudFlareTelemetryPollingLifecycle();
             }
 
             if (!IsWifiTelemetryDead)
-            {                
+            {
                 IsConnecting = false;
                 return true;
             }
         }
+
+        _passwordVerificationCts?.Cancel();
 
         IsUsingWifiTransportMode = false;
         IsUsingLocalApMode = false;
@@ -365,7 +397,8 @@ public class NetworkHubService
 
         _autoConnectLoopCts?.Cancel();
         _autoConnectLoopCts?.Dispose();
-        _autoConnectLoopCts = new CancellationTokenSource();
+        _autoConnectLoopCts = new();
+
         var token = _autoConnectLoopCts.Token;
 
         _ = Task.Run(async () =>
@@ -379,14 +412,41 @@ public class NetworkHubService
                     {
                         IsMonitorActive = false;
 
+                        _reconnectLoopCts = new();
+                        var reconnectToken = _reconnectLoopCts.Token;
+
                         _ = Task.Run(async () =>
                         {
-                            await Task.Delay(30000); //Wait a 30 seconds and try reconnecting.
-                            StartConnectionSupervisor();
-                        });
+                            for (int i = 30; i >= 0; i--)
+                            {
+                                ReconnectCountdown = i;
 
-                        _autoConnectLoopCts?.Cancel();
-                        _autoConnectLoopCts?.Dispose();
+                                if (i > 0)
+                                {
+                                    await Task.Delay(1000);
+                                }
+
+                                if (reconnectToken.IsCancellationRequested)
+                                {
+                                    ReconnectCountdown = 0;
+                                    OnConnectionStateChanged?.Invoke(IsBluetoothConnected);
+
+                                    while (IsConnecting)
+                                    {
+                                        await Task.Delay(1000);
+                                    }
+
+                                    StartConnectionSupervisor();
+
+                                    _reconnectLoopCts?.Cancel();
+                                    _reconnectLoopCts?.Dispose();
+                                    _reconnectLoopCts = null;
+                                    return;
+                                }
+                            }
+
+                            StartConnectionSupervisor();
+                        }, _reconnectLoopCts.Token);
 
                         return;
                     }
@@ -422,9 +482,14 @@ public class NetworkHubService
 
     public async Task VerifyPasswordAgainstHardwareAsync()
     {
+        _passwordVerificationCts?.Cancel();
+        _passwordVerificationCts?.Dispose();
+        _passwordVerificationCts ??= new();
+
         if (IsPromptingForMasterPassword || WaitingForAuthorization || IsAuthorized) return;
 
         WaitingForAuthorization = true;
+        OnConnectionStateChanged?.Invoke(IsBluetoothConnected);
 
         string savedPass = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
         bool cmdResult = false;
@@ -460,6 +525,21 @@ public class NetworkHubService
                 OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
                 OnTelemetryReceived += PasswordVerificationTelemetryHandler;
                 OnConnectionStateChanged?.Invoke(true);
+
+                var token = _passwordVerificationCts.Token;
+
+                _ = Task.Run(async () =>
+                {
+                    while (!token.IsCancellationRequested)
+                    {
+                        await Task.Delay(1000);
+                    }
+
+                    _passwordVerificationCts = null;
+                    WaitingForAuthorization = false;
+                    OnConnectionStateChanged?.Invoke(IsBluetoothConnected);
+                    OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
+                });
             }
         }
         else if (IsUsingWifiTransportMode || IsUsingLocalApMode)
@@ -477,7 +557,7 @@ public class NetworkHubService
         {
             _isWANReportedOnline = false;
             IsWifiTelemetryDead = true;
-            OnConnectionStateChanged?.Invoke(false);
+            OnConnectionStateChanged?.Invoke(IsBluetoothConnected);
         }
     }
 
@@ -489,23 +569,55 @@ public class NetworkHubService
         if (fullTelemetryMessage.Contains("AUTH_SUCCESS"))
         {
             IsAuthorized = true;
-            OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
-            WaitingForAuthorization = false;
 
             await App.Log("--> [HANDSHAKE SECURED]: Auth validation state cleared successfully!");
             OnAuthorizationRequestComplete?.Invoke(false);
+
+            if (_passwordVerificationCts != null)
+            {
+                try
+                {
+                    if (!_passwordVerificationCts.IsCancellationRequested)
+                    {
+                        _passwordVerificationCts.Cancel();
+                    }
+                }
+                catch (ObjectDisposedException)
+                {
+                }
+                finally
+                {
+                    _passwordVerificationCts?.Dispose();
+                    _passwordVerificationCts = null;
+                }
+            }
         }
         else if (fullTelemetryMessage.Contains("AUTH_FAILED") || fullTelemetryMessage.Contains("ROUTER_ERROR") || fullTelemetryMessage.Contains("401") || fullTelemetryMessage.Contains("Unauthorized"))
         {
             IsAuthorized = false;
-            OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
-            WaitingForAuthorization = false;
 
             await App.Log("--> [HANDSHAKE REJECTED]: Auth failed token caught. Displaying single alert prompt...");
             OnAuthorizationRequestComplete?.Invoke(true);
-        }
 
-        fullTelemetryMessage = string.Empty;
+            if (_passwordVerificationCts != null)
+            {
+                try
+                {
+                    if (!_passwordVerificationCts.IsCancellationRequested)
+                    {
+                        _passwordVerificationCts.Cancel();
+                    }
+                }
+                catch (ObjectDisposedException)
+                {
+                }
+                finally
+                {
+                    _passwordVerificationCts?.Dispose();
+                    _passwordVerificationCts = null;
+                }
+            }
+        }
     }
 
     public async Task StartDiscoveryScanAsync()
@@ -782,7 +894,7 @@ public class NetworkHubService
         await App.Log("--> [WATCHDOG CRITICAL FAILURE]: Both communication channels are exhausted.");
     }
 
-    public static async Task<(string wifiAp, string bleName, string routerSsid, string cfHost, string cfId, bool isOk)> FetchWifiAdminParametersAsync()
+    public static async Task<(string wifiAp, string wifiApPw, string bleName, string routerSsid, string cfHost, string cfId, bool isOk)> FetchWifiAdminParametersAsync()
     {
         int maxRetries = 3;
         int currentTry = 0;
@@ -802,7 +914,7 @@ public class NetworkHubService
                     }
                 }
 
-                if (string.IsNullOrEmpty(cachedVehicleIP) || cachedVehicleIP == "0.0.0.0") return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
+                if (string.IsNullOrEmpty(cachedVehicleIP) || cachedVehicleIP == "0.0.0.0") return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
 
                 using var localWebClient = new HttpClient();
                 localWebClient.Timeout = TimeSpan.FromMilliseconds(3000);
@@ -814,23 +926,24 @@ public class NetworkHubService
                     string encryptedBase64Payload = await apiResponse.Content.ReadAsStringAsync();
 
                     if (string.IsNullOrEmpty(encryptedBase64Payload))
-                        return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
+                        return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
 
                     string rawJsonProfileText = await DecryptLocalPayloadAES128CBC(encryptedBase64Payload);
 
                     if (string.IsNullOrEmpty(rawJsonProfileText))
-                        return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
+                        return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
 
                     using JsonDocument jsonDoc = JsonDocument.Parse(rawJsonProfileText);
                     var root = jsonDoc.RootElement;
 
                     string wifiAp = root.TryGetProperty("wifi_ap", out JsonElement apNode) ? apNode.GetString() ?? "Error" : "Loading...";
+                    string wifiApPw = root.TryGetProperty("wifi_ap_pw", out JsonElement apPwNode) ? apPwNode.GetString() ?? "Error" : "NONE";
                     string bleName = root.TryGetProperty("ble_name", out JsonElement bleNode) ? bleNode.GetString() ?? "Error" : "Loading...";
                     string routerSsid = root.TryGetProperty("router_ssid", out JsonElement ssidNode) ? ssidNode.GetString() ?? "NONE" : "NONE";
                     string cfHost = root.TryGetProperty("cf_host", out JsonElement hProp) ? hProp.GetString() ?? "Error" : "Loading...";
                     string cfId = root.TryGetProperty("cf_id", out JsonElement idProp) ? idProp.GetString() ?? "Error" : "Loading...";
 
-                    return (wifiAp, bleName, routerSsid, cfHost, cfId, true);
+                    return (wifiAp, wifiApPw, bleName, routerSsid, cfHost, cfId, true);
                 }
                 else
                 {
@@ -858,10 +971,10 @@ public class NetworkHubService
             }
         }
 
-        return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
+        return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
     }
 
-    public static async Task<(string wifiAp, string bleName, string routerSsid, string cfHost, string cfId, bool isOk)> FetchCloudAdminParametersAsync()
+    public static async Task<(string wifiAp, string wifiApPw, string bleName, string routerSsid, string cfHost, string cfId, bool isOk)> FetchCloudAdminParametersAsync()
     {
         int maxRetries = 3;
         int currentTry = 0;
@@ -878,7 +991,7 @@ public class NetworkHubService
                 if (string.IsNullOrEmpty(cfHost) || string.IsNullOrEmpty(cfId) || string.IsNullOrEmpty(cfSecret))
                 {
                     await App.Log("--> [WAN PROFILE ERROR]: Missing local Zero-Trust configuration passport keys.");
-                    return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
+                    return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
                 }
 
                 using var cloudWebClient = new HttpClient();
@@ -897,19 +1010,20 @@ public class NetworkHubService
                     string rawJsonProfileText = await apiResponse.Content.ReadAsStringAsync();
 
                     if (string.IsNullOrEmpty(rawJsonProfileText))
-                        return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
+                        return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
 
                     using JsonDocument jsonDoc = JsonDocument.Parse(rawJsonProfileText);
                     var root = jsonDoc.RootElement;
 
                     string wifiAp = root.TryGetProperty("wifi_ap", out JsonElement apNode) ? apNode.GetString() ?? "Error" : "Loading...";
+                    string wifiApPw = root.TryGetProperty("wifi_ap_pw", out JsonElement apPwNode) ? apPwNode.GetString() ?? "Error" : "NONE";
                     string bleName = root.TryGetProperty("ble_name", out JsonElement bleNode) ? bleNode.GetString() ?? "Error" : "Loading...";
                     string routerSsid = root.TryGetProperty("router_ssid", out JsonElement ssidNode) ? ssidNode.GetString() ?? "NONE" : "NONE";
                     string responseCfHost = root.TryGetProperty("cf_host", out JsonElement hProp) ? hProp.GetString() ?? "Error" : "Loading...";
                     string responseCfId = root.TryGetProperty("cf_id", out JsonElement idProp) ? idProp.GetString() ?? "Error" : "Loading...";
 
                     await App.Log("--> [WAN PROFILE SUCCESS]: Administrative parameter vectors synchronized over Cellular lanes!");
-                    return (wifiAp, bleName, routerSsid, responseCfHost, responseCfId, true);
+                    return (wifiAp, wifiApPw, bleName, routerSsid, responseCfHost, responseCfId, true);
                 }
                 else
                 {
@@ -937,7 +1051,7 @@ public class NetworkHubService
             }
         }
 
-        return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
+        return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
     }
 
     public async void UpdateLifecycleState(bool isForeground)
@@ -1037,8 +1151,8 @@ public class NetworkHubService
         if (_isTelemetryActive)
             return;
 
-        _wifiTelemetryCancelSource?.Cancel();
-        _wifiTelemetryCancelSource = null;
+        _wifiTelemetryCts?.Cancel();
+        _wifiTelemetryCts = null;
 
         if (!startWorker)
         {
@@ -1048,8 +1162,8 @@ public class NetworkHubService
         }
 
         _isTelemetryActive = true;
-        _wifiTelemetryCancelSource = new CancellationTokenSource();
-        var executionPassToken = _wifiTelemetryCancelSource.Token;
+        _wifiTelemetryCts = new CancellationTokenSource();
+        var executionPassToken = _wifiTelemetryCts.Token;
         var maxFailures = 5;
         var currentFailureCount = 0;
 
@@ -1139,8 +1253,8 @@ public class NetworkHubService
                             currentFailureCount++;
                         }
 
-                        _wifiTelemetryCancelSource = new CancellationTokenSource();
-                        executionPassToken = _wifiTelemetryCancelSource.Token;
+                        _wifiTelemetryCts = new CancellationTokenSource();
+                        executionPassToken = _wifiTelemetryCts.Token;
 
                         if (currentFailureCount > maxFailures)
                         {
@@ -1345,7 +1459,7 @@ public class NetworkHubService
 
             await _txCharacteristic.StartUpdatesAsync();
 
-            
+
             await App.Log("--> [BLE SUCCESS]: Live telemetry channels fully open and sanitized.");
         }
 
@@ -1371,9 +1485,25 @@ public class NetworkHubService
 
     public void StopRssiTracking()
     {
-        _rssiLoopCts?.Cancel();
-        _rssiLoopCts?.Dispose();
-        _rssiLoopCts = null;
+        lock (_rssiLock)
+        {
+            if (_rssiLoopCts != null)
+            {
+                try
+                {
+                    if (!_rssiLoopCts.IsCancellationRequested)
+                    {
+                        _rssiLoopCts.Cancel();
+                    }
+                }
+                finally
+                {
+                    _rssiLoopCts.Dispose();
+                    _rssiLoopCts = null;
+                }
+            }
+        }
+
         ActiveRssi = -100;
     }
 
@@ -1451,14 +1581,18 @@ public class NetworkHubService
 
                 try
                 {
-                    bool? success = await _targetDevice?.UpdateRssiAsync();
-
-                    if (success == true)
+                    bool? success = false;
+                    if (_targetDevice != null)
                     {
-                        ActiveRssi = _targetDevice.Rssi;
-                        OnRssiUpdated(ActiveRssi);
+                        success = await _targetDevice.UpdateRssiAsync(cancellationToken);
+
+                        if (success == true)
+                        {
+                            ActiveRssi = _targetDevice.Rssi;
+                        }
                     }
-                    else
+
+                    if (success == false)
                     {
                         ActiveRssi = -100;
                     }

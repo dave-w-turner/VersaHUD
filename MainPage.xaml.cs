@@ -164,6 +164,7 @@ public partial class MainPage : ContentPage
                         }
                         else
                         {
+
                             App.NetworkService.IsWANReportedOnline = false;
                             lblCloudWanTelemetryStatus.Text = "☁️ CLOUD LINK: OFFLINE";
                             lblCloudWanTelemetryStatus.TextColor = Color.Parse("#EF4444");
@@ -183,7 +184,11 @@ public partial class MainPage : ContentPage
                     }
                 });
 
-                ExecuteWifiThemeRedrawPass();
+                if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode)
+                    ExecuteWifiThemeRedrawPass();
+                else if (App.NetworkService.IsUsingCloudWanMode)
+                    ExecuteCloudWanThemeRedrawPass();
+
                 return;
             }
             else
@@ -430,6 +435,19 @@ public partial class MainPage : ContentPage
                 progressBack.Progress = 0.0f;
                 progressBack.ProgressColor = Colors.DarkSlateGray;
                 lblBackIcon.Text = "❌";
+            });
+
+            _ = Task.Run(async () => {
+                await MainThread.InvokeOnMainThreadAsync(async () =>
+                {
+                    layoutReconnecting.IsVisible = true;
+                    while (App.NetworkService.ReconnectCountdown > 0)
+                    {
+                        lblReconnecting?.Text = $"Reconnecting in {App.NetworkService.ReconnectCountdown} seconds.";
+                        await Task.Delay(500);
+                    }
+                    layoutReconnecting.IsVisible = false;
+                });
             });
         }
         else
@@ -726,10 +744,26 @@ public partial class MainPage : ContentPage
                 UpdateBluetoothStatusBadge(App.NetworkService.IsBluetoothConnected);
 
                 string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-                bool commandWasSent = await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
+                bool commandTransmitted = false;
 
-                if (commandWasSent)
+                try
+                {
+                    commandTransmitted = await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
+                }
+                catch (Exception ex)
+                {
+                    if (ex.Message != "--> [ADMIN]: Unable to send command.")
+                        throw;
+                }
+
+                if (commandTransmitted)
+                {
                     await App.Log("--> [BOOT LINK SUCCESS]: Secure WIFI key-pull verification request offloaded natively on boot pass!");
+                }
+                else
+                {
+                    await App.Log("--> [BOOT LINK FAILURE]: Failed to process Secure WIFI key-pull verification request on boot pass! The command could not be transmitted.");
+                }
             });
         }
     }
@@ -740,12 +774,12 @@ public partial class MainPage : ContentPage
         {
             string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
             await App.Log("--> [UI CONTROL]: Dispatching secure over-the-air LOCK token packet...");
-
             await App.NetworkService.SendSecureCommandAsync(activeKey, "LOCK");
         }
         catch (Exception ex)
         {
             await App.Log($"--> [LOCK UI CHOKE]: {ex.Message}");
+            await DisplayAlertAsync("COMMAND FAILURE", "Unable to deliver the LOCK command! Please check your connection.", "OK");
         }
     }
 
@@ -755,12 +789,12 @@ public partial class MainPage : ContentPage
         {
             string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
             await App.Log("--> [UI CONTROL]: Dispatching secure over-the-air UNLOCK token packet...");
-
             await App.NetworkService.SendSecureCommandAsync(activeKey, "UNLOCK");
         }
         catch (Exception ex)
         {
             await App.Log($"--> [UNLOCK UI CHOKE]: {ex.Message}");
+            await DisplayAlertAsync("COMMAND FAILURE", "Unable to deliver the UNLOCK command! Please check your connection.", "OK");
         }
     }
 

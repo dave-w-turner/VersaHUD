@@ -19,14 +19,40 @@ public class NotificationActionReceiver : BroadcastReceiver
         {
             _ = Task.Run(async () =>
             {
-                await App.NetworkService.SendSecureCommandAsync(activeKey, "LOCK");
+                try
+                {
+                    await App.Log("--> [NOTIFICATION RECEIVER]: Dispatching secure over-the-air LOCK token packet...");
+                    await App.NetworkService.SendSecureCommandAsync(activeKey, "LOCK");
+                }
+                catch (Exception ex)
+                {
+                    await App.Log($"--> [NOTIFICATION RECEIVER CHOKE]: {ex.Message}");
+
+                    if (App.Current?.MainPage != null)
+                    {
+                        await App.Current.MainPage.DisplayAlertAsync("COMMAND FAILURE", "Unable to deliver the LOCK command! Please check your connection.", "OK");
+                    }
+                }                
             });
         }
         else if (action == "VERSAHUD_ACTION_UNLOCK")
         {
             _ = Task.Run(async () =>
             {
-                await App.NetworkService.SendSecureCommandAsync(activeKey, "UNLOCK");
+                try
+                {
+                    await App.Log("--> [NOTIFICATION RECEIVER]: Dispatching secure over-the-air UNLOCK token packet...");
+                    await App.NetworkService.SendSecureCommandAsync(activeKey, "UNLOCK");
+                }
+                catch (Exception ex)
+                {
+                    await App.Log($"--> [NOTIFICATION RECEIVER CHOKE]: {ex.Message}");
+
+                    if (App.Current?.MainPage != null)
+                    {
+                        await App.Current.MainPage.DisplayAlertAsync("COMMAND FAILURE", "Unable to deliver the UNLOCK command! Please check your connection.", "OK");
+                    }
+                }
             });
         }
     }

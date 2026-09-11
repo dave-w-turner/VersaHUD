@@ -1,9 +1,7 @@
-﻿using AndroidX.AppCompat.Widget;
-using Plugin.BLE;
+﻿using Plugin.BLE;
 using Plugin.BLE.Abstractions;
 using Plugin.BLE.Abstractions.Contracts;
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using VersaHUD.Controls;

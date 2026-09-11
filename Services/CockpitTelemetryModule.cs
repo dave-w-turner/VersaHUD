@@ -21,7 +21,10 @@ public class CockpitTelemetryModule
         var notificationStatus = await Permissions.CheckStatusAsync<Permissions.PostNotifications>();
         if (notificationStatus != PermissionStatus.Granted)
         {
-            notificationStatus = await Permissions.RequestAsync<Permissions.PostNotifications>();
+            await MainThread.InvokeOnMainThreadAsync(async () =>
+            {
+                notificationStatus = await Permissions.RequestAsync<Permissions.PostNotifications>();
+            });
         }   
 
         if (notificationStatus == PermissionStatus.Granted)

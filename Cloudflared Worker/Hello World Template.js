@@ -10,27 +10,19 @@ export default {
         try {
           const bodyText = (await request.text()).trim();
 
+          let activeLiveStateJson = await env.VERSAHUB_KV.get("LATEST_VEHICLE_STATE");
+
           if (bodyText.startsWith("{")) {
             await env.VERSAHUB_KV.put("LATEST_VEHICLE_STATE", bodyText);
-            
-            let pendingCommand = await env.VERSAHUB_KV.get("PENDING_COMMAND");
-            if (!pendingCommand) pendingCommand = "NONE";
-            
-            if (pendingCommand !== "NONE") {
-              await env.VERSAHUB_KV.put("PENDING_COMMAND", "NONE");
-            }
-
-            return new Response(pendingCommand, { status: 200 });
           } 
           else {
-            let activeLiveStateJson = await env.VERSAHUB_KV.get("LATEST_VEHICLE_STATE");
             if (!activeLiveStateJson) activeLiveStateJson = FALLBACK_DEFAULT_JSON;
-
-            return new Response(activeLiveStateJson, {
-              status: 200,
-              headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
-            });
           }
+		  
+          return new Response(activeLiveStateJson, {
+            status: 200,
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+          });		  
         } 
         catch (err) {
           return new Response("EDGE_TELEMETRY_EXCEPTION: " + err.message, { status: 500 });
@@ -56,7 +48,33 @@ export default {
           });
         } 
         catch (err) {
-          return new Response("EDGE_COMMAND_EXCEPTION: " + err.message, { status: 500 });
+          return new Response("EDGE_COMMAND_WRITE_EXCEPTION: " + err.message, { status: 500 });
+        }
+      }
+
+      if (method === "GET") {
+        try {
+          let pendingCommand = await env.VERSAHUB_KV.get("PENDING_COMMAND");
+          if (!pendingCommand) pendingCommand = "NONE";
+
+          if (pendingCommand !== "NONE") {
+            await env.VERSAHUB_KV.put("PENDING_COMMAND", "NONE");
+          }
+
+          const finalizedPayload = pendingCommand + "\n";
+          const payloadLength = finalizedPayload.length;
+
+          return new Response(finalizedPayload, { 
+            status: 200,
+            headers: { 
+              "Content-Type": "text/plain", 
+              "Content-Length": payloadLength.toString(),
+              "Access-Control-Allow-Origin": "*" 
+            } 
+          });
+        }
+        catch (err) {
+          return new Response("EDGE_COMMAND_READ_EXCEPTION: " + err.message, { status: 500 });
         }
       }
     }
@@ -69,9 +87,9 @@ export default {
 
           if (parsedConfigData.router_ssid) await env.VERSAHUB_KV.put("ROUTER_BRIDGE_SSID", parsedConfigData.router_ssid.trim());
           if (parsedConfigData.wifi_ap)    await env.VERSAHUB_KV.put("WIFI_AP_NAME", parsedConfigData.wifi_ap.trim());
-		  if (parsedConfigData.wifi_ap_pw) await env.VERSAHUB_KV.put("WIFI_AP_PASSWORD", parsedConfigData.wifi_ap_pw.trim());
+		      if (parsedConfigData.wifi_ap_pw) await env.VERSAHUB_KV.put("WIFI_AP_PASSWORD", parsedConfigData.wifi_ap_pw.trim());
           if (parsedConfigData.ble_name)   await env.VERSAHUB_KV.put("BLE_BROADCAST_NAME", parsedConfigData.ble_name.trim());
-
+          if (parsedConfigData.master_pw_hash)   await env.VERSAHUB_KV.put("MASTER_PW_HASH", parsedConfigData.master_pw_hash.trim());
           return new Response("TELEMETRY_VAULTS_HYDRATED_SUCCESSFULLY", { status: 200 });
         } 
         catch (err) {
@@ -108,7 +126,31 @@ export default {
     if (url.pathname === "/api/status") {
       return new Response(JSON.stringify({ status: "Ready" }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
+	
+    if (url.pathname === "/api/auth") {
+      if (method === "POST") {
+      try {
+        const incomingHashFromPhone = (await request.text()).trim();
+        const authorizedMasterHash = await env.VERSAHUB_KV.get("MASTER_PW_HASH");
 
-    return new Response("VersaHUD Cloud telemetry edge proxy engine live.", { status: 200 });
-  }
+        if (authorizedMasterHash && incomingHashFromPhone === authorizedMasterHash.trim()) {
+        return new Response(JSON.stringify({ status: "Authorized" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+        });
+        } else {
+        return new Response(JSON.stringify({ status: "Denied" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+        });
+        }
+      } 
+      catch (err) {
+        return new Response("EDGE_AUTH_EXCEPTION: " + err.message, { status: 500 });
+      }
+      }
+    }
+
+      return new Response("VersaHUD Cloud telemetry edge proxy engine live.", { status: 200 });
+    }
 };

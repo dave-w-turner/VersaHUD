@@ -170,6 +170,8 @@ void loop() {
         processSecureCommand(incomingBuffer, "BLE_LINK");
     }
 
+    checkCloudCommandMailbox(); 
+
     if (pendingSystemHardwareRebootFlag && (currentMillis - hardwareRebootTimestampCount >= 2500)) {
         writeLog("--> [WATCHDOG]: Drainage pad completed. Re-flashing core system architecture registers now and rebooting!");
         delay(2500);
@@ -402,6 +404,20 @@ void loop() {
                 } 
                 jsonLogArrayPayload += "]"; 
 
+                String currentTimeStr = "";
+                RTCTime currentSystemClockTime;
+
+                if (RTC.getTime(currentSystemClockTime)) {
+                    char clockBuf[16];
+                    sprintf(clockBuf, "%02d:%02d:%02d", 
+                    currentSystemClockTime.getHour(), 
+                    currentSystemClockTime.getMinutes(), 
+                    currentSystemClockTime.getSeconds());
+                    currentTimeStr = String(clockBuf);
+                } else {
+                    currentTimeStr = "00:00:00"; 
+                }                
+
                 String jsonOutput = "{\"front_v\": " + String(globalFrontVolts, 2) +
                                     ",\"front_p\":" + String(frontBatteryPercent) +
                                     ",\"background_v\":" + String(globalBackVolts, 2) +  
@@ -410,6 +426,7 @@ void loop() {
                                     ",\"charging_b\":" + (backIsCharging || crossChargeProtectionActiveFlag ? String("true") : String("false")) +  
                                     ",\"cross_charging\":" + (crossChargeProtectionActiveFlag ? String("true") : String("false")) +  
                                     ",\"wan_link\":" + (lastCloudTransmitSuccessful ? String("true") : String("false")) +  
+                                    ",\"last_sync\":\"" + currentTimeStr + "\"" +
                                     ",\"system_logs\":" + jsonLogArrayPayload + "}";             
 
                 writeLog("--> [WAN REFRESH]: Uploading telemetry to Cloudflare..."); 
@@ -737,28 +754,10 @@ bool processSecureCommand(String rawPacket, String source) {
 }
 
 void setupWiFiAPI() {
-  String savedSSID = readSecureStringFromEEPROM(EEPROM_WIFI_SSID_ADDR);
-  String savedPASS = readSecureStringFromEEPROM(EEPROM_WIFI_PASS_ADDR);
+    String savedSSID = readSecureStringFromEEPROM(EEPROM_WIFI_SSID_ADDR);
+    String savedPASS = readSecureStringFromEEPROM(EEPROM_WIFI_PASS_ADDR);
 
-  bool stationConnectedSuccess = false;
-
-  if (savedSSID.length() > 0) {
-    writeLog("[SYS] Attempting Link to Home Station...");
-    WiFi.begin(savedSSID.c_str(), savedPASS.c_str());
-    
-    int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 10) {
-      delay(500); 
-      attempts++;
-    }
-    
-    if (WiFi.status() == WL_CONNECTED) {
-      stationConnectedSuccess = true;
-    }
-  }
-
-  if (!stationConnectedSuccess) {
-    writeLog("[WAN ALERT]: Station link dropped. Starting Fallback Access Point...");
+    bool stationConnectedSuccess = false;
     uint16_t activeLockHash = readHashFromEEPROM(EEPROM_LOCK_HASH_ADDR);
 
     char hexBuffer[12];
@@ -776,237 +775,269 @@ void setupWiFiAPI() {
 
     currentAPPassword = dynamicApPassword;
 
-    WiFi.beginAP(currentBroadcastAP.c_str(), dynamicApPassword.c_str());
-    systemIsCurrentlyInFallbackApMode = true;
-    
-    Serial.print("--> [AP BOOT SUCCESS]: Local hotspot online. Secure AP Key is: ");
-    Serial.println(dynamicApPassword);
-  } else {
-    writeLog("[SYS] Station Linked! Synchronizing Network Time...");
-    systemIsCurrentlyInFallbackApMode = false;
-    
-    RTC.begin();
-    unsigned long globalEpochTime = WiFi.getTime();
-    if (globalEpochTime > 0) {
-      RTCTime activeTimeConvert(globalEpochTime);
-      RTC.setTime(activeTimeConvert);
+    if (savedSSID.length() > 0) {
+        writeLog("[SYS] Attempting Link to Home Station...");
+        WiFi.begin(savedSSID.c_str(), savedPASS.c_str());
+        
+        int attempts = 0;
+        while (WiFi.status() != WL_CONNECTED && attempts < 10) {
+        delay(500); 
+        attempts++;
+        }
+        
+        if (WiFi.status() == WL_CONNECTED) {
+        stationConnectedSuccess = true;
+        }
     }
-  }
-  webServer.begin();
+
+    if (!stationConnectedSuccess) {
+        writeLog("[WAN ALERT]: Station link dropped. Starting Fallback Access Point...");
+
+        WiFi.beginAP(currentBroadcastAP.c_str(), dynamicApPassword.c_str());
+        systemIsCurrentlyInFallbackApMode = true;
+        
+        Serial.print("--> [AP BOOT SUCCESS]: Local hotspot online. Secure AP Key is: ");
+        Serial.println(dynamicApPassword);
+    } else {
+        writeLog("[SYS] Station Linked! Synchronizing Network Time...");
+        systemIsCurrentlyInFallbackApMode = false;
+        
+        RTC.begin();
+        unsigned long globalEpochTime = WiFi.getTime();
+        if (globalEpochTime > 0) {
+        RTCTime activeTimeConvert(globalEpochTime);
+        RTC.setTime(activeTimeConvert);
+        }
+    }
+    webServer.begin();
 }
 
 void maintainNetworkHealth() {
-  uint8_t currentStatus = WiFi.status();
+    uint8_t currentStatus = WiFi.status();
 
-  if (currentStatus == WL_CONNECTED && !systemIsCurrentlyInFallbackApMode) {
-    continuousDisconnectAnchorMillis = millis();
-    return;
-  }
-
-  if (millis() - continuousDisconnectAnchorMillis > maxDowntimeBeforeHardReset) {
-    writeLog("[CRITICAL WATCHDOG]: Network stack lockup detected. Resetting Core MCU registers...");
-    Serial.flush();
-    NVIC_SystemReset();
-  }
-
-  if (!systemIsCurrentlyInFallbackApMode) {
-    writeLog("--> [WAN MONITOR]: Station disconnected. Activating backup network configuration...");
-    
-    WiFi.disconnect();
-    delay(100);
-        
-    WiFi.beginAP(currentBroadcastAP.c_str(), currentAPPassword.c_str());
-    systemIsCurrentlyInFallbackApMode = true;
-  } 
-  else {
-    String savedSSID = readSecureStringFromEEPROM(EEPROM_WIFI_SSID_ADDR);
-    String savedPASS = readSecureStringFromEEPROM(EEPROM_WIFI_PASS_ADDR);
-    
-    if (savedSSID.length() > 0) {
-      writeLog("[WAN MONITOR]: Testing background probe to target router...");
-      
-      WiFi.begin(savedSSID.c_str(), savedPASS.c_str());
-      
-      delay(2500); 
-      
-      if (WiFi.status() == WL_CONNECTED) {
-        writeLog("--> [WAN RECOVERY]: Home network re-established. Dismantling local hotspot loop.");
-        systemIsCurrentlyInFallbackApMode = false;        
-      } else {        
-        WiFi.beginAP(currentBroadcastAP.c_str(), currentAPPassword.c_str());
-      }
+    if (currentStatus == WL_CONNECTED && !systemIsCurrentlyInFallbackApMode) {
+        continuousDisconnectAnchorMillis = millis();
+        return;
     }
-  }
+
+    if (millis() - continuousDisconnectAnchorMillis > maxDowntimeBeforeHardReset) {
+        writeLog("[CRITICAL WATCHDOG]: Network stack lockup detected. Resetting Core MCU...");
+        Serial.flush();
+        NVIC_SystemReset();
+    }
+
+    if (!systemIsCurrentlyInFallbackApMode) {
+        writeLog("--> [WAN MONITOR]: Station disconnected. Activating backup network configuration...");
+        WiFi.disconnect();
+        delay(100);
+        WiFi.beginAP(currentBroadcastAP.c_str(), currentAPPassword.c_str());
+        systemIsCurrentlyInFallbackApMode = true;
+    } 
+    else {
+        return; 
+    }
 }
 
 void handleWiFiAPI() {
-    WiFiClient client = webServer.available();
-    if (!client) return;
+    static WiFiClient client;
+    static String requestBuffer = "";
+    static unsigned long connectionTimeoutAnchor = 0;
+
+    if (!client) {
+        client = webServer.available();
+        if (!client) return;
+        
+        requestBuffer = "";
+        requestBuffer.reserve(200);
+        connectionTimeoutAnchor = millis();
+    }
+
+    if (millis() - connectionTimeoutAnchor > 1000) {
+        client.stop();
+        return;
+    }
     
-    String requestBuffer = "";
-    unsigned long timeout = millis();
-    
-    while (client.connected() && millis() - timeout < 1000) {
-        if (client.available()) {
-            char c = client.read();
+    while (client.available() > 0) {
+        char c = client.read();
+        
+        if (requestBuffer.length() < 256) {
             requestBuffer += c;
-            if (requestBuffer.endsWith("\r\n\r\n")) {
-                String body = "";
-                while (client.available()) { body += (char)client.read(); }
-                body.trim();
-                
-                if (requestBuffer.indexOf("POST /api/telemetry") != -1) {
-                    if (body.length() > 0) {
-                        String decryptedTelemetryPasscode = decryptPayloadAES128CBC(body);
-                        decryptedTelemetryPasscode.trim();
+        }
+
+        if (requestBuffer.endsWith("\r\n\r\n")) {
+            String body = "";
+            body.reserve(256);
+            while (client.available()) { body += (char)client.read(); }
+            body.trim();
+
+            if (requestBuffer.indexOf("POST /api/telemetry") != -1) {
+                if (body.length() > 0) {
+                    String decryptedTelemetryPasscode = decryptPayloadAES128CBC(body);
+                    decryptedTelemetryPasscode.trim();
                         
-                        int absolutePassLength = decryptedTelemetryPasscode.length();
-                        while (absolutePassLength > 0 && (decryptedTelemetryPasscode[absolutePassLength - 1] < 32 || decryptedTelemetryPasscode[absolutePassLength - 1] > 126)) {
-                            decryptedTelemetryPasscode.remove(absolutePassLength - 1);
-                            absolutePassLength = decryptedTelemetryPasscode.length();
-                        }
+                    int absolutePassLength = decryptedTelemetryPasscode.length();
+                    while (absolutePassLength > 0 && (decryptedTelemetryPasscode[absolutePassLength - 1] < 32 || decryptedTelemetryPasscode[absolutePassLength - 1] > 126)) {
+                        decryptedTelemetryPasscode.remove(absolutePassLength - 1);
+                        absolutePassLength = decryptedTelemetryPasscode.length();
+                    }
                         
-                        unsigned int computedIncomingHash = generateFletcher16Hash(decryptedTelemetryPasscode);
+                    unsigned int computedIncomingHash = generateFletcher16Hash(decryptedTelemetryPasscode);
                         
-                        if (computedIncomingHash == currentLockHash || computedIncomingHash == currentUnlockHash) {
-                            String jsonLogArrayPayload = "[";
-                            int logsCompiledCount = 0;
-                            for (int i = 0; i < MAX_SYSTEM_LOGS; i++) {
-                                int targetEvaluationIndex = (currentLogWritePointerIndex - 1 - i + MAX_SYSTEM_LOGS) % MAX_SYSTEM_LOGS;
-                                String individualLogLine = systemLogBufferArray[targetEvaluationIndex];
-                                if (individualLogLine.length() > 0) {
-                                    if (logsCompiledCount > 0) jsonLogArrayPayload += ",";
-                                    jsonLogArrayPayload += "\"" + individualLogLine + "\"";
-                                    logsCompiledCount++;
-                                }
+                    if (computedIncomingHash == currentLockHash || computedIncomingHash == currentUnlockHash) {
+                        String jsonLogArrayPayload = "[";
+                        int logsCompiledCount = 0;
+                        for (int i = 0; i < MAX_SYSTEM_LOGS; i++) {
+                            int targetEvaluationIndex = (currentLogWritePointerIndex - 1 - i + MAX_SYSTEM_LOGS) % MAX_SYSTEM_LOGS;
+                            String individualLogLine = systemLogBufferArray[targetEvaluationIndex];
+                            if (individualLogLine.length() > 0) {
+                                if (logsCompiledCount > 0) jsonLogArrayPayload += ",";
+                                jsonLogArrayPayload += "\"" + individualLogLine + "\"";
+                                logsCompiledCount++;
                             }
-                            jsonLogArrayPayload += "]";
+                        }
+                        jsonLogArrayPayload += "]";
                             
-                            String json = "{\"front_v\":" + String(globalFrontVolts, 2) + 
-                                          ",\"front_p\":" + String(frontBatteryPercent) + 
-                                          ",\"background_v\":" + String(globalBackVolts, 2) + 
-                                          ",\"back_p\":" + String(backBatteryPercent) + 
-                                          ",\"charging_f\":" + String(frontIsCharging || crossChargeProtectionActiveFlag ? "true" : "false") + 
-                                          ",\"charging_b\":" + String(backIsCharging || crossChargeProtectionActiveFlag ? "true" : "false") + 
-                                          ",\"cross_charging\":" + (crossChargeProtectionActiveFlag ? String("true") : String("false")) + 
-                                          ",\"wan_link\":" + (lastCloudTransmitSuccessful ? String("true") : String("false")) + 
-                                          ",\"system_logs\":" + jsonLogArrayPayload + "}";
+                        String currentTimeStr = "";
+                        RTCTime currentSystemClockTime;
+
+                        if (RTC.getTime(currentSystemClockTime)) {
+                            char clockBuf[16];
+                            sprintf(clockBuf, "%02d:%02d:%02d", 
+                                    currentSystemClockTime.getHour(), 
+                                    currentSystemClockTime.getMinutes(), 
+                                    currentSystemClockTime.getSeconds());
+                            currentTimeStr = String(clockBuf);
+                        } else {
+                            currentTimeStr = "00:00:00"; 
+                        }
+
+                        String json = "{\"front_v\":" + String(globalFrontVolts, 2) + 
+                                      ",\"front_p\":" + String(frontBatteryPercent) + 
+                                      ",\"background_v\":" + String(globalBackVolts, 2) + 
+                                      ",\"back_p\":" + String(backBatteryPercent) + 
+                                      ",\"charging_f\":" + String(frontIsCharging || crossChargeProtectionActiveFlag ? "true" : "false") + 
+                                      ",\"charging_b\":" + String(backIsCharging || crossChargeProtectionActiveFlag ? "true" : "false") + 
+                                      ",\"cross_charging\":" + (crossChargeProtectionActiveFlag ? String("true") : String("false")) + 
+                                      ",\"wan_link\":" + (lastCloudTransmitSuccessful ? String("true") : String("false")) + 
+                                      ",\"last_sync\":\"" + currentTimeStr + "\"" +
+                                      ",\"system_logs\":" + jsonLogArrayPayload + "}";
                             
+                        client.println("HTTP/1.1 200 OK");
+                        client.println("Content-Type: application/json");
+                        client.println("Connection: close");
+                        client.println();
+
+                        client.print(json);
+                    } else {
+                        writeLog("--> [SECURITY WARN]: Telemetry Hash mismatch! ReJECTING Wi-Fi request.");
+                        client.println("HTTP/1.1 401 Unauthorized");
+                        client.println("Connection: close");
+                        client.println();
+                    }
+                } else {
+                    client.println("HTTP/1.1 400 Bad Request");
+                    client.println("Connection: close");
+                    client.println();
+                }
+                break;
+            }
+            else if (requestBuffer.indexOf("POST /api/command") != -1) {
+                if (body.length() > 0) {
+                    writeLog("--> [NET REST CRYPTO]: Decoding command payload via embedded cipher grid...");
+                    String fullyDecryptedBodyString = decryptPayloadAES128CBC(body);
+                    fullyDecryptedBodyString.trim();
+                        
+                    if (fullyDecryptedBodyString.length() > 0 && fullyDecryptedBodyString.indexOf(':') != -1) {
+                        if (fullyDecryptedBodyString.indexOf("SETBLENAME=") != -1 || fullyDecryptedBodyString.indexOf("SETWIFINAME=") != -1) {
+                            processSecureCommand(fullyDecryptedBodyString, "WIFI_API_ADMIN");
                             client.println("HTTP/1.1 200 OK");
                             client.println("Content-Type: application/json");
                             client.println("Connection: close");
                             client.println();
-                            client.print(json);
+                            client.print("{\"status\":\"Success\"}");
+                                
+                            pendingSystemHardwareRebootFlag = true;
+                            hardwareRebootTimestampCount = millis();
+                            writeLog("--> [NET REST API]: Admin change committed. Success response sent. Queueing delayed reboot...");
+                        }
+                        else if (processSecureCommand(fullyDecryptedBodyString, "WIFI_API")) {
+                            client.println("HTTP/1.1 200 OK");
+                            client.println("Content-Type: application/json");
+                            client.println("Connection: close");
+                            client.println();
+                            client.print("{\"status\":\"Success\"}");
                         } else {
-                            writeLog("--> [SECURITY WARN]: Telemetry Hash mismatch! ReJECTING Wi-Fi request.");
                             client.println("HTTP/1.1 401 Unauthorized");
                             client.println("Connection: close");
                             client.println();
+                            client.print("{\"status\":\"Denied\"}");
                         }
                     } else {
                         client.println("HTTP/1.1 400 Bad Request");
                         client.println("Connection: close");
                         client.println();
                     }
-                    break;
-                }
-                else if (requestBuffer.indexOf("POST /api/command") != -1) {
-                    if (body.length() > 0) {
-                        writeLog("--> [NET REST CRYPTO]: Decoding command payload via embedded cipher grid...");
-                        String fullyDecryptedBodyString = decryptPayloadAES128CBC(body);
-                        fullyDecryptedBodyString.trim();
-                        
-                        if (fullyDecryptedBodyString.length() > 0 && fullyDecryptedBodyString.indexOf(':') != -1) {
-                            if (fullyDecryptedBodyString.indexOf("SETBLENAME=") != -1 || fullyDecryptedBodyString.indexOf("SETWIFINAME=") != -1) {
-                                processSecureCommand(fullyDecryptedBodyString, "WIFI_API_ADMIN");
-                                client.println("HTTP/1.1 200 OK");
-                                client.println("Content-Type: application/json");
-                                client.println("Connection: close");
-                                client.println();
-                                client.print("{\"status\":\"Success\"}");
-                                
-                                pendingSystemHardwareRebootFlag = true;
-                                hardwareRebootTimestampCount = millis();
-                                writeLog("--> [NET REST API]: Admin change committed. Success response sent. Queueing delayed reboot...");
-                            }
-                            else if (processSecureCommand(fullyDecryptedBodyString, "WIFI_API")) {
-                                client.println("HTTP/1.1 200 OK");
-                                client.println("Content-Type: application/json");
-                                client.println("Connection: close");
-                                client.println();
-                                client.print("{\"status\":\"Success\"}");
-                            } else {
-                                client.println("HTTP/1.1 401 Unauthorized");
-                                client.println("Connection: close");
-                                client.println();
-                                client.print("{\"status\":\"Denied\"}");
-                            }
-                        } else {
-                            client.println("HTTP/1.1 400 Bad Request");
-                            client.println("Connection: close");
-                            client.println();
-                        }
-                    } else {
-                        client.println("HTTP/1.1 400 Bad Request");
-                        client.println("Connection: close");
-                        client.println();
-                    }
-                    break;
-                }
-                else if (requestBuffer.indexOf("GET /api/status") != -1) {
-                    writeLog("--> [NET REST STATUS]: Discovery probe received. Responding Ready.");
-                    client.println("HTTP/1.1 200 OK");
-                    client.println("Content-Type: application/json");
+                } else {
+                    client.println("HTTP/1.1 400 Bad Request");
                     client.println("Connection: close");
                     client.println();
-                    client.print("{\"status\":\"Ready\"}"); 
-                    break;
                 }
-                else if (requestBuffer.indexOf("GET /api/admin") != -1) {
-                    writeLog("--> [NET REST API]: Generating clean administration profile payload...");
+                break;
+            }
+            else if (requestBuffer.indexOf("GET /api/status") != -1) {
+                writeLog("--> [NET REST STATUS]: Discovery probe received. Responding Ready.");
+                client.println("HTTP/1.1 200 OK");
+                client.println("Content-Type: application/json");
+                client.println("Connection: close");
+                client.println();
+                client.print("{\"status\":\"Ready\"}"); 
+                break;
+            }
+            else if (requestBuffer.indexOf("GET /api/admin") != -1) {
+                writeLog("--> [NET REST API]: Generating clean administration profile payload...");
+                   
+                String activeAP = readStringFromEEPROM(EEPROM_CUSTOM_WIFI_AP);
+                if (activeAP.length() == 0) activeAP = DEFAULT_WIFI_AP_NAME;
+                   
+                String activeBLE = readStringFromEEPROM(EEPROM_CUSTOM_BLE_NAME);
+                if (activeBLE.length() == 0) activeBLE = DEFAULT_BLE_NAME;
                     
-                    String activeAP = readStringFromEEPROM(EEPROM_CUSTOM_WIFI_AP);
-                    if (activeAP.length() == 0) activeAP = DEFAULT_WIFI_AP_NAME;
-                    
-                    String activeBLE = readStringFromEEPROM(EEPROM_CUSTOM_BLE_NAME);
-                    if (activeBLE.length() == 0) activeBLE = DEFAULT_BLE_NAME;
-                    
-                    String savedSSID = readSecureStringFromEEPROM(EEPROM_WIFI_SSID_ADDR);
-                    if (savedSSID.length() == 0) savedSSID = "NONE";
+                String savedSSID = readSecureStringFromEEPROM(EEPROM_WIFI_SSID_ADDR);
+                if (savedSSID.length() == 0) savedSSID = "NONE";
 
-                    String savedCfHost = readStringFromEEPROM(EEPROM_CF_HOST_ADDR);
-                    if (savedCfHost.length() == 0) savedCfHost = "silent-bird-d9c0.taigon1984.workers.dev";
+                String savedCfHost = readStringFromEEPROM(EEPROM_CF_HOST_ADDR);
+                if (savedCfHost.length() == 0) savedCfHost = "silent-bird-d9c0.taigon1984.workers.dev";
 
-                    String savedCfId = readSecureStringFromEEPROM(EEPROM_CF_CLIENT_ID_ADDR);
-                    if (savedCfId.length() == 0) savedCfId = "NONE";
+                String savedCfId = readSecureStringFromEEPROM(EEPROM_CF_CLIENT_ID_ADDR);
+                if (savedCfId.length() == 0) savedCfId = "NONE";
                     
-                    String jsonAdminProfile = "{\"wifi_ap\":\"" + activeAP + "\"," +
-                                            "\"wifi_ap_pw\":\"" + currentAPPassword + "\"," +
-                                            "\"ble_name\":\"" + activeBLE + "\"," +
-                                            "\"router_ssid\":\"" + savedSSID + "\"," +
-                                            "\"cf_host\":\"" + savedCfHost + "\"," +
-                                            "\"cf_id\":\"" + savedCfId + "\"}";
+                String jsonAdminProfile = "{\"wifi_ap\":\"" + activeAP + "\"," +
+                                          "\"wifi_ap_pw\":\"" + currentAPPassword + "\"," +
+                                          "\"ble_name\":\"" + activeBLE + "\"," +
+                                          "\"router_ssid\":\"" + savedSSID + "\"," +
+                                          "\"cf_host\":\"" + savedCfHost + "\"," +
+                                          "\"cf_id\":\"" + savedCfId + "\"}";
 
-                    String encryptedPayload = encryptPayloadAES128CBC(jsonAdminProfile);
+                String encryptedPayload = encryptPayloadAES128CBC(jsonAdminProfile);
                                               
-                    client.println("HTTP/1.1 200 OK");
-                    client.println("Content-Type: application/json");
-                    client.println("Connection: close");
-                    client.println();
-                    client.print(encryptedPayload);
+                client.println("HTTP/1.1 200 OK");
+                client.println("Content-Type: application/json");
+                client.println("Connection: close");
+                client.println();
+                client.print(encryptedPayload);
 
-                    writeLog("--> [ADMIN REST SUCCESS]: Transmitted encrypted administrative payload profile string.");
-                    break;
-                }
+                writeLog("--> [ADMIN REST SUCCESS]: Transmitted encrypted administrative payload profile string.");
+                break;
             }
         }
     }
-    delay(1);
-    if (client) {
-        client.flush(); 
-        delay(15); 
-        client.stop(); 
-    }
+
+    delay(1); 
+    client.flush();
+    delay(15);
+    client.stop(); 
+    requestBuffer = "";
+    return; 
 }
 
 void setupBluetoothNetwork() {
@@ -1400,73 +1431,6 @@ void transmitSecureHTTPTelemetry(String jsonPayload) {
                 }
             }
         }
-
-        String inboundWanCommandBody = "";
-        while (secureClient.available()) {
-            char incomingByteChar = secureClient.read();
-            inboundWanCommandBody += incomingByteChar;
-        }
-        inboundWanCommandBody.trim();
-
-        secureClient.stop();
-        lastCloudTransmitSuccessful = true;
-
-        if (inboundWanCommandBody.length() > 0 && inboundWanCommandBody != "NONE") {
-            int finalLineBreakPositionIndex = inboundWanCommandBody.lastIndexOf('\n');
-
-            if (finalLineBreakPositionIndex != -1) {
-                inboundWanCommandBody = inboundWanCommandBody.substring(finalLineBreakPositionIndex + 1);
-                inboundWanCommandBody.trim();
-            }
-
-            if (inboundWanCommandBody.length() == 0 || inboundWanCommandBody == "NONE") return;
-
-            writeLog("--> [WAN OVER-THE-AIR COMMAND]: Intercepted active remote payload envelope!");
-            writeLog("--> [WAN COMMAND PAYLOAD]: " + inboundWanCommandBody);
-
-            if (inboundWanCommandBody.indexOf("limit exceeded") != -1 || inboundWanCommandBody.indexOf("KV put() limit") != -1) {
-                writeLog("--> [CRITICAL CAP]: Cloudflare Daily Limit reached. Muting secure cloud uploads for 10 minutes.");
-                lastCloudTransmitSuccessful = false;
-                cloudLimitLockoutTimestampAnchor = millis();
-                secureClient.stop();
-                return;
-            }
-
-            String fullyDecryptedBodyString = decryptPayloadAES128CBC(inboundWanCommandBody);
-            fullyDecryptedBodyString.trim();
-
-            int absoluteWanStringLength = fullyDecryptedBodyString.length();
-            while (absoluteWanStringLength > 0 && 
-                (fullyDecryptedBodyString[absoluteWanStringLength - 1] < 32 || 
-                fullyDecryptedBodyString[absoluteWanStringLength - 1] > 126)) {
-                fullyDecryptedBodyString.remove(absoluteWanStringLength - 1);
-                absoluteWanStringLength = fullyDecryptedBodyString.length();
-            }            
-            
-            if (fullyDecryptedBodyString.length() > 0 && fullyDecryptedBodyString.indexOf(':') != -1) {
-                rapidResponseWindowExpiration = millis() + 20000;
-
-                if (fullyDecryptedBodyString.indexOf("SETBLENAME=") != -1 || 
-                    fullyDecryptedBodyString.indexOf("SETWIFINAME=") != -1 ||
-                    fullyDecryptedBodyString.indexOf("SAVEROUTER=") != -1) { 
-                    
-                    processSecureCommand(fullyDecryptedBodyString, "CLOUDFLARE_WAN_ADMIN"); 
-                    
-                    pendingSystemHardwareRebootFlag = true; 
-                    hardwareRebootTimestampCount = millis(); 
-                    writeLog("--> [NET REST API WAN]: Admin profile updated over cellular data. Queueing automated safety reboot...");
-                }
-                else if (processSecureCommand(fullyDecryptedBodyString, "CLOUDFLARE_WAN_LINK")) { 
-                    writeLog("--> [NET COMMAND SUCCESS WAN]: Rapid over-the-air remote action executed cleanly.");
-                } 
-                else {
-                    writeLog("--> [DENIED WAN]: Cryptographic validation rejected token.");
-                }
-            }
-            else {
-                writeLog("--> [WAN DECRYPT ERROR]: Cipher compilation structural fault or bad key framing layout.");
-            }
-        }
     } 
     else {
         writeLog("--> [WAN HTTPS ERROR]: Handshake aborted. Edge network unreachable.");
@@ -1474,6 +1438,73 @@ void transmitSecureHTTPTelemetry(String jsonPayload) {
 
         secureClient.flush();
         secureClient.stop();
+    }
+}
+
+void checkCloudCommandMailbox() {
+    static unsigned long lastCommandCheckMillis = 0;
+    unsigned long currentMillis = millis();
+
+    if (currentMillis - lastCommandCheckMillis < 1500) return;
+    lastCommandCheckMillis = currentMillis;
+
+    if (WiFi.status() != WL_CONNECTED || systemIsCurrentlyInFallbackApMode) return;
+
+    WiFiSSLClient secureClient;
+    
+    if (secureClient.connect(CLOUDFLARE_HOST.c_str(), 443)) {
+        secureClient.println("GET /api/command HTTP/1.1");
+        secureClient.println("Host: " + CLOUDFLARE_HOST);
+        secureClient.println("CF-Access-Client-Id: " + CF_CLIENT_ID);
+        secureClient.println("CF-Access-Client-Secret: " + CF_CLIENT_SECRET);
+        secureClient.println("Connection: close");
+        secureClient.println();
+
+        unsigned long httpStreamSafetyTimer = millis();
+        
+        while (secureClient.connected() && (millis() - httpStreamSafetyTimer < 3000)) {
+            if (secureClient.available()) {
+                String headerLine = secureClient.readStringUntil('\n');
+                headerLine.trim();
+                
+                if (headerLine.length() == 0) {
+                    break;
+                }
+            }
+        }
+
+        String commandEnvelope = "";
+        while (secureClient.available()) {
+            char incomingByteChar = secureClient.read();
+            commandEnvelope += incomingByteChar;
+        }
+        commandEnvelope.trim();
+        secureClient.stop();
+
+        int lastNewLineIndex = commandEnvelope.lastIndexOf('\n');
+
+        if (lastNewLineIndex != -1) {
+            commandEnvelope = commandEnvelope.substring(lastNewLineIndex + 1);
+        }
+
+        commandEnvelope.trim();
+        if (commandEnvelope.length() > 0 && commandEnvelope != "NONE") {
+            String decryptedCommand = decryptPayloadAES128CBC(commandEnvelope);
+            decryptedCommand.trim();
+
+            int absoluteCommandLength = decryptedCommand.length();
+            while (absoluteCommandLength > 0 && 
+                  (decryptedCommand[absoluteCommandLength - 1] < 32 || 
+                   decryptedCommand[absoluteCommandLength - 1] > 126)) {
+                decryptedCommand.remove(absoluteCommandLength - 1);
+                absoluteCommandLength = decryptedCommand.length();
+            }
+
+            if (decryptedCommand.length() > 0) {
+                writeLog("--> [FAST MAILBOX]: Grabbed pending cloud command envelope!");
+                processSecureCommand(decryptedCommand, "CLOUD_FAST_POLL");
+            }
+        }
     }
 }
 
@@ -1493,9 +1524,18 @@ bool flushAdminConfigurationToCloud() {
     savedSSID = "NONE";
   }
 
+  uint16_t rawMasterHash = readHashFromEEPROM(EEPROM_LOCK_HASH_ADDR);
+
+  if (rawMasterHash == 0xFFFF || rawMasterHash == 0) {
+    rawMasterHash = generateFletcher16Hash(DEFAULT_MASTER_PASSWORD);
+  }
+
+  String masterPasswordHash = String(rawMasterHash);
+
   String configJsonPayload = "{\"wifi_ap\":\"" + activeAP + "\"," +
                              "\"wifi_ap_pw\":\"" + currentAPPassword + "\"," +
                              "\"ble_name\":\"" + activeBLE + "\"," +
+                             "\"master_pw_hash\":\"" + masterPasswordHash + "\"," +
                              "\"router_ssid\":\"" + savedSSID + "\"}";
 
   if (lastAdminPayload == configJsonPayload) {
@@ -1523,21 +1563,6 @@ bool flushAdminConfigurationToCloud() {
     secureClient.print(configJsonPayload);
 
     lastAdminPayload = configJsonPayload;
-
-    unsigned long secureBreakoutWatchdogTimer = millis();
-    while (secureClient.connected() && (millis() - secureBreakoutWatchdogTimer < 1500)) {
-      if (secureClient.available()) {
-        String responseLine = secureClient.readStringUntil('\n');
-        responseLine.trim();
-        if (responseLine.length() == 0) {
-          break;
-        }
-      }
-    }
-
-    while (secureClient.available()) { 
-      secureClient.read(); 
-    }
 
     secureClient.stop();
     writeLog("--> [WAN HTTPS CONFIG COMPLETE]: Persistent cloud identities populated successfully.");

@@ -1,5 +1,4 @@
 ﻿using Plugin.BLE;
-using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -108,6 +107,24 @@ public partial class MainPage : ContentPage
 
                 bool isArduinoCloudTunnelConnected = root.TryGetProperty("wan_link", out JsonElement wanNode) && wanNode.ValueKind != JsonValueKind.Null && wanNode.GetBoolean();
 
+                if (root.TryGetProperty("last_sync", out JsonElement ls))
+                {
+                    string timeString = ls.GetString();
+                    if (TimeSpan.TryParse(timeString, out TimeSpan parsedTime))
+                    {
+                        double secondsDelta = (DateTime.UtcNow.TimeOfDay - parsedTime).TotalSeconds;
+
+                        if (secondsDelta < 0) 
+                            secondsDelta += 86400;
+
+                        if (secondsDelta > 600)
+                        {
+                            await App.Log("--> [DASHBOARD PARSER]: No telemetry being returned from WAN endpoint. Setting flag to default to next transport type.");
+                            App.NetworkService.IsWifiTelemetryDead = true;
+                        }
+                    }
+                }
+
                 root.TryGetProperty("system_logs", out JsonElement logsNode);
 
                 if (logsNode.ValueKind == JsonValueKind.Array)
@@ -140,15 +157,7 @@ public partial class MainPage : ContentPage
                         OnTelemetryParsed?.Invoke(freshTelemetryChangesOnly);
                         App.NetworkService.IsWifiTelemetryDead = false;
                     }
-
-                    if (string.IsNullOrEmpty(fullTelemetry))
-                    {
-                        //No telemetry logs returning from endpoint. Switch transport.
-                        await App.Log("--> [DASHBOARD PARSER]: No telemetry being return from Wifi endpoint. Setting flag to default to next transport type.");
-                        App.NetworkService.IsWifiTelemetryDead = true;
-                    }
                 }
-
 
                 await UpdateDashboardMetrics(frontVolts, frontPercent, frontIsCharging, backVolts, backPercent, backIsCharging, isCrossCharging);
 
@@ -339,18 +348,7 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode)
-        {
-            ExecuteWifiThemeRedrawPass();
-            return;
-        }
-        else if (App.NetworkService.IsUsingCloudWanMode)
-        {
-            ExecuteCloudWanThemeRedrawPass();
-            return;
-        }
-
-        if (App.NetworkService.IsConnecting && !(isConnected || App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode))
+        if (App.NetworkService.IsConnecting && !(isConnected || App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingWifiTransportMode))
         {
             await App.Log("--> [BOOT SYNC]: Historical device found. Suppressing popup and launching background tracking...");
 
@@ -452,6 +450,17 @@ public partial class MainPage : ContentPage
         }
         else
         {
+            if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode)
+            {
+                ExecuteWifiThemeRedrawPass();
+                return;
+            }
+            else if (App.NetworkService.IsUsingCloudWanMode)
+            {
+                ExecuteCloudWanThemeRedrawPass();
+                return;
+            }
+
             string currentBleName = Preferences.Default.Get(MainPage.SavedDeviceNameKey, "VersaHub_BLE");
             if (Guid.TryParse(currentBleName, out _) || currentBleName.Contains('-')) currentBleName = "VersaHub_BLE";
 
@@ -701,6 +710,7 @@ public partial class MainPage : ContentPage
         {
             layoutPasswordInitShell.IsVisible = false;
             App.NetworkService.IsPromptingForMasterPassword = false;
+            await App.NetworkService.VerifyPasswordAgainstHardwareAsync();
         });
     }
 
@@ -890,11 +900,6 @@ public partial class MainPage : ContentPage
 
         App.NetworkService?.UpdateLifecycleState(true);
         UpdateBluetoothStatusBadge(App.NetworkService?.IsBluetoothConnected ?? false);
-    }
-
-    protected override void OnDisappearing()
-    {
-        base.OnDisappearing();
     }
 
     public async Task KickstartWirelessCockpitSync()

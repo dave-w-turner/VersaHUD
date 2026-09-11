@@ -49,11 +49,9 @@ public partial class InitMasterPassword : ContentView
 #endif
 
             entryInitialPass.Text = string.Empty;
-
             OnPasswordInitialized?.Invoke(this, EventArgs.Empty);
 
-            var currentMainPage = Shell.Current?.CurrentPage as MainPage;
-            if (currentMainPage != null)
+            if (Shell.Current?.CurrentPage is MainPage currentMainPage)
             {
                 await MainThread.InvokeOnMainThreadAsync(async () =>
                 {

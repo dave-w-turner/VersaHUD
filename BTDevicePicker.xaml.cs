@@ -1,3 +1,4 @@
+using Plugin.BLE;
 using System.Diagnostics;
 
 namespace VersaHUD.Controls;
@@ -149,41 +150,47 @@ public partial class BTDevicePicker : ContentView
 
     private static async Task<bool> GetBTPermissions()
     {
-        await Task.Delay(250);
-        bool isPermissionApproved = false;
-
-#if ANDROID
-        var nativeAndroidContext = Android.App.Application.Context;
-        bool hasNativeScanClearance = nativeAndroidContext.CheckSelfPermission(Android.Manifest.Permission.BluetoothScan) == Android.Content.PM.Permission.Granted;
-        bool hasNativeConnectClearance = nativeAndroidContext.CheckSelfPermission(Android.Manifest.Permission.BluetoothConnect) == Android.Content.PM.Permission.Granted;
-
-        if (!hasNativeScanClearance || !hasNativeConnectClearance)
+        try
         {
-            await App.Log("--> [WATCHDOG]: System token validation missing. Requesting dynamic hardware tracking permissions...");
+            var currentStatus = await Permissions.CheckStatusAsync<Permissions.Bluetooth>();
 
-            await MainThread.InvokeOnMainThreadAsync(async () =>
+            if (currentStatus != PermissionStatus.Granted)
             {
-                var forcedStatus = await Permissions.RequestAsync<Permissions.Bluetooth>();
-                isPermissionApproved = forcedStatus == PermissionStatus.Granted;
-            });
-        }
-        else
-        {
-            isPermissionApproved = true;
-        }
-#else
-            var fallbackStatus = await Permissions.CheckStatusAsync<Permissions.Bluetooth>();
-            isPermissionApproved = (fallbackStatus == PermissionStatus.Granted);
-#endif
+                await App.Log("--> [WATCHDOG]: System token validation missing. Launching dynamic hardware prompt...");
 
-        return isPermissionApproved;
+                PermissionStatus requestedStatus = PermissionStatus.Unknown;
+                await MainThread.InvokeOnMainThreadAsync(async () =>
+                {
+                    requestedStatus = await Permissions.RequestAsync<Permissions.Bluetooth>();
+                });
+
+                return requestedStatus == PermissionStatus.Granted;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            await App.Log($"--> [PERMISSION SYSTEM EXCEPTION]: {ex.Message}");
+            return false;
+        }
     }
 
     public async Task InitializePickerLifecycleAsync()
     {
         try
         {
-            bool isRadioHardwareActive = Plugin.BLE.CrossBluetoothLE.Current.IsOn;
+            bool isRadioHardwareActive = CrossBluetoothLE.Current.IsOn;
+
+            if (!isRadioHardwareActive)
+            {
+                await MainThread.InvokeOnMainThreadAsync(async () =>
+                {
+                    await MainPage.CurrentInstance.DisplayAlertAsync("BLUETOOTH REQUIRED", "VersaHUD cannot execute a visual radar refresh scan because your phone's Bluetooth radio switch is turned OFF.\n\nPlease ensure Bluetooth is active in your drop-down panel and try again.", "OK");
+                });
+                return;
+            }
+
             bool isPermissionApproved = await GetBTPermissions();
 
             await MainThread.InvokeOnMainThreadAsync(async () =>
@@ -198,15 +205,17 @@ public partial class BTDevicePicker : ContentView
                 }
             });
 
-            if (isPermissionApproved && isRadioHardwareActive)
+            if (isPermissionApproved)
             {
                 await ExecuteVisualRadarScanAsync();
                 return;
             }
             else
             {
-                await App.Log("--> [CRITICAL SELECTION BLOCK]: Refresh scan blocked. Permission Approved: " + isPermissionApproved + " | Radio Active: " + isRadioHardwareActive);
-                await MainPage.CurrentInstance.DisplayAlertAsync("BLUETOOTH REQUIRED", "VersaHUD cannot execute a visual radar refresh scan because your phone's Bluetooth radio switch is turned OFF or permissions were denied.\n\nPlease ensure Bluetooth is active in your drop-down panel and try again.", "OK");
+                await MainThread.InvokeOnMainThreadAsync(async () =>
+                {
+                    await MainPage.CurrentInstance.DisplayAlertAsync("BLUETOOTH REQUIRED", "VersaHUD cannot execute a visual radar refresh scan because permissions were denied.\n\nPlease ensure you approve the rerquest for Bluetooth permissions.", "OK");
+                });
             }
         }
         catch (Exception ex)

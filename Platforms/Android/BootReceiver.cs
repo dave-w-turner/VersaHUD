@@ -54,7 +54,7 @@ public class BootReceiver : BroadcastReceiver
 
                     await MainThread.InvokeOnMainThreadAsync(async () =>
                     {
-                        App.NetworkService.AutoConnectAsync();
+                        await App.NetworkService.AutoConnectAsync(bluetoothAdapterOffOverride: stateCode == (int)State.TurningOff);
                     });
                 }
                 catch (Exception ex)

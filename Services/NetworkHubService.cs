@@ -43,6 +43,7 @@ public class NetworkHubService
     private bool _bLECommunicationProvisioned = false;
     private bool _isTelemetryActive = false;
     private readonly Lock _rssiLock = new();
+    private bool _isFirstConnectionAttempt = true;
 
     public bool IsConnecting { get; private set; } = false;
     private const int TRANSPORT_FLAPPING_COOLDOWN_SECONDS = 30;
@@ -140,7 +141,7 @@ public class NetworkHubService
     {
         if (IsConnecting && !(wifiAdapterOffOverride || bluetoothAdapterOffOverride))
             return false;
-
+        
         IsConnecting = true;
 
         if (ReconnectCountdown > 0)
@@ -426,38 +427,46 @@ public class NetworkHubService
                     {
                         IsMonitorActive = false;
 
-                        _reconnectLoopCts = new();
-                        var reconnectToken = _reconnectLoopCts.Token;
-
-                        _ = Task.Run(async () =>
+                        if (!_isFirstConnectionAttempt)
                         {
-                            for (int i = 30; i >= 0; i--)
+                            _reconnectLoopCts = new();
+                            var reconnectToken = _reconnectLoopCts.Token;
+
+                            _ = Task.Run(async () =>
                             {
-                                ReconnectCountdown = i;
-
-                                if (i > 0)
+                                for (int i = 30; i >= 0; i--)
                                 {
-                                    await Task.Delay(1000);
-                                }
+                                    ReconnectCountdown = i;
 
-                                if (reconnectToken.IsCancellationRequested || token.IsCancellationRequested)
-                                {
-                                    ReconnectCountdown = 0;
-                                    OnConnectionStateChanged?.Invoke(IsBluetoothConnected);
-
-                                    while (IsConnecting)
+                                    if (i > 0)
                                     {
                                         await Task.Delay(1000);
                                     }
 
-                                    _reconnectLoopCts?.Dispose();
-                                    _reconnectLoopCts = null;
-                                    break;
-                                }
-                            }
+                                    if (reconnectToken.IsCancellationRequested || token.IsCancellationRequested)
+                                    {
+                                        ReconnectCountdown = 0;
+                                        OnConnectionStateChanged?.Invoke(IsBluetoothConnected);
 
+                                        while (IsConnecting)
+                                        {
+                                            await Task.Delay(1000);
+                                        }
+
+                                        _reconnectLoopCts?.Dispose();
+                                        _reconnectLoopCts = null;
+                                        break;
+                                    }
+                                }
+
+                                StartConnectionSupervisor();
+                            }, _reconnectLoopCts.Token);
+                        }
+                        else
+                        {
                             StartConnectionSupervisor();
-                        }, _reconnectLoopCts.Token);
+                            _isFirstConnectionAttempt = true;
+                        }
 
                         return;
                     }
@@ -1505,43 +1514,78 @@ public class NetworkHubService
 
         try
         {
-#if ANDROID
-            int negotiatedMtuSize = await _targetDevice.RequestMtuAsync(256);
-            await App.Log($"--> [BLE HARDWARE METRIC]: MTU buffer window optimized cleanly to: {negotiatedMtuSize} bytes.");
-#endif
+            await App.Log("--> [TRANSPORT]: Verifying over-the-air channel bandwidth frames...");
+
+            using var timeoutSource = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            int negotiatedMtuSize = await _targetDevice.RequestMtuAsync(256).WaitAsync(timeoutSource.Token);
+            await App.Log($"--> [TRANSPORT SUCCESS]: Channel MTU optimized cleanly to: {negotiatedMtuSize} bytes.");
         }
-        catch (Exception mtuEx)
+        catch (OperationCanceledException)
         {
-            await App.Log($"--> [BLE HW WARNING]: MTU request bypassed or unsupported by handset: {mtuEx.Message}");
+            await App.Log("--> [TRANSPORT WARN]: MTU handshake response timed out. Falling back to OS auto-negotiated limits.");
         }
-
-        var targetService = await _targetDevice.GetServiceAsync(ServiceUuid);
-        if (targetService == null) return;
-
-        _rxCharacteristic = await targetService.GetCharacteristicAsync(RxCharUuid);
-        _txCharacteristic = await targetService.GetCharacteristicAsync(TxCharUuid);
-
-        if (_txCharacteristic != null && !(IsUsingWifiTransportMode || IsUsingLocalApMode))
+        catch (Exception ex)
         {
-            _txCharacteristic.ValueUpdated -= NativeCharacteristic_ValueUpdated;
-            _txCharacteristic.ValueUpdated += NativeCharacteristic_ValueUpdated;
-
-            await _txCharacteristic.StartUpdatesAsync();
-
-
-            await App.Log("--> [BLE SUCCESS]: Live telemetry channels fully open and sanitized.");
+            await App.Log($"--> [TRANSPORT ERROR]: Optional MTU negotiation bypassed: {ex.Message}");
         }
 
-        OnConnectionStateChanged?.Invoke(true);
+        IService? targetService = null;
 
-        await StartRssiTracking();
-
-        while (ActiveRssi == -100 && IsBluetoothConnected)
+        try
         {
-            await Task.Delay(1000);
+            await App.Log("--> [TRANSPORT]: Verifying over-the-air channel bandwidth frames...");
+
+            using (var serviceTimeoutSource = new CancellationTokenSource(TimeSpan.FromSeconds(3)))
+            {
+                targetService = await _targetDevice.GetServiceAsync(ServiceUuid).WaitAsync(serviceTimeoutSource.Token);
+            }
+
+            if (targetService == null)
+            {
+                await App.Log("--> [GATT EXCEPTION]: Service link failure:Target GATT service interface returned null reference profile.");
+                _targetDevice = null;
+                OnConnectionStateChanged?.Invoke(false);
+                return;
+            }
+
+            _rxCharacteristic = await targetService.GetCharacteristicAsync(RxCharUuid);
+            _txCharacteristic = await targetService.GetCharacteristicAsync(TxCharUuid);
+
+            if (_txCharacteristic != null && !(IsUsingWifiTransportMode || IsUsingLocalApMode))
+            {
+                _txCharacteristic.ValueUpdated -= NativeCharacteristic_ValueUpdated;
+                _txCharacteristic.ValueUpdated += NativeCharacteristic_ValueUpdated;
+
+                await _txCharacteristic.StartUpdatesAsync();
+                await App.Log("--> [BLE SUCCESS]: Live telemetry channels fully open and sanitized.");
+            }
+
+            await StartRssiTracking();
+
+            while (ActiveRssi == -100 && IsBluetoothConnected)
+            {
+                await Task.Delay(1000);
+            }
+
+            _bLECommunicationProvisioned = true;
+
+            await App.Log("--> [GATT SUCCESS]: Primary service bridge successfully discovered!");
+            await App.Log($"--> [TRANSPORT SUCCESS]: Obtained target service with UUID {ServiceUuid}.");
+
+            OnConnectionStateChanged?.Invoke(true);
+            return;
+        }
+        catch (OperationCanceledException)
+        {
+            await App.Log("--> [GATT CRITICAL TIMEOUT]: Service discovery hung and was aborted. recycling adapter state...");
+        }
+        catch (Exception ex)
+        {
+            await App.Log($"--> [GATT EXCEPTION]: Service link failure: {ex.Message}");
         }
 
-        _bLECommunicationProvisioned = true;
+        _targetDevice = null;
+        OnConnectionStateChanged?.Invoke(false);
     }
 
     public async Task StartRssiTracking()
@@ -1673,6 +1717,11 @@ public class NetworkHubService
                 }
 
                 OnRssiUpdated(ActiveRssi);
+
+                if (ActiveRssi == -100)
+                {
+                    break;
+                }
             }
         }
         catch (OperationCanceledException)

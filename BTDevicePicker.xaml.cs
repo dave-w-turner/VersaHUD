@@ -1,25 +1,25 @@
 using Plugin.BLE;
-using System.Diagnostics;
 
 namespace VersaHUD.Controls;
 
 public partial class BTDevicePicker : ContentView
 {
+    public static BTDevicePicker CurrentInstance { get; private set; }
+
     public BTDevicePicker()
-	{
-		InitializeComponent();
-        listBleDevices.ItemsSource = App.NetworkService?.DiscoveredDevices;
+    {
+        CurrentInstance = this;
+
+        InitializeComponent();
+        BluetoothDeviceListItems = App.NetworkService?.DiscoveredDevices;
     }
 
     private async Task ExecuteVisualRadarScanAsync()
     {
         await MainThread.InvokeOnMainThreadAsync(() =>
         {
-            if (indicatorScanning != null)
-            {
-                indicatorScanning.IsVisible = true;
-                indicatorScanning.IsRunning = true;
-            }
+            IndicatorScannerVisible = true;
+            IndicatorScannerRunning = true;
         });
 
         await App.NetworkService.StartDiscoveryScanAsync();
@@ -29,11 +29,8 @@ public partial class BTDevicePicker : ContentView
 
         await MainThread.InvokeOnMainThreadAsync(() =>
         {
-            if (indicatorScanning != null)
-            {
-                indicatorScanning.IsRunning = false;
-                indicatorScanning.IsVisible = false;
-            }
+            IndicatorScannerRunning = false;
+            IndicatorScannerVisible = false;
         });
     }
 
@@ -50,8 +47,8 @@ public partial class BTDevicePicker : ContentView
     {
         if (e.CurrentSelection.FirstOrDefault() is not Plugin.BLE.Abstractions.Contracts.IDevice selectedDevice) return;
 
-        indicatorScanning.IsRunning = false;
-        indicatorScanning.IsVisible = false;
+        IndicatorScannerRunning = false;
+        IndicatorScannerVisible = false;
 
         await App.Log($"--> [PICKER ACTION]: Staging persistent storage commit for ID: {selectedDevice.Id}");
 
@@ -112,7 +109,7 @@ public partial class BTDevicePicker : ContentView
         {
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
-                listBleDevices.SelectedItem = null;
+                BluetoothDeviceListSelectedItem = null;
                 await App.Log("--> [PICKER CRITICAL FAULT]: Second connection pass failed. Restoring view radar states...");
                 await Application.Current.MainPage.DisplayAlertAsync("CONNECTION FAULT", "Cockpit connection timed out. Tap your device node to re-link.", "OK");
 
@@ -134,7 +131,7 @@ public partial class BTDevicePicker : ContentView
                     App.NetworkService.StartConnectionSupervisor();
                 }
 
-                listBleDevices.SelectedItem = null;
+                BluetoothDeviceListSelectedItem = null;
             });
         }
     }
@@ -198,11 +195,8 @@ public partial class BTDevicePicker : ContentView
                 IsVisible = true;
                 InvalidateMeasure();
 
-                if (indicatorScanning != null)
-                {
-                    indicatorScanning.IsRunning = false;
-                    indicatorScanning.IsVisible = false;
-                }
+                IndicatorScannerRunning = false;
+                IndicatorScannerVisible = false;
             });
 
             if (isPermissionApproved)

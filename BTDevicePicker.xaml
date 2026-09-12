@@ -2,6 +2,7 @@
 <ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="VersaHUD.Controls.BTDevicePicker" 
+             x:Name="btDevicePicker"
              IsVisible="false"
              BackgroundColor="#B3000000"
              AbsoluteLayout.LayoutBounds="0,0,1,1"
@@ -14,7 +15,8 @@
             BackgroundColor="#1C1C1E"
             Stroke="Transparent"
             StrokeThickness="0"
-            HeightRequest="420">
+            HeightRequest="420"
+            BindingContext="{x:Reference btDevicePicker}">
         <Border.StrokeShape>
             <RoundRectangle CornerRadius="16,16,0,0"/>
         </Border.StrokeShape>
@@ -57,8 +59,9 @@
             <Grid Grid.Row="2" RowDefinitions="*, Auto" RowSpacing="10">
 
                 <CollectionView Grid.Row="0" 
-                                x:Name="listBleDevices"
                                 SelectionMode="Single"
+                                ItemsSource="{Binding BluetoothDeviceListItems}"
+                                SelectedItem="{Binding BluetoothDeviceListSelectedItem}"
                                 SelectionChanged="OnBleDeviceSelected">
                     <CollectionView.ItemsLayout>
                         <LinearItemsLayout Orientation="Vertical" ItemSpacing="8" />
@@ -90,13 +93,12 @@
                 </CollectionView>
 
                 <ActivityIndicator Grid.Row="1" 
-                                   x:Name="indicatorScanning"
                                    Color="#108981"
                                    HorizontalOptions="Center"
                                    HeightRequest="30"
                                    WidthRequest="30"
-                                   IsRunning="False"
-                                   IsVisible="False"/>
+                                   IsRunning="{Binding IndicatorScannerRunning}"
+                                   IsVisible="{Binding IndicatorScannerVisible}"/>
             </Grid>
         </Grid>
     </Border>

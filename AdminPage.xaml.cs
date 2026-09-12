@@ -23,14 +23,14 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         string runningClientId = Preferences.Default.Get("CloudflareClientIdKey", "PASTE_YOUR_CF_ACCESS_CLIENT_ID_HERE");
         string runningSecret = Preferences.Default.Get("CloudflareClientSecretKey", "PASTE_YOUR_CF_ACCESS_CLIENT_SECRET_HERE");
 
-        entryCfHost?.Text = runningHost.Equals("silent-bird-d9c0.taigon1984.workers.dev") ? "" : runningHost;
-        entryCfClientId?.Text = runningClientId.Equals("PASTE_YOUR_CF_ACCESS_CLIENT_ID_HERE") ? "" : runningClientId;
-        entryCfClientSecret?.Text = runningSecret.Equals("PASTE_YOUR_CF_ACCESS_CLIENT_SECRET_HERE") ? "" : runningSecret;
+        CloudflareHostEntryText = runningHost.Equals("silent-bird-d9c0.taigon1984.workers.dev") ? "" : runningHost;
+        CloudflareClientIDEntryText = runningClientId.Equals("PASTE_YOUR_CF_ACCESS_CLIENT_ID_HERE") ? "" : runningClientId;
+        CloudflareClientSecretEntryText = runningSecret.Equals("PASTE_YOUR_CF_ACCESS_CLIENT_SECRET_HERE") ? "" : runningSecret;
     }
 
     private async void LogIncomingStreamToTerminal(string rawPacket)
     {
-        if (string.IsNullOrEmpty(rawPacket) || scrollTerminal == null || ((App.NetworkService.IsUsingCloudWanMode || App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode)
+        if (string.IsNullOrEmpty(rawPacket) || ((App.NetworkService.IsUsingCloudWanMode || App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode)
             && rawPacket.StartsWith('{')))
             return;
 
@@ -39,14 +39,11 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         {
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
-                if (layoutRebootLockoutShell != null)
+                RebootLockoutShellVisible = true;
+                if (!App.NetworkService.IsRebootingWatchdogActive)
                 {
-                    layoutRebootLockoutShell.IsVisible = true;
-                    if (!App.NetworkService.IsRebootingWatchdogActive)
-                    {
-                        await Task.Delay(1200);
-                        await App.NetworkService.ForceProactiveRebootRecoveryAsync();
-                    }
+                    await Task.Delay(1200);
+                    await App.NetworkService.ForceProactiveRebootRecoveryAsync();
                 }
             });
         }
@@ -55,16 +52,14 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         {
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
-                layoutRebootLockoutShell?.IsVisible = false;
+                RebootLockoutShellVisible = false;
 
-                if (entryRouterPass != null)
-                {
-                    entryRouterPass.Text = string.Empty;
-                    entryRouterPass.Focus();
-                    entryRouterPass.IsEnabled = true;
-                    entryRouterSSID.IsEnabled = true;
-                    btnLinkToRouter.IsEnabled = true;
-                }
+                RouterPasswordText = string.Empty;
+
+                RouterPasswordEnabled = true;
+                RouterSSIDEnabled = true;
+                ButtonLinkToRouterEnabled = true;
+                entryRouterPass.Focus();
                 await Application.Current.MainPage.DisplayAlertAsync("ROUTER LINK FAILED", "The vehicle module could not establish an active wireless handshake with your home station. Verify your network credentials and try again.", "OK");
             });
             return;
@@ -74,19 +69,16 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         {
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
-                if (entryRouterPass != null)
-                {
-                    entryRouterPass.Text = string.Empty;
-                    entryRouterPass.IsEnabled = true;
-                    entryRouterSSID.IsEnabled = true;
-                    btnLinkToRouter.IsEnabled = true;
-                }
+                RouterPasswordText = string.Empty;
+                RouterPasswordEnabled = true;
+                RouterSSIDEnabled = true;
+                ButtonLinkToRouterEnabled = true;
                 App.NetworkService.IsRebootingWatchdogActive = false;
                 await Application.Current.MainPage.DisplayAlertAsync("ROUTER LINK SUCCESSFUL", "The vehicle module has successfully established a secure wireless handshake with your home station.", "OK");
             });
         }
 
-        if (entryWifiAP.Text == "Loading..." || entryBleName.Text == "Loading..." || entryRouterSSID.Text == "Loading..." || rawPacket.Contains("CF_KEYS:"))
+        if (WifiAPEntryText == "Loading..." || BluetoothNameText == "Loading..." || RouterSSIDEntryText == "Loading..." || rawPacket.Contains("CF_KEYS:"))
         {
             if (rawPacket.Contains("CF_KEYS:") && !rawPacket.Contains("ERR_EMPTY_VAULTS"))
             {
@@ -105,8 +97,8 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                         {
                             await MainThread.InvokeOnMainThreadAsync(() =>
                             {
-                                entryCfHost?.Text = parameterSegments[0].Trim();
-                                entryCfClientId?.Text = parameterSegments[1].Trim();
+                                CloudflareHostEntryText = parameterSegments[0].Trim();
+                                CloudflareClientIDEntryText = parameterSegments[1].Trim();
                             });
                         }
                     }
@@ -133,17 +125,17 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                 {
                     if (apIndex != -1)
                     {
-                        entryWifiAP.Text = rawPacket.Substring(apIndex + 8).Trim();
+                        WifiAPEntryText = rawPacket.Substring(apIndex + 8).Trim();
                     }
 
                     if (apPwIndex != -1)
                     {
-                        lblAPPassword.Text = $"CURRENT AP PASSWORD: {rawPacket.Substring(apPwIndex + 12).Trim()}";
+                        APPasswordTextLabel = $"CURRENT AP PASSWORD: {rawPacket.Substring(apPwIndex + 12).Trim()}";
                     }
 
                     if (bleIndex != -1)
                     {
-                        entryBleName.Text = rawPacket.Substring(bleIndex + 9).Trim();
+                        BluetoothNameText = rawPacket.Substring(bleIndex + 9).Trim();
                     }
 
                     if (routerIndex != -1)
@@ -152,48 +144,45 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
                         if (ssidResult.Contains("[❌ NONE SAVED]") || ssidResult.Contains("[X NONE SAVED]") || string.IsNullOrEmpty(ssidResult) || ssidResult.Contains("NONE"))
                         {
-                            entryRouterSSID.Text = string.Empty;
-                            layoutUnconfiguredRouter.IsVisible = true;
-                            layoutConfiguredRouter.IsVisible = false;
+                            RouterSSIDEntryText = string.Empty;
+                            LayoutUnconfiguredRouterVisible = true;
+                            LayoutConfiguredRouterVisible = false;
                         }
                         else
                         {
-                            lblRouterSSID.Text = ssidResult;
-                            layoutUnconfiguredRouter.IsVisible = false;
-                            layoutConfiguredRouter.IsVisible = true;
+                            RouterSSIDTextLabel = ssidResult;
+                            LayoutUnconfiguredRouterVisible = false;
+                            LayoutConfiguredRouterVisible = true;
                         }
                     }
                 });
             }
         }
 
-        if (layoutRebootLockoutShell != null && layoutRebootLockoutShell.IsVisible)
+        if (RebootLockoutShellVisible)
         {
             if (rawPacket.Contains("[SYS]") || rawPacket.Contains("AP_NAME:") || rawPacket.Contains("BLE_NAME:") || rawPacket.Contains("ROUTER_SSID:"))
             {
                 await MainThread.InvokeOnMainThreadAsync(() =>
                 {
-                    layoutRebootLockoutShell.IsVisible = false;
+                    RebootLockoutShellVisible = false;
                 });
             }
         }
 
-        if (App.IsDebugOutputEnabled && !(switchRemoteTelemetry?.IsToggled ?? false) && !rawPacket.StartsWith("[DEBUG] -->"))
+        if (App.IsDebugOutputEnabled && !(SwitchRemoteTelemetryToggled) && !rawPacket.StartsWith("[DEBUG] -->"))
             return;
 
         await MainThread.InvokeOnMainThreadAsync(async () =>
         {
-            if (lblDebugTerminal != null)
-            {
-                lblDebugTerminal.Text += $"\nrx: {rawPacket.Trim()}";
+            DebugTerminalTextLabel += $"\nrx: {rawPacket.Trim()}\n";
 
-                if (lblDebugTerminal.Text.Length > 10000)
-                {
-                    lblDebugTerminal.Text = string.Concat("[SYS] Buffer optimized.\n", lblDebugTerminal.Text.AsSpan(lblDebugTerminal.Text.Length - 5000));
-                }
+            if (DebugTerminalTextLabel.Length > 10000)
+            {
+                DebugTerminalTextLabel = string.Concat("[SYS] Buffer optimized.\n", DebugTerminalTextLabel.AsSpan(DebugTerminalTextLabel.Length - 5000));
             }
 
-            if (switchAutoscroll != null && switchAutoscroll.IsToggled && scrollTerminal != null)
+            if (SwitchAutoScrollToggled)
             {
                 await scrollTerminal.ScrollToAsync(0, lblDebugTerminal.Height, true);
             }
@@ -204,9 +193,9 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
     {
         await MainThread.InvokeOnMainThreadAsync(async () =>
         {
-            if (layoutRebootLockoutShell != null && layoutRebootLockoutShell.IsVisible && !App.NetworkService.IsRebootingWatchdogActive)
+            if (RebootLockoutShellVisible && !App.NetworkService.IsRebootingWatchdogActive)
             {
-                layoutRebootLockoutShell.IsVisible = false;
+                RebootLockoutShellVisible = false;
             }
         });
 
@@ -215,7 +204,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
     private async void OnRotateMasterPassClicked(object sender, EventArgs e)
     {
-        string newPassInput = entryNewMasterPass.Text;
+        string newPassInput = MasterPasswordEntryText;
 
         if (string.IsNullOrWhiteSpace(newPassInput) || newPassInput.Trim().Length < 3)
         {
@@ -252,7 +241,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         try
         {
-             commandTransmitted = await App.NetworkService.SendSecureCommandAsync(currentActiveKey, payloadCommand);
+            commandTransmitted = await App.NetworkService.SendSecureCommandAsync(currentActiveKey, payloadCommand);
         }
         catch (Exception ex)
         {
@@ -287,7 +276,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 #else
                 Preferences.Default.Set("MasterPasswordKey", newPassInput);
 #endif
-                entryNewMasterPass.Text = string.Empty;
+                MasterPasswordEntryText = string.Empty;
                 await DisplayAlertAsync("ROTATION SUCCESSFUL", "The vehicle module registers and your mobile app preferences have been successfully synchronized under your new master key!", "OK");
             }
             else
@@ -305,9 +294,9 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
     private async void OnUpdateWifiAPClicked(object sender, EventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(entryWifiAP.Text)) return;
+        if (string.IsNullOrWhiteSpace(WifiAPEntryText)) return;
 
-        string targetNewAPId = entryWifiAP.Text.Trim();
+        string targetNewAPId = WifiAPEntryText.Trim();
         string currentActiveKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
 
         Debug.WriteLine($"--> [ADMIN CONTROL HUB]: Dispatching secure over-the-air Wifi AP ID swap to '{targetNewAPId}'...");
@@ -336,9 +325,9 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
     private async void OnUpdateBleNameClicked(object sender, EventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(entryBleName.Text)) return;
+        if (string.IsNullOrWhiteSpace(BluetoothNameText)) return;
 
-        string targetNewBleId = entryBleName.Text.Trim();
+        string targetNewBleId = BluetoothNameText.Trim();
         string currentActiveKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
 
         Debug.WriteLine($"--> [ADMIN CONTROL HUB]: Dispatching secure over-the-air BLE ID swap to '{targetNewBleId}'...");
@@ -367,9 +356,9 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
     private async void OnSaveRouterClicked(object sender, EventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(entryRouterSSID.Text) || string.IsNullOrWhiteSpace(entryRouterPass.Text)) return;
+        if (string.IsNullOrWhiteSpace(RouterSSIDEntryText) || string.IsNullOrWhiteSpace(RouterPasswordText)) return;
         string currentActiveKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-        string payload = $"SAVEROUTER={entryRouterSSID.Text.Trim()},{entryRouterPass.Text.Trim()}";
+        string payload = $"SAVEROUTER={RouterSSIDEntryText.Trim()},{RouterPasswordText.Trim()}";
 
         bool commandTransmitted = false;
 
@@ -392,9 +381,9 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             await DisplayAlertAsync("LINK FAULT", "Could not deliver the parameters update packet. Verify your active communication transport channels are clear and try again.", "OK");
         }
 
-        entryRouterPass.IsEnabled = false;
-        entryRouterSSID.IsEnabled = false;
-        btnLinkToRouter.IsEnabled = false;
+        RouterPasswordEnabled = false;
+        RouterSSIDEnabled = false;
+        ButtonLinkToRouterEnabled = false;
     }
 
     private async void OnScanWifiNetworksClicked(object sender, EventArgs e)
@@ -434,7 +423,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             }
 
             App.NetworkService.OnTelemetryReceived += scanResultInterceptor;
-            lblDebugTerminal.Text += $"\n[{DateTime.Now:HH:mm:ss}] info: Arduino scanning Wi-Fi channels... please wait.";
+            DebugTerminalTextLabel += $"\n[{DateTime.Now:HH:mm:ss}] info: Arduino scanning Wi-Fi channels... please wait.";
 
             Task timeoutTask = Task.Delay(4000);
             Task finishedTask = await Task.WhenAny(scanCompletedSource.Task, timeoutTask);
@@ -453,7 +442,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                 string selectedSSID = await DisplayActionSheetAsync("AVAILABLE WI-FI NETWORKS", "CANCEL", null, discoveredNetworks);
                 if (!string.IsNullOrEmpty(selectedSSID) && selectedSSID != "CANCEL")
                 {
-                    entryRouterSSID.Text = selectedSSID;
+                    RouterSSIDEntryText = selectedSSID;
                 }
             }
             else
@@ -491,9 +480,9 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         if (commandTransmitted)
         {
-            entryRouterSSID.Text = string.Empty;
-            layoutUnconfiguredRouter.IsVisible = true;
-            layoutConfiguredRouter.IsVisible = false;
+            RouterSSIDEntryText = string.Empty;
+            LayoutUnconfiguredRouterVisible = true;
+            LayoutConfiguredRouterVisible = false;
 
             await DisplayAlertAsync("WIPE COMMAND FIRED", "The vehicle module is erasing credentials and performing a clean reboot now.", "OK");
         }
@@ -526,9 +515,9 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         if (commandTransmitted)
         {
-            entryRouterSSID.Text = string.Empty;
-            layoutUnconfiguredRouter.IsVisible = true;
-            layoutConfiguredRouter.IsVisible = false;
+            RouterSSIDEntryText = string.Empty;
+            LayoutUnconfiguredRouterVisible = true;
+            LayoutConfiguredRouterVisible = false;
 
             await DisplayAlertAsync("WIPE COMMAND FIRED", "The vehicle module is erasing credentials and performing a clean reboot now.", "OK");
         }
@@ -542,9 +531,9 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
     {
         try
         {
-            string targetHost = entryCfHost?.Text?.Trim() ?? string.Empty;
-            string targetClientId = entryCfClientId?.Text?.Trim() ?? string.Empty;
-            string targetClientSecret = entryCfClientSecret?.Text?.Trim() ?? string.Empty;
+            string targetHost = CloudflareHostEntryText?.Trim() ?? string.Empty;
+            string targetClientId = CloudflareClientIDEntryText.Trim() ?? string.Empty;
+            string targetClientSecret = CloudflareClientSecretEntryText?.Trim() ?? string.Empty;
 
             if (string.IsNullOrWhiteSpace(targetHost) || targetHost.Length < 5 ||
                 string.IsNullOrWhiteSpace(targetClientId) || targetClientId.Length < 10 ||
@@ -594,7 +583,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            layoutRebootLockoutShell?.IsVisible = false;
+            RebootLockoutShellVisible = false;
             Debug.WriteLine($"--> [CLOUDFLARE WRITE CHOKE]: {ex.Message}");
             await DisplayAlertAsync("LINK FAULT", $"The transmission stream encountered an exception: {ex.Message}", "OK");
         }
@@ -618,11 +607,11 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         if (App.NetworkService != null && App.NetworkService.IsRebootingWatchdogActive)
         {
-            layoutRebootLockoutShell?.IsVisible = true;
+            RebootLockoutShellVisible = true;
             return;
         }
         else
-            layoutRebootLockoutShell?.IsVisible = false;
+            RebootLockoutShellVisible = false;
 
         await Task.Delay(300);
 
@@ -641,23 +630,23 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         {
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
-                entryWifiAP.Text = wifiAp;
-                lblAPPassword.Text = $"CURRENT AP PASSWORD: {wifiApPw}";
-                entryBleName.Text = bleName;
-                entryCfHost.Text = cfHost.Equals("silent-bird-d9c0.taigon1984.workers.dev") ? string.Empty : cfHost;
-                entryCfClientId.Text = cfId.Equals("NONE") ? string.Empty : cfId;
+                WifiAPEntryText = wifiAp;
+                APPasswordTextLabel = $"CURRENT AP PASSWORD: {wifiApPw}";
+                BluetoothNameText = bleName;
+                CloudflareHostEntryText = cfHost.Equals("silent-bird-d9c0.taigon1984.workers.dev") ? string.Empty : cfHost;
+                CloudflareClientIDEntryText = cfId.Equals("NONE") ? string.Empty : cfId;
 
                 if (routerSsid == "NONE" || string.IsNullOrEmpty(routerSsid))
                 {
-                    entryRouterSSID.Text = string.Empty;
-                    layoutUnconfiguredRouter.IsVisible = true;
-                    layoutConfiguredRouter.IsVisible = false;
+                    RouterSSIDEntryText = string.Empty;
+                    LayoutUnconfiguredRouterVisible = true;
+                    LayoutConfiguredRouterVisible = false;
                 }
                 else
                 {
-                    lblRouterSSID.Text = routerSsid;
-                    layoutUnconfiguredRouter.IsVisible = false;
-                    layoutConfiguredRouter.IsVisible = true;
+                    RouterSSIDTextLabel = routerSsid;
+                    LayoutUnconfiguredRouterVisible = false;
+                    LayoutConfiguredRouterVisible = true;
                 }
             });
         }

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="VersaHUD.Controls.MemoryIndicator"
+             IsVisible="false"
+             BackgroundColor="#020408"
+             NavigationPage.HasNavigationBar="False"
+             x:Name="rootMemoryControl">
+    <VerticalStackLayout>
+        <Border BackgroundColor="#1E1E1E" Stroke="#2D2D2D" StrokeThickness="1" Padding="15" BindingContext="{x:Reference rootMemoryControl}" VerticalOptions="Start" HorizontalOptions="Fill">
+            <Border.StrokeShape>
+                <RoundRectangle CornerRadius="12"/>
+            </Border.StrokeShape>
+
+            <Grid ColumnDefinitions="*, Auto" RowDefinitions="Auto, Auto" VerticalOptions="Center" HeightRequest="45">
+                <VerticalStackLayout Grid.Column="0" Grid.Row="0" Grid.RowSpan="2" VerticalOptions="Center" Spacing="2">
+                    <Label Text="CONTROLLER HEALTH" FontSize="11" FontAttributes="Bold" TextColor="#707070" CharacterSpacing="1"/>
+                    <Label Text="Available Heap RAM" FontSize="16" FontAttributes="Bold" TextColor="White"/>
+                    <Label Text="{Binding RamStatusTextLabel}" FontSize="11" TextColor="#A0A0A0" Margin="0,4,0,0"/>
+                </VerticalStackLayout>
+
+                <HorizontalStackLayout Grid.Column="1" Grid.Row="1" Grid.RowSpan="2" VerticalOptions="Center" Spacing="0" Margin="10,0,0,0">
+                    <Border Stroke="#505050" StrokeThickness="2" Background="#111111" WidthRequest="64" HeightRequest="32">
+                        <Border.StrokeShape>
+                            <RoundRectangle CornerRadius="6"/>
+                        </Border.StrokeShape>
+                        <Grid Padding="2">
+                            <BoxView x:Name="BatteryFillBlock" WidthRequest="0" HorizontalOptions="Start" CornerRadius="3" BackgroundColor="{Binding RamIndicatorColorBrush}"/>
+                        </Grid>
+                    </Border>
+                    <BoxView BackgroundColor="#505050" WidthRequest="3" HeightRequest="10" CornerRadius="0,2,2,0" VerticalOptions="Center"/>
+                </HorizontalStackLayout>
+            </Grid>
+        </Border>
+    </VerticalStackLayout>
+</ContentView>

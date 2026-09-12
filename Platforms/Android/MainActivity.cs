@@ -13,6 +13,13 @@ public class MainActivity : MauiAppCompatActivity
 {
     protected override async void OnCreate(Bundle? savedInstanceState)
     {
+        Microsoft.Maui.Handlers.BorderHandler.Mapper.AppendToMapping("FixAdrenoCrash", (handler, view) =>
+        {
+        #if ANDROID
+            handler.PlatformView.SetLayerType(Android.Views.LayerType.Hardware, null);
+        #endif
+        });
+
         base.OnCreate(savedInstanceState);
 
         var status = await Permissions.CheckStatusAsync<Permissions.PostNotifications>();

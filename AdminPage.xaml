@@ -2,10 +2,10 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="VersaHUD.AdminPage"
+             x:Name="adminPage"
              BackgroundColor="#121212"
              Title="SYSTEM ADMIN">
-
-    <Grid RowDefinitions="*" ColumnDefinitions="*">
+    <Grid RowDefinitions="*" ColumnDefinitions="*"  BindingContext="{x:Reference adminPage}">
         <ScrollView Grid.Row="0" Grid.Column="0">
             <VerticalStackLayout x:Name="layoutAdminPage" Padding="20" Spacing="25" VerticalOptions="Center" IsEnabled="False">
                 <Label Text="COCKPIT CONFIGURATION"
@@ -24,7 +24,7 @@
                     <VerticalStackLayout Padding="15" Spacing="12">
                         <Label Text="ROTATE SECURITY MASTER KEY" TextColor="#EF4444" FontSize="12" FontAttributes="Bold" CharacterSpacing="0.5"/>
                         <Label Text="This updates your 16-bit fletcher hash variables inside your vehicle's EEPROM and your phone cache simultaneously." TextColor="#8E8E93" FontSize="11"/>
-                        <Entry x:Name="entryNewMasterPass" Placeholder="Enter New Master Passcode" PlaceholderColor="#555555" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" IsPassword="True" HeightRequest="45"/>
+                        <Entry Placeholder="Enter New Master Passcode" PlaceholderColor="#555555" Text="{Binding MasterPasswordEntryText}" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" IsPassword="True" HeightRequest="45"/>
                         <Button Text="🔄 ROTATE MASTER CODES" BackgroundColor="#EF4444" TextColor="#FFFFFF" FontAttributes="Bold" Clicked="OnRotateMasterPassClicked" HeightRequest="45" CornerRadius="6"/>
                     </VerticalStackLayout>
                 </Border>
@@ -35,14 +35,14 @@
                     </Border.StrokeShape>
                     <VerticalStackLayout Padding="15" Spacing="15">
                         <VerticalStackLayout Spacing="5">
-                            <Label x:Name="lblAPPassword" Text="CURRENT AP PASSWORD: NONE" TextColor="#3B82F6" FontSize="11" FontAttributes="Bold"/>
+                            <Label Text="{Binding APPasswordTextLabel}" TextColor="#3B82F6" FontSize="11" FontAttributes="Bold"/>
                             <Label Text="LOCAL WI-FI AP NAME SSID" TextColor="#8E8E93" FontSize="11" FontAttributes="Bold"/>
-                            <Entry x:Name="entryWifiAP" Text="Loading..." TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
+                            <Entry Text="{Binding WifiAPEntryText}" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
                             <Button Text="UPDATE AP SSID" BackgroundColor="#3B82F6" TextColor="#FFFFFF" Clicked="OnUpdateWifiAPClicked" HeightRequest="40"/>
                         </VerticalStackLayout>
                         <VerticalStackLayout Spacing="5">
                             <Label Text="BLUETOOTH BROADCAST IDENTITY" TextColor="#8E8E93" FontSize="11" FontAttributes="Bold"/>
-                            <Entry x:Name="entryBleName" Text="Loading..." TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
+                            <Entry Text="{Binding BluetoothNameText}" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
                             <Button Text="UPDATE BLE NAME" BackgroundColor="#3B82F6" TextColor="#FFFFFF" Clicked="OnUpdateBleNameClicked" HeightRequest="40"/>
                         </VerticalStackLayout>
                     </VerticalStackLayout>
@@ -54,16 +54,16 @@
                     </Border.StrokeShape>
                     <VerticalStackLayout Padding="15" Spacing="15">
                         <Label Text="STATION ROUTER BRIDGE MODE" TextColor="#8E8E93" FontSize="11" FontAttributes="Bold" HorizontalOptions="Center"/>
-                        <VerticalStackLayout x:Name="layoutUnconfiguredRouter" IsVisible="True" Spacing="12">
+                        <VerticalStackLayout IsVisible="{Binding LayoutUnconfiguredRouterVisible}" Spacing="12">
                             <Label Text="No active router link set. Scan for an available network infrastructure channel to link your vehicle module to your home station." TextColor="#8E8E93" FontSize="11" HorizontalTextAlignment="Center"/>
                             <Grid ColumnDefinitions="*, Auto" ColumnSpacing="10">
-                                <Entry Grid.Column="0" x:Name="entryRouterSSID" Text="Loading..." Placeholder="Target Router Name (SSID)" PlaceholderColor="#555555" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
+                                <Entry Grid.Column="0" Text="{Binding RouterSSIDEntryText}" IsEnabled="{Binding RouterSSIDEnabled}" Placeholder="Target Router Name (SSID)" PlaceholderColor="#555555" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
                                 <Button Grid.Column="1" Text="🔍 SCAN" BackgroundColor="#2D2D2D" BorderColor="#3D3D3D" BorderWidth="1" TextColor="#3B82F6" FontAttributes="Bold" Clicked="OnScanWifiNetworksClicked" HeightRequest="45" Padding="15,0"/>
                             </Grid>
-                            <Entry x:Name="entryRouterPass" Placeholder="Target Router Password" PlaceholderColor="#555555" IsPassword="True" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
-                            <Button x:Name="btnLinkToRouter" Text="🔒 LINK ROUTER TO VEHICLE" BackgroundColor="#10B981" TextColor="#FFFFFF" Clicked="OnSaveRouterClicked" HeightRequest="45" FontAttributes="Bold"/>
+                            <Entry x:Name="entryRouterPass" Placeholder="Target Router Password" Text="{Binding RouterPasswordText}" IsEnabled="{Binding RouterPasswordEnabledProperty}" PlaceholderColor="#555555" IsPassword="True" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
+                            <Button IsEnabled="{Binding ButtonLinkToRouterEnabled}" Text="🔒 LINK ROUTER TO VEHICLE" BackgroundColor="#10B981" TextColor="#FFFFFF" Clicked="OnSaveRouterClicked" HeightRequest="45" FontAttributes="Bold"/>
                         </VerticalStackLayout>
-                        <VerticalStackLayout x:Name="layoutConfiguredRouter" IsVisible="False" Spacing="12">
+                        <VerticalStackLayout IsVisible="{Binding LayoutConfiguredRouterVisible}" Spacing="12">
                             <Border BackgroundColor="#1F2A1F" Stroke="#10B981" StrokeThickness="1" Padding="12,10">
                                 <Border.StrokeShape>
                                     <RoundRectangle CornerRadius="6"/>
@@ -75,7 +75,7 @@
                             </Border>
                             <HorizontalStackLayout Spacing="5" HorizontalOptions="Center">
                                 <Label Text="Linked SSID Target:" TextColor="#8E8E93" FontSize="12"/>
-                                <Label x:Name="lblRouterSSID" Text="Loading..." TextColor="#FFFFFF" FontSize="12" FontAttributes="Bold"/>
+                                <Label Text="{Binding RouterSSIDTextLabel}" TextColor="#FFFFFF" FontSize="12" FontAttributes="Bold"/>
                             </HorizontalStackLayout>
                             <Button Text="🔄 FORGET ROUTER / FORCE STANDALONE AP MODE" BackgroundColor="#EF4444" TextColor="#FFFFFF" Clicked="OnForgetRouterClicked" HeightRequest="45" FontAttributes="Bold" CornerRadius="6"/>
                         </VerticalStackLayout>
@@ -98,9 +98,9 @@
 
                         <VerticalStackLayout Spacing="5">
                             <Label Text="CLOUDFLARE WORKER ENDPOINT HOSTNAME" TextColor="#8E8E93" FontSize="10" FontAttributes="Bold"/>
-                            <Entry x:Name="entryCfHost" 
-                                   Placeholder="e.g. silent-bird-d9c0.taigon1984.workers.dev" 
+                            <Entry Placeholder="e.g. silent-bird-d9c0.taigon1984.workers.dev" 
                                    PlaceholderColor="#555555" 
+                                   Text="{Binding CloudflareHostEntryText}"
                                    TextColor="#FFFFFF" 
                                    BackgroundColor="#2D2D2D" 
                                    HeightRequest="45"/>
@@ -108,8 +108,8 @@
 
                         <VerticalStackLayout Spacing="5">
                             <Label Text="ZERO-TRUST SERVICE CLIENT ID" TextColor="#8E8E93" FontSize="10" FontAttributes="Bold"/>
-                            <Entry x:Name="entryCfClientId" 
-                                   Placeholder="Enter CF-Access-Client-Id" 
+                            <Entry Placeholder="Enter CF-Access-Client-Id" 
+                                   Text="{Binding CloudflareClientIDEntryText}"
                                    PlaceholderColor="#555555" 
                                    TextColor="#FFFFFF" 
                                    BackgroundColor="#2D2D2D" 
@@ -118,17 +118,16 @@
 
                         <VerticalStackLayout Spacing="5">
                             <Label Text="ZERO-TRUST SERVICE CLIENT SECRET" TextColor="#8E8E93" FontSize="10" FontAttributes="Bold"/>
-                            <Entry x:Name="entryCfClientSecret" 
-                                   Placeholder="Enter CF-Access-Client-Secret" 
+                            <Entry Placeholder="Enter CF-Access-Client-Secret" 
                                    PlaceholderColor="#555555" 
                                    IsPassword="True"
+                                   Text="{Binding CloudflareClientSecretEntryText}"
                                    TextColor="#FFFFFF" 
                                    BackgroundColor="#2D2D2D" 
                                    HeightRequest="45"/>
                         </VerticalStackLayout>
 
-                        <Button x:Name="btnUpdateCloudflare"
-                                Text="⚡ SYNC SECURE CLOUD TUNNEL" 
+                        <Button Text="⚡ SYNC SECURE CLOUD TUNNEL" 
                                 BackgroundColor="#F59E0B" 
                                 TextColor="#000000" 
                                 FontAttributes="Bold"
@@ -149,41 +148,39 @@
                                     <Label Text="LIVE PACKET MONITOR" TextColor="#8E8E93" FontSize="11" FontAttributes="Bold" CharacterSpacing="1" VerticalOptions="Center"/>
                                 </HorizontalStackLayout>
                                 <Label Grid.Column="1" Text="AUTOSCROLL" TextColor="#8E8E93" FontSize="10" FontAttributes="Bold" VerticalOptions="Center"/>
-                                <Switch Grid.Column="2" x:Name="switchAutoscroll" IsToggled="True" OnColor="#10B981" ThumbColor="#FFFFFF" VerticalOptions="Center" Scale="0.85" />
+                                <Switch Grid.Column="2" IsToggled="{Binding SwitchAutoScrollToggled}" OnColor="#10B981" ThumbColor="#FFFFFF" VerticalOptions="Center" Scale="0.85" />
                             </Grid>
 
                             <Grid Grid.Row="1" ColumnDefinitions="*, *" ColumnSpacing="16" VerticalOptions="Center">
                                 <HorizontalStackLayout Grid.Column="0" Spacing="8" HorizontalOptions="Start" VerticalOptions="Center">
                                     <Label Text="DEBUG LOGS" TextColor="#8E8E93" FontSize="10" FontAttributes="Bold" VerticalOptions="Center"/>
-                                    <Switch x:Name="switchDebugLogs" IsToggled="False" OnColor="#3B82F6" ThumbColor="#FFFFFF" VerticalOptions="Center" Scale="0.80" Toggled="OnDebugLogsToggled" />
+                                    <Switch IsToggled="{Binding SwitchDebugLogsToggled}" OnColor="#3B82F6" ThumbColor="#FFFFFF" VerticalOptions="Center" Scale="0.80" Toggled="OnDebugLogsToggled" />
                                 </HorizontalStackLayout>
 
                                 <HorizontalStackLayout Grid.Column="1" Spacing="8" HorizontalOptions="End" VerticalOptions="Center">
                                     <Label Text="REMOTE TELEMETRY" TextColor="#8E8E93" FontSize="10" FontAttributes="Bold" VerticalOptions="Center"/>
-                                    <Switch x:Name="switchRemoteTelemetry" IsToggled="True" OnColor="#F59E0B" ThumbColor="#FFFFFF" VerticalOptions="Center" Scale="0.80" />
+                                    <Switch IsToggled="{Binding SwitchRemoteTelemetryToggled}" OnColor="#F59E0B" ThumbColor="#FFFFFF" VerticalOptions="Center" Scale="0.80" />
                                 </HorizontalStackLayout>
                             </Grid>
                         </Grid>
 
                         <ScrollView x:Name="scrollTerminal" HeightRequest="150" BackgroundColor="#000000">
-                            <Label x:Name="lblDebugTerminal" Text="[SYS] Terminal initialized. Awaiting vehicle telemetry frames..." TextColor="#10B981" FontFamily="monospace" FontSize="11" Padding="10" LineBreakMode="WordWrap"/>
+                            <Label x:Name="lblDebugTerminal" Text="{Binding DebugTerminalTextLabel}" TextColor="#10B981" FontFamily="monospace" FontSize="11" Padding="10" LineBreakMode="WordWrap"/>
                         </ScrollView>
                     </VerticalStackLayout>
                 </Border>
 
-                <Button x:Name="btnRebootController"
-                                Text="REBOOT CONTROLLER" 
-                                BackgroundColor="#F59E0B" 
-                                TextColor="#000000" 
-                                FontAttributes="Bold"
-                                HeightRequest="45"
-                                Clicked="OnRebootControllerClicked"/>
+                <Button Text="REBOOT CONTROLLER"
+                        BackgroundColor="#F59E0B" 
+                        TextColor="#000000" 
+                        FontAttributes="Bold"
+                        HeightRequest="45"
+                        Clicked="OnRebootControllerClicked"/>
             </VerticalStackLayout>
         </ScrollView>
 
-        <Grid x:Name="layoutRebootLockoutShell" 
-              Grid.Row="0" Grid.Column="0"
-              IsVisible="False" 
+        <Grid Grid.Row="0" Grid.Column="0"
+              IsVisible="{Binding RebootLockoutShellVisible}" 
               ZIndex="99" 
               BackgroundColor="#F2000000" 
               HorizontalOptions="Fill" 
@@ -212,6 +209,5 @@
                        LineBreakMode="WordWrap"/>
             </VerticalStackLayout>
         </Grid>
-
     </Grid>
 </ContentPage>

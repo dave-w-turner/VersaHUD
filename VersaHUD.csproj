@@ -91,6 +91,9 @@
 	</ItemGroup>
 
 	<ItemGroup>
+      <Compile Update="MemoryIndicator.xaml.cs">
+        <DependentUpon>MemoryIndicator.xaml</DependentUpon>
+      </Compile>
 	  <Compile Update="BTDevicePicker.xaml.cs">
 	    <DependentUpon>BTDevicePicker.xaml</DependentUpon>
 	  </Compile>
@@ -109,6 +112,9 @@
 	    <Generator>MSBuild:Compile</Generator>
 	  </MauiXaml>
 	  <MauiXaml Update="InitMasterPassword.xaml">
+	    <Generator>MSBuild:Compile</Generator>
+	  </MauiXaml>
+	  <MauiXaml Update="MemoryIndicator.xaml">
 	    <Generator>MSBuild:Compile</Generator>
 	  </MauiXaml>
 	  <MauiXaml Update="SplashPage.xaml">

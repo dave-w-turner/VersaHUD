@@ -2,6 +2,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using VersaHUD.Controls;
 using VersaHUD.Services;
 
 namespace VersaHUD;
@@ -10,7 +11,7 @@ public partial class MainPage : ContentPage
 {
     private static readonly Regex FrontBatteryRegex = new(@"Front:\s*(?:\[[^\]]+\]\s*)?(?<volts>[\d.]+)\s*V\s*\((?<percent>\d+)%\)", RegexOptions.Compiled);
     private static readonly Regex BackBatteryRegex = new(@"Back:\s*(?:\[[^\]]+\]\s*)?(?<volts>[\d.]+)\s*V\s*\((?<percent>\d+)%\)", RegexOptions.Compiled);
-    private static string _lastTelemetryValue = string.Empty;
+    private static readonly Regex AvailableRamBytes = new(@"💾\s*\[.+?\]\s*\d+%\s*\((\d+)\s*B\)", RegexOptions.Compiled);
     private HashSet<string> _processedVehicleLogLinesBucket = [];
 
     public event Action<string>? OnTelemetryParsed;
@@ -30,10 +31,10 @@ public partial class MainPage : ContentPage
         App.NetworkService.OnTelemetryReceived += ParseVehicleTelemetryStream;
         App.NetworkService.OnAuthorizationRequestComplete += HandleAuthorizationRequest;
 
-        if (initMasterPasswordControl != null)
+        if (InitMasterPassword.CurrentInstance != null)
         {
-            initMasterPasswordControl.OnPasswordInitialized += OnSetupFinished;
-            initMasterPasswordControl.OnWrongDeviceRequested += OnRollbackConnectionAndRescan;
+            InitMasterPassword.CurrentInstance.OnPasswordInitialized += OnSetupFinished;
+            InitMasterPassword.CurrentInstance.OnWrongDeviceRequested += OnRollbackConnectionAndRescan;
         }
     }
 
@@ -81,9 +82,9 @@ public partial class MainPage : ContentPage
             await App.Log("--> [PARSER SECURITY RADAR]: Encryption key mismatch caught over radio waves! Enforcing passcode input overlay rendering pass...");
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
-                if (layoutPasswordInitShell != null && !layoutPasswordInitShell.IsVisible)
+                if (LayoutPasswordInitVisible)
                 {
-                    layoutPasswordInitShell.IsVisible = true;
+                    LayoutPasswordInitVisible = true;
                 }
             });
             return;
@@ -153,7 +154,6 @@ public partial class MainPage : ContentPage
                     {
                         string freshTelemetryChangesOnly = logBuilder.ToString().TrimEnd();
 
-                        _lastTelemetryValue = freshTelemetryChangesOnly;
                         OnTelemetryParsed?.Invoke(freshTelemetryChangesOnly);
                         App.NetworkService.IsWifiTelemetryDead = false;
                     }
@@ -163,20 +163,20 @@ public partial class MainPage : ContentPage
 
                 await MainThread.InvokeOnMainThreadAsync(async () =>
                 {
-                    if (lblCloudWanTelemetryStatus != null && !App.NetworkService.IsUsingCloudWanMode)
+                    if (!App.NetworkService.IsUsingCloudWanMode)
                     {
                         if (isArduinoCloudTunnelConnected)
                         {
                             App.NetworkService.IsWANReportedOnline = true;
-                            lblCloudWanTelemetryStatus.Text = "☁️ CLOUD LINK: ONLINE";
-                            lblCloudWanTelemetryStatus.TextColor = Color.Parse("#10B981");
+                            CloudWanTelemetryStatusTextLabel = "☁️ CLOUD LINK: ONLINE";
+                            CloudWanTelemetryStatusTextColor = Color.Parse("#10B981");
                         }
                         else
                         {
 
                             App.NetworkService.IsWANReportedOnline = false;
-                            lblCloudWanTelemetryStatus.Text = "☁️ CLOUD LINK: OFFLINE";
-                            lblCloudWanTelemetryStatus.TextColor = Color.Parse("#EF4444");
+                            CloudWanTelemetryStatusTextLabel = "☁️ CLOUD LINK: OFFLINE";
+                            CloudWanTelemetryStatusTextColor = Color.Parse("#EF4444");
                         }
 
                         App.NetworkService.LastReportedWANLinkState = DateTime.UtcNow;
@@ -187,8 +187,8 @@ public partial class MainPage : ContentPage
                         string activeNetworkIP = Preferences.Default.Get("LastKnownVehicleIP", "0.0.0.0");
                         if (!string.IsNullOrEmpty(activeNetworkIP) && activeNetworkIP != "0.0.0.0")
                         {
-                            lblVehicleIPText?.Text = activeNetworkIP;
-                            borderNetworkStatus?.IsVisible = true;
+                            VehicleIPTextLabel = activeNetworkIP;
+                            BorderNetworkStatusVisible = true;
                         }
                     }
                 });
@@ -247,7 +247,7 @@ public partial class MainPage : ContentPage
             if (rawDataPacket.Contains("IP:") && !App.NetworkService.IsUsingWifiTransportMode)
             {
                 int ipStartIndex = rawDataPacket.IndexOf("IP:") + 3;
-                int ipEndIndex = rawDataPacket.IndexOf("|", ipStartIndex);
+                int ipEndIndex = rawDataPacket.IndexOf('|', ipStartIndex);
 
                 if (ipStartIndex != -1 && ipEndIndex != -1)
                 {
@@ -256,38 +256,35 @@ public partial class MainPage : ContentPage
 
                     await MainThread.InvokeOnMainThreadAsync(async () =>
                     {
-                        if (lblCloudWanTelemetryStatus != null)
+                        if (carReportsWanIsLive)
                         {
-                            if (carReportsWanIsLive)
-                            {
-                                App.NetworkService.IsWANReportedOnline = true;
-                                lblCloudWanTelemetryStatus.Text = "☁️ CLOUD LINK: ONLINE";
-                                lblCloudWanTelemetryStatus.TextColor = Color.Parse("#10B981");
-                            }
-                            else
-                            {
-                                App.NetworkService.IsWANReportedOnline = false;
-                                lblCloudWanTelemetryStatus.Text = "☁️ CLOUD LINK: OFFLINE";
-                                lblCloudWanTelemetryStatus.TextColor = Color.Parse("#EF4444");
-                            }
-
-                            App.NetworkService.LastReportedWANLinkState = DateTime.UtcNow;
+                            App.NetworkService.IsWANReportedOnline = true;
+                            CloudWanTelemetryStatusTextLabel = "☁️ CLOUD LINK: ONLINE";
+                            CloudWanTelemetryStatusTextColor = Color.Parse("#10B981");
                         }
+                        else
+                        {
+                            App.NetworkService.IsWANReportedOnline = false;
+                            CloudWanTelemetryStatusTextLabel = "☁️ CLOUD LINK: OFFLINE";
+                            CloudWanTelemetryStatusTextColor = Color.Parse("#EF4444");
+                        }
+
+                        App.NetworkService.LastReportedWANLinkState = DateTime.UtcNow;
 
                         if (!string.IsNullOrEmpty(extractedVehicleIP))
                         {
                             if (extractedVehicleIP == "STA_HOTSPOT" || extractedVehicleIP == "0.0.0.0")
                             {
-                                lblVehicleIPText?.Text = "ONLINE (Standalone AP Mode)";
+                                VehicleIPTextLabel = "ONLINE (Standalone AP Mode)";
                                 App.NetworkService.IsWifiTelemetryDead = false;
                             }
                             else
                             {
-                                lblVehicleIPText?.Text = extractedVehicleIP;
+                                VehicleIPTextLabel = extractedVehicleIP;
                             }
 
                             Preferences.Default.Set("LastKnownVehicleIP", extractedVehicleIP);
-                            borderNetworkStatus?.IsVisible = true;
+                            BorderNetworkStatusVisible = true;
                         }
                     });
                 }
@@ -307,6 +304,17 @@ public partial class MainPage : ContentPage
                 float currentBackVolts = 0;
                 int currentBackPercent = 0;
                 bool currentBackIsCharging = rawDataPacket.Contains("Back: [🔋 CHARGING]");
+
+                Match availableRam = AvailableRamBytes.Match(rawDataPacket);
+
+                if (availableRam.Success && int.TryParse(availableRam.Groups[1].Value, out int freeBytes))
+                {
+                    MemoryIndicator.CurrentInstance.UpdateMemoryHardwareGauge(freeBytes);
+                }
+                else
+                {
+                    MemoryIndicator.CurrentInstance.Hide();
+                }
 
                 if (backMatch.Success)
                 {
@@ -337,12 +345,12 @@ public partial class MainPage : ContentPage
         {
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
-                borderBleStatus.BackgroundColor = Color.Parse("#2D221A");
-                borderBleStatus.Stroke = Color.Parse("#FFBF00");
+                BorderBluetoothStatusBackgroundColor = Color.Parse("#2D221A");
+                BorderBluetoothStatusStrokeColor = Color.Parse("#FFBF00");
 
-                lblBleDot.Text = "🔐";
-                lblBleStatusText.Text = "VERIFYING SECURITY VAULTS...";
-                lblBleStatusText.TextColor = Color.Parse("#FFBF00");
+                DotTextLabel = "🔐";
+                BluetoothStatusTextLabel = "VERIFYING SECURITY VAULTS...";
+                BluetoothStatusTextLabelColor = Color.Parse("#FFBF00");
             });
 
             return;
@@ -354,17 +362,17 @@ public partial class MainPage : ContentPage
 
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
-                borderBleStatus.BackgroundColor = Color.Parse("#1A2D20");
-                borderBleStatus.Stroke = Color.Parse("#FFBF00");
-                lblBleDot.Text = "🔴";
-                lblBleStatusText.Text = "RECONNECTING TO VEHICLE CORES...";
-                lblBleStatusText.TextColor = Color.Parse("#FFBF00");
-                lblBleSignal.Text = string.Empty;
+                BorderBluetoothStatusBackgroundColor = Color.Parse("#1A2D20");
+                BorderBluetoothStatusStrokeColor = Color.Parse("#FFBF00");
+                DotTextLabel = "🔴";
+                BluetoothStatusTextLabel = "RECONNECTING TO VEHICLE CORES...";
+                BluetoothStatusTextLabelColor = Color.Parse("#FFBF00");
+                BluetoothSignalTextLabel = string.Empty;
 
-                btnManualScanTrigger?.IsVisible = true;
-                btnAdminNavigation?.IsEnabled = false;
-                btnUnlock?.IsEnabled = false;
-                btnLock?.IsEnabled = false;
+                ManualScanButtonVisible = true;
+                AdminNavigationButtonEnabled = false;
+                UnLockButtonEnabled = false;
+                LockButtonEnabled = false;
             });
         }
         else if (!(isConnected || App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode))
@@ -373,78 +381,72 @@ public partial class MainPage : ContentPage
 
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
-                borderNetworkStatus?.IsVisible = false;
+                BorderNetworkStatusVisible = false;
 
-                if (borderBleStatus != null)
-                {
-                    borderBleStatus.BackgroundColor = Color.Parse("#2D1A1A");
-                    borderBleStatus.Stroke = Color.Parse("#EF4444");
-                }
+                BorderBluetoothStatusBackgroundColor = Color.Parse("#2D1A1A");
+                BorderBluetoothStatusStrokeColor = Color.Parse("#EF4444");
 
-                lblBleDot?.Text = "❌";
-                lblBleSignal?.Text = "SIGNAL DISCONNECTED";
-                lblBleSignal?.TextColor = Color.Parse("#EF4444");
+                DotTextLabel = "❌";
+                BluetoothSignalTextLabel = "SIGNAL DISCONNECTED";
+                BluetoothSignalTextLabelColor = Color.Parse("#EF4444");
 
-                if (lblBleStatusText != null)
-                {
-                    lblBleStatusText.Text = "OFFLINE - LINK LOST";
-                    lblBleStatusText.TextColor = Color.Parse("#EF4444");
-                }
+                BluetoothStatusTextLabel = "OFFLINE - LINK LOST";
+                BluetoothStatusTextLabelColor = Color.Parse("#EF4444");
 
                 if (App.NetworkService.IsWANReportedOnline ?? false && !(Connectivity.Current.NetworkAccess == NetworkAccess.Internet) && !NetworkHubService.HasPhysicalWifiConnection && !CrossBluetoothLE.Current.IsOn && !App.NetworkService.IsWifiTelemetryDead)
                 {
-                    lblCloudWanTelemetryStatus.Text = "☁️ CLOUD LINK: ONLINE";
-                    lblCloudWanTelemetryStatus.TextColor = Color.Parse("#10B981");
-                    lblActiveTransportChannel?.Text = "TRANSPORT MODE: Disconnected (Enable Bluetooth, Wifi, or Mobile Data to connect).";
+                    CloudWanTelemetryStatusTextLabel = "☁️ CLOUD LINK: ONLINE";
+                    CloudWanTelemetryStatusTextColor = Color.Parse("#10B981");
+                    ActiveTransportChannelTextLabel = "TRANSPORT MODE: Disconnected (Enable Bluetooth, Wifi, or Mobile Data to connect).";
                 }
                 else if (App.NetworkService.IsWANReportedOnline ?? false && !(Connectivity.Current.NetworkAccess == NetworkAccess.Internet) && !NetworkHubService.HasPhysicalWifiConnection && !CrossBluetoothLE.Current.IsOn)
                 {
-                    lblCloudWanTelemetryStatus.Text = "☁️ CLOUD LINK: ONLINE";
-                    lblCloudWanTelemetryStatus.TextColor = Color.Parse("#10B981");
-                    lblActiveTransportChannel?.Text = "TRANSPORT MODE: Disconnected (Enable Bluetooth or Mobile Data to connect).";
+                    CloudWanTelemetryStatusTextLabel = "☁️ CLOUD LINK: ONLINE";
+                    CloudWanTelemetryStatusTextColor = Color.Parse("#10B981");
+                    ActiveTransportChannelTextLabel = "TRANSPORT MODE: Disconnected (Enable Bluetooth or Mobile Data to connect).";
                 }
                 else if (!NetworkHubService.HasPhysicalWifiConnection && !CrossBluetoothLE.Current.IsOn && !App.NetworkService.IsWifiTelemetryDead)
                 {
-                    lblCloudWanTelemetryStatus.Text = "☁️ CLOUD LINK: OFFLINE";
-                    lblCloudWanTelemetryStatus.TextColor = Color.Parse("#EF4444");
-                    lblActiveTransportChannel?.Text = "TRANSPORT MODE: Disconnected (Enable Bluetooth or Wifi to connect).";
+                    CloudWanTelemetryStatusTextLabel = "☁️ CLOUD LINK: OFFLINE";
+                    CloudWanTelemetryStatusTextColor = Color.Parse("#EF4444");
+                    ActiveTransportChannelTextLabel = "TRANSPORT MODE: Disconnected (Enable Bluetooth or Wifi to connect).";
                 }
                 else
                 {
-                    lblCloudWanTelemetryStatus.Text = "☁️ CLOUD LINK: OFFLINE";
-                    lblCloudWanTelemetryStatus.TextColor = Color.Parse("#EF4444");
-                    lblActiveTransportChannel?.Text = "TRANSPORT MODE: Disconnected (Enable Bluetooth to connect).";
+                    CloudWanTelemetryStatusTextLabel = "☁️ CLOUD LINK: OFFLINE";
+                    CloudWanTelemetryStatusTextColor = Color.Parse("#EF4444");
+                    ActiveTransportChannelTextLabel = "TRANSPORT MODE: Disconnected (Enable Bluetooth to connect).";
                 }
 
-                btnManualScanTrigger?.IsVisible = true;
-                btnAdminNavigation?.IsEnabled = false;
+                ManualScanButtonVisible = true;
+                AdminNavigationButtonEnabled = false;
 
-                btnLock?.IsEnabled = false;
-                btnUnlock?.IsEnabled = false;
+                LockButtonEnabled = false;
+                UnLockButtonEnabled = false;
 
-                lblFrontVolts.Text = "0.00 V";
-                lblFrontPercent.Text = "0%";
-                progressFront.Progress = 0.0f;
-                progressFront.ProgressColor = Colors.DarkSlateGray;
-                lblFrontIcon.Text = "❌";
+                FrontVoltsTextLabel = "0.00 V";
+                FrontPercentTextLabel = "0%";
+                ProgressFrontValue = 0.0f;
+                ProgressFrontColorValue = Colors.DarkSlateGray;
+                FrontIconTextLabel = "❌";
 
-                lblBackVolts.Text = "0.00 V";
-                lblBackPercent.Text = "0%";
-                progressBack.Progress = 0.0f;
-                progressBack.ProgressColor = Colors.DarkSlateGray;
-                lblBackIcon.Text = "❌";
+                BackVoltsTextLabel = "0.00 V";
+                BackPercentTextLabel = "0%";
+                ProgressBackValue = 0.0f;
+                ProgressBackColorValue = Colors.DarkSlateGray;
+                BackIconTextLabel = "❌";
             });
 
             _ = Task.Run(async () => {
                 await MainThread.InvokeOnMainThreadAsync(async () =>
                 {
-                    layoutReconnecting.IsVisible = true;
+                    LayoutReconnectingVisible = true;
                     while (App.NetworkService.ReconnectCountdown > 0)
                     {
-                        lblReconnecting?.Text = $"Reconnecting in {App.NetworkService.ReconnectCountdown} seconds.";
+                        ReconnectingTextLabel = $"Reconnecting in {App.NetworkService.ReconnectCountdown} seconds.";
                         await Task.Delay(500);
                     }
-                    layoutReconnecting.IsVisible = false;
+                    LayoutReconnectingVisible = false;
                 });
             });
         }
@@ -466,40 +468,34 @@ public partial class MainPage : ContentPage
 
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
-                if (borderBleStatus != null)
+                BorderBluetoothStatusBackgroundColor = Color.Parse("#1A2D20");
+                BorderBluetoothStatusStrokeColor = Color.Parse("#10B981");
+
+                DotTextLabel = "🟢";
+
+                BluetoothStatusTextLabel = $"CONNECTED: {currentBleName.ToUpper()}";
+                BluetoothStatusTextLabelColor = Color.Parse("#10B981");
+
+                ActiveTransportChannelTextLabel = $"TRANSPORT MODE: Low-Latency Bluetooth Channel (BLE)";
+
+                ManualScanButtonVisible = false;
+
+                if (!BluetoothSignalVisible)
                 {
-                    borderBleStatus.BackgroundColor = Color.Parse("#1A2D20");
-                    borderBleStatus.Stroke = Color.Parse("#10B981");
-                }
-
-                lblBleDot?.Text = "🟢";
-
-                if (lblBleStatusText != null)
-                {
-                    lblBleStatusText.Text = $"CONNECTED: {currentBleName.ToUpper()}";
-                    lblBleStatusText.TextColor = Color.Parse("#10B981");
-                }
-
-                lblActiveTransportChannel?.Text = $"TRANSPORT MODE: Low-Latency Bluetooth Channel (BLE)";
-
-                btnManualScanTrigger?.IsVisible = false;
-
-                if (lblBleSignal != null && !lblBleSignal.IsVisible)
-                {
-                    lblBleSignal?.IsVisible = true;
-                    lblBleSignal?.TextColor = Color.Parse("#EF4444");
+                    BluetoothSignalVisible = true;
+                    BluetoothSignalTextLabelColor = Color.Parse("#EF4444");
 
                     if (App.NetworkService.ActiveRssi == -100)
                     {
-                        lblBleSignal?.Text = "Waiting For RSSI Update";
+                        BluetoothSignalTextLabel = "Waiting For RSSI Update";
                     }
                 }
 
                 if (App.NetworkService.IsAuthorized)
                 {
-                    btnLock?.IsEnabled = true;
-                    btnUnlock?.IsEnabled = true;
-                    btnAdminNavigation?.IsEnabled = true;
+                    LockButtonEnabled = true;
+                    UnLockButtonEnabled = true;
+                    AdminNavigationButtonEnabled = true;
                 }
             });
         }
@@ -511,29 +507,29 @@ public partial class MainPage : ContentPage
         {
             if (rssi == 0)
             {
-                lblBleSignal.Text = string.Empty;
+                BluetoothSignalTextLabel = string.Empty;
                 return;
             }
 
             if (rssi >= -60)
             {
-                lblBleSignal.Text = $"📶 EXCELLENT ({rssi} dBm)";
-                lblBleSignal.TextColor = Color.Parse("#10B981");
+                BluetoothSignalTextLabel = $"📶 EXCELLENT ({rssi} dBm)";
+                BluetoothSignalTextLabelColor = Color.Parse("#10B981");
             }
             else if (rssi >= -75)
             {
-                lblBleSignal.Text = $"📊 GOOD ({rssi} dBm)";
-                lblBleSignal.TextColor = Color.Parse("#3B82F6");
+                BluetoothSignalTextLabel = $"📊 GOOD ({rssi} dBm)";
+                BluetoothSignalTextLabelColor = Color.Parse("#3B82F6");
             }
             else if (rssi >= -90)
             {
-                lblBleSignal.Text = $"📉 WEAK ({rssi} dBm)";
-                lblBleSignal.TextColor = Color.Parse("#F59E0B");
+                BluetoothSignalTextLabel = $"📉 WEAK ({rssi} dBm)";
+                BluetoothSignalTextLabelColor = Color.Parse("#F59E0B");
             }
             else
             {
-                lblBleSignal.Text = $"⚠ CRITICAL ({rssi} dBm)";
-                lblBleSignal.TextColor = Color.Parse("#EF4444");
+                BluetoothSignalTextLabel = $"⚠ CRITICAL ({rssi} dBm)";
+                BluetoothSignalTextLabelColor = Color.Parse("#EF4444");
             }
         });
     }
@@ -542,61 +538,61 @@ public partial class MainPage : ContentPage
     {
         await MainThread.InvokeOnMainThreadAsync(() =>
         {
-            lblFrontVolts.Text = $"{frontVolts:F2} V";
-            lblFrontPercent.Text = $"{frontPercent}%";
-            progressFront.Progress = frontPercent / 100.0f;
+            FrontVoltsTextLabel = $"{frontVolts:F2} V";
+            FrontPercentTextLabel = $"{frontPercent}%";
+            ProgressFrontValue = frontPercent / 100.0f;
 
             if (frontIsCharging)
             {
-                lblFrontIcon.Text = "⚡";
-                progressFront.ProgressColor = Colors.Yellow;
-                lblFrontVolts.TextColor = Colors.Yellow;
+                FrontIconTextLabel = "⚡";
+                ProgressFrontColorValue = Colors.Yellow;
+                FrontVoltsTextLabelColorValue = Colors.Yellow;
             }
             else if (frontPercent < 15)
             {
-                lblFrontIcon.Text = "❌";
-                progressFront.ProgressColor = Colors.Red;
-                lblFrontVolts.TextColor = Colors.Red;
+                FrontIconTextLabel = "❌";
+                ProgressFrontColorValue = Colors.Red;
+                FrontVoltsTextLabelColorValue = Colors.Red;
             }
             else
             {
-                lblFrontIcon.Text = "🔋";
-                progressFront.ProgressColor = Color.Parse("#10B981");
-                lblFrontVolts.TextColor = Color.Parse("#10B981");
+                FrontIconTextLabel = "🔋";
+                ProgressFrontColorValue = Color.Parse("#10B981");
+                FrontVoltsTextLabelColorValue = Color.Parse("#10B981");
             }
 
-            lblBackVolts.Text = $"{backVolts:F2} V";
-            lblBackPercent.Text = $"{backPercent}%";
-            progressBack.Progress = backPercent / 100.0f;
+            BackVoltsTextLabel = $"{backVolts:F2} V";
+            BackPercentTextLabel = $"{backPercent}%";
+            ProgressBackValue = backPercent / 100.0f;
 
             if (backIsCharging)
             {
-                lblBackIcon.Text = "⚡";
-                progressBack.ProgressColor = Colors.Yellow;
-                lblBackVolts.TextColor = Colors.Yellow;
+                BackIconTextLabel = "⚡";
+                ProgressBackColorValue = Colors.Yellow;
+                BackVoltsTextLabelColorValue = Colors.Yellow;
             }
             else if (backPercent < 15)
             {
-                lblBackIcon.Text = "❌";
-                progressBack.ProgressColor = Colors.Red;
-                lblBackVolts.TextColor = Colors.Red;
+                BackIconTextLabel = "❌";
+                ProgressBackColorValue = Colors.Red;
+                BackVoltsTextLabelColorValue = Colors.Red;
             }
             else
             {
-                lblBackIcon.Text = "🔋";
-                progressBack.ProgressColor = Color.Parse("#3B82F6");
-                lblBackVolts.TextColor = Color.Parse("#3B82F6");
+                BackIconTextLabel = "🔋";
+                ProgressBackColorValue = Color.Parse("#3B82F6");
+                BackVoltsTextLabelColorValue = Color.Parse("#3B82F6");
             }
 
             if (isCrossCharging)
             {
-                lblCrossChargeStatus.Text = "⚡ CROSS-CHARGING ACTIVE";
-                lblCrossChargeStatus.TextColor = Colors.Yellow;
-                layoutCrossCharging.IsVisible = true;
+                CrossChargeStatusTextLabel = "⚡ CROSS-CHARGING ACTIVE";
+                CrossChargeStatusTextLabelColorValue = Colors.Yellow;
+                CrossChargeStatusLayoutVisible = true;
             }
             else
             {
-                layoutCrossCharging.IsVisible = false;
+                CrossChargeStatusLayoutVisible = false;
             }
         });
     }
@@ -610,45 +606,39 @@ public partial class MainPage : ContentPage
         {
             if (App.NetworkService.IsBluetoothConnected)
             {
-                lblBleSignal?.IsVisible = true;
+                BluetoothSignalVisible = true;
             }
             else
             {
-                lblBleSignal?.IsVisible = false;
+                BluetoothSignalVisible = false;
             }
 
-            btnManualScanTrigger?.IsVisible = false;
+            ManualScanButtonVisible = false;
 
             if (App.NetworkService.IsAuthorized)
             {
-                btnLock?.IsEnabled = true;
-                btnUnlock?.IsEnabled = true;
-                btnAdminNavigation?.IsEnabled = true;
+                LockButtonEnabled = true;
+                UnLockButtonEnabled = true;
+                AdminNavigationButtonEnabled = true;
             }
             else
             {
-                btnLock?.IsEnabled = false;
-                btnUnlock?.IsEnabled = false;
-                btnAdminNavigation?.IsEnabled = false;
+                LockButtonEnabled = false;
+                UnLockButtonEnabled = false;
+                AdminNavigationButtonEnabled = false;
             }
 
-            borderNetworkStatus?.IsVisible = true;
-            lblVehicleIPText?.Text = cachedIP;
+            BorderNetworkStatusVisible = true;
+            VehicleIPTextLabel = cachedIP;
 
-            if (borderBleStatus != null)
-            {
-                borderBleStatus.BackgroundColor = Color.Parse("#1A242D");
-                borderBleStatus.Stroke = Color.Parse("#3B82F6");
-            }
+            BorderBluetoothStatusBackgroundColor = Color.Parse("#1A242D");
+            BorderBluetoothStatusStrokeColor = Color.Parse("#3B82F6");
 
-            lblBleDot?.Text = "🌐";
-            if (lblBleStatusText != null)
-            {
-                lblBleStatusText.Text = "LOCAL WI-FI SUBNET ONLINE";
-                lblBleStatusText.TextColor = Color.Parse("#3B82F6");
-            }
+            DotTextLabel = "🌐";
+            BluetoothStatusTextLabel = "LOCAL WI-FI SUBNET ONLINE";
+            BluetoothStatusTextLabelColor = Color.Parse("#3B82F6");
 
-            lblActiveTransportChannel?.Text = $"TRANSPORT MODE: REST API LINK ({cachedIP})";
+            ActiveTransportChannelTextLabel = $"TRANSPORT MODE: REST API LINK ({cachedIP})";
         });
     }
 
@@ -656,51 +646,39 @@ public partial class MainPage : ContentPage
     {
         await MainThread.InvokeOnMainThreadAsync(() =>
         {
-            if (lblBleSignal != null)
-            {
-                lblBleSignal.Text = " 📶 WAN LIVE";
-                lblBleSignal.TextColor = Color.Parse("#F59E0B");
-                lblBleSignal.IsVisible = true;
-            }
-
-            btnManualScanTrigger?.IsVisible = false;
+            BluetoothSignalTextLabel = " 📶 WAN LIVE";
+            BluetoothSignalTextLabelColor = Color.Parse("#F59E0B");
+            
+            BluetoothSignalVisible = true;
+            ManualScanButtonVisible = false;
 
             if (App.NetworkService.IsAuthorized)
             {
-                btnLock?.IsEnabled = true;
-                btnUnlock?.IsEnabled = true;
-                btnAdminNavigation?.IsEnabled = true;
+                LockButtonEnabled = true;
+                UnLockButtonEnabled = true;
+                AdminNavigationButtonEnabled = true;
             }
             else
             {
-                btnLock?.IsEnabled = false;
-                btnUnlock?.IsEnabled = false;
-                btnAdminNavigation?.IsEnabled = false;
+                LockButtonEnabled = false;
+                UnLockButtonEnabled = false;
+                AdminNavigationButtonEnabled = false;
             }
 
-            borderNetworkStatus?.IsVisible = true;
-            lblVehicleIPText?.Text = "Cloudflare Proxy";
+            BorderNetworkStatusVisible = true;
+            VehicleIPTextLabel = "Cloudflare Proxy";
 
-            if (borderBleStatus != null)
-            {
-                borderBleStatus.BackgroundColor = Color.Parse("#2D221A");
-                borderBleStatus.Stroke = Color.Parse("#F59E0B");
-            }
+            BorderBluetoothStatusBackgroundColor = Color.Parse("#2D221A");
+            BorderBluetoothStatusStrokeColor = Color.Parse("#F59E0B");
 
-            lblBleDot?.Text = "☁️";
-            if (lblBleStatusText != null)
-            {
-                lblBleStatusText.Text = "WAN CONNECTED";
-                lblBleStatusText.TextColor = Color.Parse("#F59E0B");
-            }
+            DotTextLabel = "☁️";
+            BluetoothStatusTextLabel = "WAN CONNECTED";
+            BluetoothStatusTextLabelColor = Color.Parse("#F59E0B");
 
-            lblActiveTransportChannel?.Text = "TRANSPORT MODE: Encrypted WAN Link Active";
+            ActiveTransportChannelTextLabel = "TRANSPORT MODE: Encrypted WAN Link Active";
 
-            if (lblCloudWanTelemetryStatus != null)
-            {
-                lblCloudWanTelemetryStatus.Text = "☁️ CLOUD LINK: ONLINE";
-                lblCloudWanTelemetryStatus.TextColor = Color.Parse("#10B981");
-            }
+            CloudWanTelemetryStatusTextLabel = "☁️ CLOUD LINK: ONLINE";
+            CloudWanTelemetryStatusTextColor = Color.Parse("#10B981");
         });
     }
 
@@ -708,7 +686,7 @@ public partial class MainPage : ContentPage
     {
         await MainThread.InvokeOnMainThreadAsync(async () =>
         {
-            layoutPasswordInitShell.IsVisible = false;
+            LayoutPasswordInitVisible = false;
             App.NetworkService.IsPromptingForMasterPassword = false;
             await App.NetworkService.VerifyPasswordAgainstHardwareAsync();
         });
@@ -724,11 +702,11 @@ public partial class MainPage : ContentPage
 
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
-                layoutPasswordInitShell?.IsVisible = true;
+                LayoutPasswordInitVisible = true;
 
-                if (initMasterPasswordControl != null)
+                if (InitMasterPassword.CurrentInstance != null)
                 {
-                    var entryField = initMasterPasswordControl.FindByName<Entry>("entryInitialPass");
+                    var entryField = InitMasterPassword.CurrentInstance.FindByName<Entry>("entryInitialPass");
                     if (entryField != null)
                     {
                         entryField.Text = string.Empty;
@@ -745,9 +723,9 @@ public partial class MainPage : ContentPage
 
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
-                if (layoutPasswordInitShell != null && layoutPasswordInitShell.IsVisible)
+                if (LayoutPasswordInitVisible)
                 {
-                    layoutPasswordInitShell.IsVisible = false;
+                    LayoutPasswordInitVisible = false;
                     await DisplayAlertAsync("VAULT SYNCED", "Your master passcode has been verified against your vehicle's registers. Security clearance accepted.", "ENTER COCKPIT");
                 }
 
@@ -822,20 +800,20 @@ public partial class MainPage : ContentPage
 
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
-                layoutPasswordInitShell.IsVisible = false;
-                if (initMasterPasswordControl != null)
+                LayoutPasswordInitVisible = false;
+                if (InitMasterPassword.CurrentInstance != null)
                 {
-                    var entryField = initMasterPasswordControl.FindByName<Entry>("entryInitialPass");
+                    var entryField = InitMasterPassword.CurrentInstance.FindByName<Entry>("entryInitialPass");
                     entryField?.Text = string.Empty;
                 }
-                btDevicePicker.IsVisible = true;
-                btnLock?.IsEnabled = false;
-                btnUnlock?.IsEnabled = false;
-                btnAdminNavigation?.IsEnabled = false;
+                BluetoothDevicePickerVisible = true;
+                LockButtonEnabled = false;
+                UnLockButtonEnabled = false;
+                AdminNavigationButtonEnabled = false;
 
-                if (btDevicePicker != null)
+                if (BTDevicePicker.CurrentInstance != null)
                 {
-                    await btDevicePicker.InitializePickerLifecycleAsync();
+                    await BTDevicePicker.CurrentInstance.InitializePickerLifecycleAsync();
                 }
             });
         }
@@ -853,13 +831,13 @@ public partial class MainPage : ContentPage
 
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
-                if (btDevicePicker != null)
+                if (BTDevicePicker.CurrentInstance != null)
                 {
                     await App.Log("--> [HARDWARE MONITOR]: Forcing active device list reset sweep over radio waves...");
-                    btnLock?.IsEnabled = false;
-                    btnUnlock?.IsEnabled = false;
-                    btnAdminNavigation?.IsEnabled = false;
-                    await btDevicePicker.InitializePickerLifecycleAsync();
+                    LockButtonEnabled = false;
+                    UnLockButtonEnabled = false;
+                    AdminNavigationButtonEnabled = false;
+                    await BTDevicePicker.CurrentInstance.InitializePickerLifecycleAsync();
                 }
             });
         }
@@ -871,7 +849,7 @@ public partial class MainPage : ContentPage
 
     private async Task OnRefreshScanClicked(object sender, EventArgs e)
     {
-        await btDevicePicker.TriggerRefreshScan();
+        await BTDevicePicker.CurrentInstance.TriggerRefreshScan();
     }
 
     protected override async void OnAppearing()
@@ -885,17 +863,16 @@ public partial class MainPage : ContentPage
 
         if (App.NetworkService != null && App.NetworkService.IsRebootingWatchdogActive)
         {
-            borderBleStatus.BackgroundColor = Color.Parse("#2D1A1A");
-            borderBleStatus.Stroke = Color.Parse("#EF4444");
-            lblBleDot.Text = "🔴";
-            lblBleStatusText.Text = "VEHICLE MODULE REBOOTING...";
-            lblBleStatusText.TextColor = Color.Parse("#EF4444");
-            lblBleSignal.Text = string.Empty;
+            BorderBluetoothStatusBackgroundColor = Color.Parse("#2D1A1A");
+            BorderBluetoothStatusStrokeColor = Color.Parse("#EF4444");
+            DotTextLabel = "🔴";
+            BluetoothStatusTextLabel = "VEHICLE MODULE REBOOTING...";
+            BluetoothStatusTextLabelColor = Color.Parse("#EF4444");
+            BluetoothSignalTextLabel = string.Empty;
 
             await App.Log("--> [UI STATE ALIGNMENT]: Dashboard badge force-shifted to REBOOTING tracking state.");
         }
 
-        _lastTelemetryValue = string.Empty;
         _processedVehicleLogLinesBucket = [];
 
         App.NetworkService?.UpdateLifecycleState(true);
@@ -917,13 +894,13 @@ public partial class MainPage : ContentPage
             {
                 await App.Log("--> [BOOT SYNC]: Zero historical pairings found. Inflating UI elements before permissions...");
 
-                    if (btDevicePicker != null)
+                    if (BTDevicePicker.CurrentInstance != null)
                     {
                         await App.Log("--> [HARDWARE MONITOR]: Forcing active device list reset sweep over radio waves...");
-                        btnLock?.IsEnabled = false;
-                        btnUnlock?.IsEnabled = false;
-                        btnAdminNavigation?.IsEnabled = false;
-                        await btDevicePicker.InitializePickerLifecycleAsync();
+                        LockButtonEnabled = false;
+                        UnLockButtonEnabled = false;
+                        AdminNavigationButtonEnabled = false;
+                        await BTDevicePicker.CurrentInstance.InitializePickerLifecycleAsync();
                     }
             }
             else
@@ -950,10 +927,10 @@ public partial class MainPage : ContentPage
         App.NetworkService.OnConnectionStateChanged -= UpdateBluetoothStatusBadge;
         App.NetworkService.OnRssiUpdated -= UpdateWirelessSignalBars;
         App.NetworkService.OnTelemetryReceived -= ParseVehicleTelemetryStream;
-        if (initMasterPasswordControl != null)
+        if (InitMasterPassword.CurrentInstance != null)
         {
-            initMasterPasswordControl.OnPasswordInitialized -= OnSetupFinished;
-            initMasterPasswordControl.OnWrongDeviceRequested -= OnRollbackConnectionAndRescan;
+            InitMasterPassword.CurrentInstance.OnPasswordInitialized -= OnSetupFinished;
+            InitMasterPassword.CurrentInstance.OnWrongDeviceRequested -= OnRollbackConnectionAndRescan;
         }
     }
 }

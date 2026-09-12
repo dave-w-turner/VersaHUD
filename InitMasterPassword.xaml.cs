@@ -9,14 +9,31 @@ public partial class InitMasterPassword : ContentView
     public event EventHandler OnPasswordInitialized;
     public event EventHandler OnWrongDeviceRequested;
 
+    public static readonly BindableProperty InitialPasswordEntryTextProperty =
+    BindableProperty.Create(
+        nameof(InitialPasswordEntryText),
+        typeof(string),
+        typeof(InitMasterPassword),
+        defaultBindingMode: BindingMode.TwoWay);
+
+    public string InitialPasswordEntryText
+    {
+        get => (string)GetValue(InitialPasswordEntryTextProperty);
+        set => SetValue(InitialPasswordEntryTextProperty, value);
+    }
+
+    public static InitMasterPassword CurrentInstance { get; private set;  }
+
     public InitMasterPassword()
     {
+        CurrentInstance = this;
+
         InitializeComponent();
     }
 
     private async void OnInitializePasswordClicked(object sender, EventArgs e)
     {
-        string enteredPasscode = entryInitialPass.Text;
+        string enteredPasscode = InitialPasswordEntryText;
 
         if (string.IsNullOrWhiteSpace(enteredPasscode) || enteredPasscode.Trim().Length < 3)
         {
@@ -48,7 +65,7 @@ public partial class InitMasterPassword : ContentView
             Preferences.Default.Set("MasterPasswordKey", enteredPasscode);
 #endif
 
-            entryInitialPass.Text = string.Empty;
+            InitialPasswordEntryText = string.Empty;
             OnPasswordInitialized?.Invoke(this, EventArgs.Empty);
 
             if (Shell.Current?.CurrentPage is MainPage currentMainPage)

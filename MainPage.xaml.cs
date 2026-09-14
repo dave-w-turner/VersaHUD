@@ -112,20 +112,37 @@ public partial class MainPage : ContentPage
 
                 bool isArduinoCloudTunnelConnected = root.TryGetProperty("wan_link", out JsonElement wanNode) && wanNode.ValueKind != JsonValueKind.Null && wanNode.GetBoolean();
 
-                if (root.TryGetProperty("last_sync", out JsonElement ls) && App.NetworkService.IsUsingCloudWanMode)
+                if (App.NetworkService.IsUsingCloudWanMode)
                 {
-                    string timeString = ls.GetString();
-                    if (TimeSpan.TryParse(timeString, out TimeSpan parsedTime))
+                    if (root.TryGetProperty("last_sync", out JsonElement ls))
                     {
-                        double secondsDelta = (DateTime.UtcNow.TimeOfDay - parsedTime).TotalSeconds;
-
-                        if (secondsDelta < 0) 
-                            secondsDelta += 86400;
-
-                        if (secondsDelta > 800)
+                        string timeString = ls.GetString();
+                        if (TimeSpan.TryParse(timeString, out TimeSpan parsedTime))
                         {
-                            await App.Log("--> [DASHBOARD PARSER]: No telemetry being returned from WAN endpoint. Setting flag to default to next transport type.");
-                            App.NetworkService.IsWifiTelemetryDead = true;
+                            double secondsDelta = (DateTime.UtcNow.TimeOfDay - parsedTime).TotalSeconds;
+
+                            if (secondsDelta < 0)
+                                secondsDelta += 86400;
+
+                            if (secondsDelta > 800)
+                            {
+                                await App.Log("--> [DASHBOARD PARSER]: No telemetry being returned from WAN endpoint. Setting flag to default to next transport type.");
+                                App.NetworkService.IsWifiTelemetryDead = true;
+                            }
+                        }
+                    }
+
+                    if (root.TryGetProperty("free_RAM_bytes", out JsonElement frb))
+                    {
+                        int bytes = frb.GetInt32();
+
+                        if (bytes != 0)
+                        {
+                            MemoryIndicator.CurrentInstance.UpdateMemoryHardwareGauge(bytes);
+                        }
+                        else
+                        {
+                            MemoryIndicator.CurrentInstance.Hide();
                         }
                     }
                 }
@@ -321,7 +338,7 @@ public partial class MainPage : ContentPage
 
                 Match? availableRam = null;
 
-                if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode)
+                if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode)
                 {
                     availableRam = WiFiAvailableRamBytes.Match(rawDataPacket);
                 }

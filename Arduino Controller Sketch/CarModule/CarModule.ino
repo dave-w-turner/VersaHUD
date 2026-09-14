@@ -1603,16 +1603,21 @@ void flushTelemetryToCloud() {
             String jsonOutput = "";
             jsonOutput.reserve(1200);
 
-            jsonOutput += "{\"front_v\":";        jsonOutput += String(globalFrontVolts, 2);
-            jsonOutput += ",\"front_p\":";        jsonOutput += String(frontBatteryPercent);
-            jsonOutput += ",\"background_v\":";   jsonOutput += String(globalBackVolts, 2); 
-            jsonOutput += ",\"back_p\":";         jsonOutput += String(backBatteryPercent); 
-            jsonOutput += ",\"charging_f\":";     jsonOutput += (frontIsCharging || crossChargeProtectionActiveFlag ? "true" : "false");
-            jsonOutput += ",\"charging_b\":";     jsonOutput += (backIsCharging || crossChargeProtectionActiveFlag ? "true" : "false");
-            jsonOutput += ",\"cross_charging\":"; jsonOutput += (crossChargeProtectionActiveFlag ? "true" : "false");
-            jsonOutput += ",\"wan_link\":";       jsonOutput += (lastCloudTransmitSuccessful ? "true" : "false");
-            jsonOutput += ",\"last_sync\":\"";    jsonOutput += currentTimeStr; jsonOutput += "\"";
-            jsonOutput += ",\"system_logs\":";    jsonOutput += jsonLogArrayPayload;
+            int freeBytes = getFreeRam();
+            if (freeBytes < 0) freeBytes = 0;
+            if (freeBytes > 32768) freeBytes = 32768;
+
+            jsonOutput += "{\"front_v\":";          jsonOutput += String(globalFrontVolts, 2);
+            jsonOutput += ",\"front_p\":";          jsonOutput += String(frontBatteryPercent);
+            jsonOutput += ",\"background_v\":";     jsonOutput += String(globalBackVolts, 2); 
+            jsonOutput += ",\"back_p\":";           jsonOutput += String(backBatteryPercent); 
+            jsonOutput += ",\"charging_f\":";       jsonOutput += (frontIsCharging || crossChargeProtectionActiveFlag ? "true" : "false");
+            jsonOutput += ",\"charging_b\":";       jsonOutput += (backIsCharging || crossChargeProtectionActiveFlag ? "true" : "false");
+            jsonOutput += ",\"cross_charging\":";   jsonOutput += (crossChargeProtectionActiveFlag ? "true" : "false");
+            jsonOutput += ",\"wan_link\":";         jsonOutput += (lastCloudTransmitSuccessful ? "true" : "false");
+            jsonOutput += ",\"last_sync\":\"";      jsonOutput += currentTimeStr; jsonOutput += "\"";
+            jsonOutput += ",\"free_RAM_bytes\":";   jsonOutput += String(freeBytes);
+            jsonOutput += ",\"system_logs\":";      jsonOutput += jsonLogArrayPayload;
             jsonOutput += "}";                
  
             writeLog("--> [WAN REFRESH]: Uploading telemetry to Cloudflare..."); 

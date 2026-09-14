@@ -1,4 +1,5 @@
 ﻿using Plugin.BLE;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -19,6 +20,8 @@ public partial class MainPage : ContentPage
 
     public const string SavedDeviceNameKey = "LastConnectedBleId";
     public const string SavedDeviceMacKey = "LastConnectedDeviceMac";
+
+    public static bool OutputTelemetryHistory { get; set; }
 
     public MainPage()
     {
@@ -108,7 +111,7 @@ public partial class MainPage : ContentPage
 
                 bool isArduinoCloudTunnelConnected = root.TryGetProperty("wan_link", out JsonElement wanNode) && wanNode.ValueKind != JsonValueKind.Null && wanNode.GetBoolean();
 
-                if (root.TryGetProperty("last_sync", out JsonElement ls))
+                if (root.TryGetProperty("last_sync", out JsonElement ls) && App.NetworkService.IsUsingCloudWanMode)
                 {
                     string timeString = ls.GetString();
                     if (TimeSpan.TryParse(timeString, out TimeSpan parsedTime))
@@ -118,7 +121,7 @@ public partial class MainPage : ContentPage
                         if (secondsDelta < 0) 
                             secondsDelta += 86400;
 
-                        if (secondsDelta > 600)
+                        if (secondsDelta > 800)
                         {
                             await App.Log("--> [DASHBOARD PARSER]: No telemetry being returned from WAN endpoint. Setting flag to default to next transport type.");
                             App.NetworkService.IsWifiTelemetryDead = true;
@@ -131,23 +134,33 @@ public partial class MainPage : ContentPage
                 if (logsNode.ValueKind == JsonValueKind.Array)
                 {
                     var logBuilder = new StringBuilder();
-                    var fullTelemetry = string.Empty;
                     bool hasNewUniqueLines = false;
 
                     foreach (JsonElement individualLine in logsNode.EnumerateArray().Reverse())
                     {
                         string logText = individualLine.GetString() ?? string.Empty;
-                        logText = logText.Trim();
+                        logText = logText.Trim() + "\n";
 
                         if (!string.IsNullOrEmpty(logText))
                         {
-                            fullTelemetry += logText;
                             if (_processedVehicleLogLinesBucket.Add(logText))
                             {
-                                logBuilder.AppendLine(logText);
+                                logBuilder.AppendLine($"{logText}\n");
                                 hasNewUniqueLines = true;
                             }
                         }
+                    }
+
+                    if (OutputTelemetryHistory)
+                    {
+                        OutputTelemetryHistory = false;
+                        OnTelemetryParsed?.Invoke(string.Join('\n', _processedVehicleLogLinesBucket));
+                    }
+
+                    if (_processedVehicleLogLinesBucket.Count > 30)
+                    {
+                        System.Diagnostics.Debug.WriteLine("--> [Telemetry Parser]: Purging last 20 log items.");
+                        _processedVehicleLogLinesBucket = [.. _processedVehicleLogLinesBucket.TakeLast(10)];
                     }
 
                     if (hasNewUniqueLines)
@@ -214,7 +227,7 @@ public partial class MainPage : ContentPage
 
                     string decryptedPlaintextKeys = await NetworkHubService.DecryptLocalPayloadAES128CBC(encryptedBase64Envelope);
 
-                    if (!string.IsNullOrWhiteSpace(decryptedPlaintextKeys) && decryptedPlaintextKeys.Contains(","))
+                    if (!string.IsNullOrWhiteSpace(decryptedPlaintextKeys) && decryptedPlaintextKeys.Contains(','))
                     {
                         string[] splitTokens = decryptedPlaintextKeys.Split(',');
 
@@ -225,8 +238,8 @@ public partial class MainPage : ContentPage
                             string extractedSecret = splitTokens[2].Trim();
 
                             App.NetworkService.CloudflareHost = extractedHost;
-                            App.NetworkService.ClientId = extractedId;
-                            App.NetworkService.ClientSecret = extractedSecret;
+                            App.NetworkService.CloudflareClientId = extractedId;
+                            App.NetworkService.CloudflareClientSecret = extractedSecret;
 
                             Preferences.Default.Set("CloudflareHostKey", extractedHost);
                             Preferences.Default.Set("CloudflareClientIdKey", extractedId);
@@ -731,26 +744,59 @@ public partial class MainPage : ContentPage
 
                 UpdateBluetoothStatusBadge(App.NetworkService.IsBluetoothConnected);
 
-                string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-                bool commandTransmitted = false;
+                if (App.NetworkService.IsBluetoothConnected && !(App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode))
+                {
+                    await Task.Delay(500);
+                    string activeKey = Preferences.Default.Get(InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
+                    bool commandTransmitted = false;
 
-                try
-                {
-                    commandTransmitted = await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
-                }
-                catch (Exception ex)
-                {
-                    if (ex.Message != "--> [ADMIN]: Unable to send command.")
-                        throw;
-                }
+                    try
+                    {
+                        commandTransmitted = await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
 
-                if (commandTransmitted)
-                {
-                    await App.Log("--> [BOOT LINK SUCCESS]: Secure WIFI key-pull verification request offloaded natively on boot pass!");
+                        if (commandTransmitted)
+                        {
+                            await App.Log("--> [BOOT LINK SUCCESS]: Secure BLE key-pull verification request offloaded natively on boot pass!");
+                        }
+                        else
+                        {
+                            await App.Log("--> [BOOT LINK FAILURE]: Failed to process Secure BLE key-pull verification request on boot pass! The command could not be transmitted.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        if (!ex.Message.Contains("--> [ADMIN]: Unable to send command."))
+                            throw;
+
+                        await App.Log($"--> [BOOT LINK FAILURE]: Failed to process Secure BLE key-pull verification request on boot pass! Message: {ex.Message}");
+                    }
                 }
-                else
+                else if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode)
                 {
-                    await App.Log("--> [BOOT LINK FAILURE]: Failed to process Secure WIFI key-pull verification request on boot pass! The command could not be transmitted.");
+                    var (wifiAp, wifiApPw, bleName, routerSsid, cfHost, cfId, cfSecret, isOk) = await NetworkHubService.FetchWifiAdminParametersAsync();
+
+                    if (isOk)
+                    {
+                        if (cfHost != "Loading.." && cfId != "Loading..." && cfSecret != "NONE" &&
+                            cfHost != "ERROR" && cfId != "ERROR" && cfSecret != "ERROR")
+                        {
+                            App.NetworkService.CloudflareClientSecret = cfSecret;
+
+                            Preferences.Default.Set("CloudflareHostKey", cfHost);
+                            Preferences.Default.Set("CloudflareClientIdKey", cfId);
+                            Preferences.Default.Set("CloudflareClientSecretKey", cfSecret);
+
+                            await App.Log("--> [BOOT LINK SUCCESS]: Secure WiFi key-pull verification request offloaded natively on boot pass!");
+                        }
+                        else
+                        {
+                            await App.Log("--> [BOOT LINK FAILURE]: Failed to process Secure WiFi key-pull verification request on boot pass! The command could not be transmitted.");
+                        }
+                    }
+                    else 
+                    {
+                        await App.Log("--> [BOOT LINK FAILURE]: Failed to process Secure WiFi key-pull verification request on boot pass! The command could not be transmitted.");
+                    }
                 }
             });
         }
@@ -845,11 +891,6 @@ public partial class MainPage : ContentPage
         {
             await App.Log($"--> [MANUAL SCAN TRIGGER FAULT]: Dynamic security check failed: {ex.Message}");
         }
-    }
-
-    private async Task OnRefreshScanClicked(object sender, EventArgs e)
-    {
-        await BTDevicePicker.CurrentInstance.TriggerRefreshScan();
     }
 
     protected override async void OnAppearing()

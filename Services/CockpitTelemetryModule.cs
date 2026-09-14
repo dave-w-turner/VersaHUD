@@ -8,7 +8,6 @@ public class CockpitTelemetryModule
     public async void Initialize()
     {
         await App.Log("--> [TELEMETRY MODULE]: Ground systems initialized. Registering event pipelines...");
-        App.NetworkService.OnTelemetryReceived += ProcessIncomingAirwavesFrame;
     }
 
     public async Task StartAsync()

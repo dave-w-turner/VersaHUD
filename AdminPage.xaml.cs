@@ -9,6 +9,8 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
     public AdminPage()
     {
+        MainPage.OutputTelemetryHistory = true;
+
         InitializeComponent();
 
         App.NetworkService.OnConnectionStateChanged -= OnVehicleLinkStateChanged;
@@ -175,7 +177,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         await MainThread.InvokeOnMainThreadAsync(async () =>
         {
-            DebugTerminalTextLabel += $"\nrx: {rawPacket.Trim()}\n";
+            DebugTerminalTextLabel += $"\nrx: {rawPacket.Trim()}";
 
             if (DebugTerminalTextLabel.Length > 10000)
             {
@@ -245,7 +247,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            if (ex.Message != "--> [ADMIN]: Unable to send command.")
+            if (!ex.Message.Contains("--> [ADMIN]: Unable to send command."))
                 throw;
         }
 
@@ -309,7 +311,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            if (ex.Message != "--> [ADMIN]: Unable to send command.")
+            if (!ex.Message.Contains("--> [ADMIN]: Unable to send command."))
                 throw;
         }
 
@@ -340,7 +342,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            if (ex.Message != "--> [ADMIN]: Unable to send command.")
+            if (!ex.Message.Contains("--> [ADMIN]: Unable to send command."))
                 throw;
         }
 
@@ -368,7 +370,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            if (ex.Message != "--> [ADMIN]: Unable to send command.")
+            if (!ex.Message.Contains("--> [ADMIN]: Unable to send command."))
                 throw;
         }
 
@@ -401,7 +403,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             }
             catch (Exception ex)
             {
-                if (ex.Message != "--> [ADMIN]: Unable to send command.")
+                if (!ex.Message.Contains("--> [ADMIN]: Unable to send command."))
                     throw;
             }
 
@@ -474,7 +476,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            if (ex.Message != "--> [ADMIN]: Unable to send command.")
+            if (!ex.Message.Contains("--> [ADMIN]: Unable to send command."))
                 throw;
         }
 
@@ -509,7 +511,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            if (ex.Message != "--> [ADMIN]: Unable to send command.")
+            if (!ex.Message.Contains("--> [ADMIN]: Unable to send command."))
                 throw;
         }
 
@@ -563,7 +565,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                     }
                     catch (Exception ex)
                     {
-                        if (ex.Message != "--> [ADMIN]: Unable to send command.")
+                        if (!ex.Message.Contains("--> [ADMIN]: Unable to send command."))
                             throw;
                     }
 
@@ -623,7 +625,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
     private async Task HandleWifiAndCloudData()
     {
-        var (wifiAp, wifiApPw, bleName, routerSsid, cfHost, cfId, isOk) = App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode ?
+        var (wifiAp, wifiApPw, bleName, routerSsid, cfHost, cfId, cfSecret, isOk) = App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode ?
             await Services.NetworkHubService.FetchWifiAdminParametersAsync() : await Services.NetworkHubService.FetchCloudAdminParametersAsync();
 
         if (isOk)
@@ -665,72 +667,72 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             {
                 layoutAdminPage.IsEnabled = true;
             });
-
-            return;
         }
-
-        Debug.WriteLine("--> [ADMIN CONTROL HUB]: Fetching parameters over-the-air via serial text scraping...");
-        string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-
-        try
+        else if (App.NetworkService.IsBluetoothConnected)
         {
-            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETWIFINAME");
-        }
-        catch (Exception)
-        {
-            await DisplayAlertAsync("Unable to send command to obtain local AP name over bluetooth communication!", "Error", "OK");
-            return;
-        }
+            Debug.WriteLine("--> [ADMIN CONTROL HUB]: Fetching parameters over-the-air via serial text scraping...");
+            string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
 
-        await Task.Delay(500);
+            try
+            {
+                await App.NetworkService.SendSecureCommandAsync(activeKey, "GETWIFINAME");
+            }
+            catch (Exception)
+            {
+                await DisplayAlertAsync("Unable to send command to obtain local AP name over bluetooth communication!", "Error", "OK");
+                return;
+            }
 
-        try
-        {
-            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETAPPASSWORD");
-        }
-        catch (Exception)
-        {
-            await DisplayAlertAsync("Unable to send command to obtain local AP password over bluetooth communication!", "Error", "OK");
-            return;
-        }
+            await Task.Delay(500);
 
-        await Task.Delay(500);
+            try
+            {
+                await App.NetworkService.SendSecureCommandAsync(activeKey, "GETAPPASSWORD");
+            }
+            catch (Exception)
+            {
+                await DisplayAlertAsync("Unable to send command to obtain local AP password over bluetooth communication!", "Error", "OK");
+                return;
+            }
 
-        try
-        {
-            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETBLENAME");
-        }
-        catch (Exception)
-        {
-            await DisplayAlertAsync("Unable to send command to obtain the bluetooth name over bluetooth communication!", "Error", "OK");
-            return;
-        }
+            await Task.Delay(500);
 
-        await Task.Delay(500);
+            try
+            {
+                await App.NetworkService.SendSecureCommandAsync(activeKey, "GETBLENAME");
+            }
+            catch (Exception)
+            {
+                await DisplayAlertAsync("Unable to send command to obtain the bluetooth name over bluetooth communication!", "Error", "OK");
+                return;
+            }
 
-        try
-        {
-            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETROUTER");
-        }
-        catch (Exception)
-        {
-            await DisplayAlertAsync("Unable to send command to obtain Wifi name over bluetooth communication!", "Error", "OK");
-            return;
-        }
+            await Task.Delay(500);
 
-        await Task.Delay(500);
+            try
+            {
+                await App.NetworkService.SendSecureCommandAsync(activeKey, "GETROUTER");
+            }
+            catch (Exception)
+            {
+                await DisplayAlertAsync("Unable to send command to obtain Wifi name over bluetooth communication!", "Error", "OK");
+                return;
+            }
 
-        try
-        {
-            await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
-        }
-        catch (Exception)
-        {
-            await DisplayAlertAsync("Unable to send command to obtain Cloudflare keys over bluetooth communication!", "Error", "OK");
-            return;
-        }
+            await Task.Delay(500);
 
-        await Task.Delay(500);
+            try
+            {
+                await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
+            }
+            catch (Exception)
+            {
+                await DisplayAlertAsync("Unable to send command to obtain Cloudflare keys over bluetooth communication!", "Error", "OK");
+                return;
+            }
+
+            await Task.Delay(500);
+        }
     }
 
     protected override async void OnDisappearing()

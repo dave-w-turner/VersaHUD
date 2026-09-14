@@ -67,7 +67,7 @@ const float CALIBRATION_FRONT = 3.1276;
 const float CALIBRATION_BACK = 3.0673;
 const float ARDUINO_REF_VOLTAGE = 5.00;
 unsigned long previousTelemetryMillis = 0;
-const long telemetryInterval = 10000; 
+const long telemetryInterval = 10000;
 
 const int EEPROM_LOCK_HASH_ADDR = 10; 
 const int EEPROM_UNLOCK_HASH_ADDR = 12; 
@@ -158,11 +158,15 @@ void setup() {
     setupBluetoothNetwork();
     setupWiFiAPI();
 
-    flushAdminConfigurationToCloud();
-    flushTelemetryToCloud();
-
     displayMatrixText(" HUB ONLINE ");
     continuousDisconnectAnchorMillis = millis();
+
+    String currentRadioFirmwareVersion = WiFi.firmwareVersion();
+    
+    Serial.println("\n==================================================");
+    Serial.print("📡 Active Onboard ESP32 Radio Firmware Version: ");
+    Serial.println(currentRadioFirmwareVersion);
+    Serial.println("==================================================\n");
 }
 
 void loop() {
@@ -189,171 +193,184 @@ void loop() {
         maintainNetworkHealth();
     }    
 
+    pinMode(RADIO_SENSOR, INPUT);
+
+    long accumulatedRawFront = 0;
+    long accumulatedRawBack = 0;
+
+    for (int i = 0; i < 8; i++) {
+        analogRead(VOLTAGE_FRONT); 
+        delayMicroseconds(50);
+        accumulatedRawFront += analogRead(VOLTAGE_FRONT);
+
+        analogRead(VOLTAGE_BACK); 
+        delayMicroseconds(50);
+        accumulatedRawBack += analogRead(VOLTAGE_BACK);
+    }
+
+    int rawFront = accumulatedRawFront / 8;
+    int rawBack = accumulatedRawBack / 8;
+
+    globalFrontVolts = ((rawFront * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_FRONT;
+    globalBackVolts = ((rawBack * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_BACK;
+
+    frontIsCharging = globalFrontVolts >= frontChargingVolts;
+    backIsCharging = globalBackVolts >= backChargingVolts;
+
+    bool radioSenseIsActive = (digitalRead(RADIO_SENSOR) == HIGH); 
+
+    int rawFrontCalculatedPercent = 0;
+
+    if (globalFrontVolts >= frontMaxFullChargeVolts) {
+        rawFrontCalculatedPercent = 100;
+    } else if (globalFrontVolts >= (frontMaxFullChargeVolts - 0.30)) {
+        rawFrontCalculatedPercent = 85 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 0.30)) / 0.30 * 15.0);
+    } else if (globalFrontVolts >= (frontMaxFullChargeVolts - 0.50)) {
+        rawFrontCalculatedPercent = 70 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 0.50)) / 0.20 * 15.0);
+    } else if (globalFrontVolts >= (frontMaxFullChargeVolts - 0.70)) {
+        rawFrontCalculatedPercent = 50 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 0.70)) / 0.20 * 20.0);
+    } else if (globalFrontVolts >= (frontMaxFullChargeVolts - 0.90)) {
+        rawFrontCalculatedPercent = 30 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 0.90)) / 0.20 * 20.0);
+    } else if (globalFrontVolts >= (frontMaxFullChargeVolts - 1.20)) {
+        rawFrontCalculatedPercent = 10 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 1.20)) / 0.30 * 20.0);
+    } else if (globalFrontVolts >= (frontMaxFullChargeVolts - 1.30)) {
+        rawFrontCalculatedPercent = 0 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 1.30)) / 0.10 * 10.0);
+    } else {
+        rawFrontCalculatedPercent = 0;
+    }
+
+    if (abs(rawFrontCalculatedPercent - frontBatteryPercent) >= 3 || rawFrontCalculatedPercent == 100 || rawFrontCalculatedPercent == 0) {
+        frontBatteryPercent = rawFrontCalculatedPercent;
+    }
+
+    int rawBackCalculatedPercent = 0;
+
+    if (globalBackVolts >= backMaxFullChargeVolts) {
+        rawBackCalculatedPercent = 100;
+    } else if (globalBackVolts >= (backMaxFullChargeVolts - 0.30)) {
+        rawBackCalculatedPercent = 85 + (int)((globalBackVolts - (backMaxFullChargeVolts - 0.30)) / 0.30 * 15.0);
+    } else if (globalBackVolts >= (backMaxFullChargeVolts - 0.50)) {
+        rawBackCalculatedPercent = 70 + (int)((globalBackVolts - (backMaxFullChargeVolts - 0.50)) / 0.20 * 15.0);
+    } else if (globalBackVolts >= (backMaxFullChargeVolts - 0.70)) {
+        rawBackCalculatedPercent = 50 + (int)((globalBackVolts - (backMaxFullChargeVolts - 0.70)) / 0.20 * 20.0);
+    } else if (globalBackVolts >= (backMaxFullChargeVolts - 0.90)) {
+        rawBackCalculatedPercent = 30 + (int)((globalBackVolts - (backMaxFullChargeVolts - 0.90)) / 0.20 * 20.0);
+    } else if (globalBackVolts >= (backMaxFullChargeVolts - 1.20)) {
+        rawBackCalculatedPercent = 10 + (int)((globalBackVolts - (backMaxFullChargeVolts - 1.20)) / 0.30 * 20.0);
+    } else if (globalBackVolts >= (backMaxFullChargeVolts - 1.30)) {
+        rawBackCalculatedPercent = 0 + (int)((globalBackVolts - (backMaxFullChargeVolts - 1.30)) / 0.10 * 10.0);
+    } else {
+        rawBackCalculatedPercent = 0;
+    }
+
+    if (abs(rawBackCalculatedPercent - backBatteryPercent) >= 3 || rawBackCalculatedPercent == 100 || rawBackCalculatedPercent == 0) {
+        backBatteryPercent = rawBackCalculatedPercent;
+    }    
+        
+    String telemetryString = "[SYS] ";
+
+    bool isWifiConnected = (WiFi.status() == WL_CONNECTED);
+    if (isWifiConnected) {
+        telemetryString += "IP:" + WiFi.localIP().toString() + " | "; 
+    } else {
+        telemetryString += "IP:STA_HOTSPOT | ";
+    }
+
+    if (lastCloudTransmitSuccessful) {
+        telemetryString += "[📡 WAN_ONLINE] ";
+    } else {
+        telemetryString += "[☁ WAN_OFFLINE] ";
+    }
+
+    if (radioSenseIsActive) { 
+        telemetryString += "[🔊 AMPS ON] ";
+    } else {
+        telemetryString += "[🔇 AMPS OFF] ";
+    }
+
+    if (crossChargeProtectionActiveFlag) {
+        telemetryString += "[⚡ CROSS_CHG ACTIVE] ";
+    } 
+
+    if (globalFrontVolts < 6.50 && globalBackVolts < 6.50) { 
+        telemetryString += "BATTERIES DETECTED: [❌ BOTH DISCONNECTED]"; 
+    } 
+    else { 
+        if (globalFrontVolts < 6.50) telemetryString += "Front: [❌ DISCONNECTED]"; 
+        else { 
+            telemetryString += "Front: "; 
+            if ((frontIsCharging && !backIsCharging) || crossChargeProtectionActiveFlag) telemetryString += "[🔋 CHARGING] "; 
+            telemetryString += String(globalFrontVolts, 1) + "V (" + String(frontBatteryPercent) + "%)"; 
+        } 
+        telemetryString += " | "; 
+        if (globalBackVolts < 6.50) telemetryString += "Back: [❌ DISCONNECTED]"; 
+        else { 
+            telemetryString += "Back: "; 
+            if ((backIsCharging && !frontIsCharging) || crossChargeProtectionActiveFlag) telemetryString += "[ 🔋 CHARGING] "; 
+            telemetryString += String(globalBackVolts, 1) + "V (" + String(backBatteryPercent) + "%)"; 
+        } 
+    } 
+
+    writeLog(telemetryString);      
+
+    if (!crossChargeProtectionActiveFlag) { 
+        if ((frontBatteryPercent <= CRITICAL_BATTERY_LOW && backBatteryPercent >= SAFE_BATTERY_CEILING) ||  
+            (backBatteryPercent <= CRITICAL_BATTERY_LOW && frontBatteryPercent >= SAFE_BATTERY_CEILING) ||
+            (backIsCharging && frontBatteryPercent <= 80) ||
+            (frontIsCharging && backBatteryPercent <= 80)) { 
+            crossChargeProtectionActiveFlag = true; 
+            writeLog("--> [BATTERY CRITICAL]: Threshold protection tripped! Bridging cells for emergency cross-charge."); 
+        } 
+    } else {
+        if (frontBatteryPercent == 100 && backIsCharging) {
+            crossChargeProtectionActiveFlag = false;
+            writeLog("--> [CHARGER SAFETY]: Front battery is charged. Breaking cross-charge link too allow maintenance mode on back battery.");
+        }
+        else if (backBatteryPercent == 100 && frontIsCharging) {
+            crossChargeProtectionActiveFlag = false;
+            writeLog("--> [CHARGER SAFETY]: Back battery is charged. Breaking cross-charge link too allow maintenance mode on front battery.");
+        }
+        else if ((globalFrontVolts >= 14.1 && globalBackVolts >= 14.2)) {
+            crossChargeProtectionActiveFlag = false;
+            writeLog("--> [CHARGER SAFETY]: Both batteries over 14 volts. Breaking cross-charge link too prevent cell damage.");
+        }
+        else if (frontBatteryPercent <= 5 && backBatteryPercent <= 5) { 
+            crossChargeProtectionActiveFlag = false;
+            writeLog("--> [BATTERY EMERGENCY]: Both banks completely dead! Breaking cross-charge to save core cell hardware."); 
+        } 
+    }
+
+    if (crossChargeProtectionActiveFlag) {        
+        delay(500);
+        digitalWrite(RELAY_SOLENOID, LOW);
+    }
+    else {
+        digitalWrite(RELAY_SOLENOID, HIGH);
+    }
+
+    if (globalFrontVolts >= 11.20) { 
+        if (radioSenseIsActive && digitalRead(RELAY_AMP_REM) != LOW) { 
+            if (digitalRead(RELAY_AMP_REM) == HIGH) { 
+                digitalWrite(RELAY_AMP_REM, LOW);
+                writeLog("--> [AUDIO]: Radio detected active. K4 SNAP CLOSED."); 
+            } 
+        }
+        else if (!radioSenseIsActive) { 
+            if (digitalRead(RELAY_AMP_REM) == LOW) { 
+                digitalWrite(RELAY_AMP_REM, HIGH);
+                writeLog("--> [AUDIO]: Radio detected sleeping. K4 CLICK OPEN."); 
+            } 
+        } 
+    }
+    else if (digitalRead(RELAY_AMP_REM) == LOW) { 
+        digitalWrite(RELAY_AMP_REM, HIGH); 
+        writeLog("--> [AUDIO]: Critical voltage protection tripped! K4 FORCED OPEN."); 
+    } 
+
     if (currentMillis - previousTelemetryMillis >= telemetryInterval) {
         previousTelemetryMillis = currentMillis;
-
-        pinMode(RADIO_SENSOR, INPUT);
-
-        long accumulatedRawFront = 0;
-        long accumulatedRawBack = 0;
-
-        for (int i = 0; i < 8; i++) {
-            analogRead(VOLTAGE_FRONT); 
-            delayMicroseconds(50);
-            accumulatedRawFront += analogRead(VOLTAGE_FRONT);
-
-            analogRead(VOLTAGE_BACK); 
-            delayMicroseconds(50);
-            accumulatedRawBack += analogRead(VOLTAGE_BACK);
-        }
-
-        int rawFront = accumulatedRawFront / 8;
-        int rawBack = accumulatedRawBack / 8;
-
-        globalFrontVolts = ((rawFront * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_FRONT;
-        globalBackVolts = ((rawBack * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_BACK;
-
-        frontIsCharging = globalFrontVolts >= frontChargingVolts;
-        backIsCharging = globalBackVolts >= backChargingVolts;
-
-        bool radioSenseIsActive = (digitalRead(RADIO_SENSOR) == HIGH); 
-
-        if (globalFrontVolts >= frontMaxFullChargeVolts) {
-            frontBatteryPercent = 100;
-        } else if (globalFrontVolts >= (frontMaxFullChargeVolts - 0.30)) {
-            frontBatteryPercent = 85 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 0.30)) / 0.30 * 15.0);
-        } else if (globalFrontVolts >= (frontMaxFullChargeVolts - 0.50)) {
-            frontBatteryPercent = 70 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 0.50)) / 0.20 * 15.0);
-        } else if (globalFrontVolts >= (frontMaxFullChargeVolts - 0.70)) {
-            frontBatteryPercent = 50 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 0.70)) / 0.20 * 20.0);
-        } else if (globalFrontVolts >= (frontMaxFullChargeVolts - 0.90)) {
-            frontBatteryPercent = 30 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 0.90)) / 0.20 * 20.0);
-        } else if (globalFrontVolts >= (frontMaxFullChargeVolts - 1.20)) {
-            frontBatteryPercent = 10 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 1.20)) / 0.30 * 20.0);
-        } else if (globalFrontVolts >= (frontMaxFullChargeVolts - 1.30)) {
-            frontBatteryPercent = 0 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 1.30)) / 0.10 * 10.0);
-        } else {
-            frontBatteryPercent = 0;
-        }
-        
-        if (globalBackVolts >= backMaxFullChargeVolts) {
-            backBatteryPercent = 100;
-        } else if (globalBackVolts >= (backMaxFullChargeVolts - 0.30)) {
-            backBatteryPercent = 85 + (int)((globalBackVolts - (backMaxFullChargeVolts - 0.30)) / 0.30 * 15.0);
-        } else if (globalBackVolts >= (backMaxFullChargeVolts - 0.50)) {
-            backBatteryPercent = 70 + (int)((globalBackVolts - (backMaxFullChargeVolts - 0.50)) / 0.20 * 15.0);
-        } else if (globalBackVolts >= (backMaxFullChargeVolts - 0.70)) {
-            backBatteryPercent = 50 + (int)((globalBackVolts - (backMaxFullChargeVolts - 0.70)) / 0.20 * 20.0);
-        } else if (globalBackVolts >= (backMaxFullChargeVolts - 0.90)) {
-            backBatteryPercent = 30 + (int)((globalBackVolts - (backMaxFullChargeVolts - 0.90)) / 0.20 * 20.0);
-        } else if (globalBackVolts >= (backMaxFullChargeVolts - 1.20)) {
-            backBatteryPercent = 10 + (int)((globalBackVolts - (backMaxFullChargeVolts - 1.20)) / 0.30 * 20.0);
-        } else if (globalBackVolts >= (backMaxFullChargeVolts - 1.30)) {
-            backBatteryPercent = 0 + (int)((globalBackVolts - (backMaxFullChargeVolts - 1.30)) / 0.10 * 10.0);
-        } else {
-            backBatteryPercent = 0;
-        }
-        
-        String telemetryString = "[SYS] ";
-
-        bool isWifiConnected = (WiFi.status() == WL_CONNECTED);
-        if (isWifiConnected) {
-            telemetryString += "IP:" + WiFi.localIP().toString() + " | "; 
-        } else {
-            telemetryString += "IP:STA_HOTSPOT | ";
-        }
-
-        if (lastCloudTransmitSuccessful) {
-            telemetryString += "[📡 WAN_ONLINE] ";
-        } else {
-            telemetryString += "[☁ WAN_OFFLINE] ";
-        }
-
-        if (radioSenseIsActive) { 
-            telemetryString += "[🔊 AMPS ON] ";
-        } else {
-            telemetryString += "[🔇 AMPS OFF] ";
-        }
-
-        if (crossChargeProtectionActiveFlag) {
-            telemetryString += "[⚡ CROSS_CHG ACTIVE] ";
-        } 
-
-        if (globalFrontVolts < 6.50 && globalBackVolts < 6.50) { 
-            telemetryString += "BATTERIES DETECTED: [❌ BOTH DISCONNECTED]"; 
-        } 
-        else { 
-            if (globalFrontVolts < 6.50) telemetryString += "Front: [❌ DISCONNECTED]"; 
-            else { 
-                telemetryString += "Front: "; 
-                if ((frontIsCharging && !backIsCharging) || crossChargeProtectionActiveFlag) telemetryString += "[🔋 CHARGING] "; 
-                telemetryString += String(globalFrontVolts, 1) + "V (" + String(frontBatteryPercent) + "%)"; 
-            } 
-            telemetryString += " | "; 
-            if (globalBackVolts < 6.50) telemetryString += "Back: [❌ DISCONNECTED]"; 
-            else { 
-                telemetryString += "Back: "; 
-                if ((backIsCharging && !frontIsCharging) || crossChargeProtectionActiveFlag) telemetryString += "[ 🔋 CHARGING] "; 
-                telemetryString += String(globalBackVolts, 1) + "V (" + String(backBatteryPercent) + "%)"; 
-            } 
-        } 
-
-        writeLog(telemetryString);      
-
-        if (!crossChargeProtectionActiveFlag) { 
-            if ((frontBatteryPercent <= CRITICAL_BATTERY_LOW && backBatteryPercent >= SAFE_BATTERY_CEILING) ||  
-                (backBatteryPercent <= CRITICAL_BATTERY_LOW && frontBatteryPercent >= SAFE_BATTERY_CEILING)) { 
-                crossChargeProtectionActiveFlag = true; 
-                writeLog("--> [BATTERY CRITICAL]: Threshold protection tripped! Bridging cells for emergency cross-charge."); 
-            } 
-        } else {
-            if (frontBatteryPercent == 100 && backIsCharging) {
-                crossChargeProtectionActiveFlag = false;
-                writeLog("--> [CHARGER SAFETY]: Front battery is charged. Breaking cross-charge link too allow maintenance mode on back battery.");
-            }
-            else if (backBatteryPercent == 100 && frontIsCharging) {
-                crossChargeProtectionActiveFlag = false;
-                writeLog("--> [CHARGER SAFETY]: Back battery is charged. Breaking cross-charge link too allow maintenance mode on front battery.");
-            }
-            else if ((globalFrontVolts >= 14.1 && globalBackVolts >= 14.2)) {
-                crossChargeProtectionActiveFlag = false;
-                writeLog("--> [CHARGER SAFETY]: Both batteries over 14 volts. Breaking cross-charge link too prevent cell damage.");
-            }
-            else if (frontBatteryPercent <= 5 && backBatteryPercent <= 5) { 
-                crossChargeProtectionActiveFlag = false;
-                writeLog("--> [BATTERY EMERGENCY]: Both banks completely dead! Breaking cross-charge to save core cell hardware."); 
-            } 
-        }
-
-        if (crossChargeProtectionActiveFlag) {        
-            delay(500);
-            digitalWrite(RELAY_SOLENOID, LOW);
-        }
-        else {
-            digitalWrite(RELAY_SOLENOID, HIGH);
-        }
-
-        if (globalFrontVolts >= 11.20) { 
-            if (radioSenseIsActive && digitalRead(RELAY_AMP_REM) != LOW) { 
-                if (digitalRead(RELAY_AMP_REM) == HIGH) { 
-                    digitalWrite(RELAY_AMP_REM, LOW);
-                    writeLog("--> [AUDIO]: Radio detected active. K4 SNAP CLOSED."); 
-                } 
-            }
-            else if (!radioSenseIsActive) { 
-                if (digitalRead(RELAY_AMP_REM) == LOW) { 
-                    digitalWrite(RELAY_AMP_REM, HIGH);
-                    writeLog("--> [AUDIO]: Radio detected sleeping. K4 CLICK OPEN."); 
-                } 
-            } 
-        }
-        else if (digitalRead(RELAY_AMP_REM) == LOW) { 
-            digitalWrite(RELAY_AMP_REM, HIGH); 
-            writeLog("--> [AUDIO]: Critical voltage protection tripped! K4 FORCED OPEN."); 
-        } 
-
         flushTelemetryToCloud();
-    } 
+    }
 
     while (Serial.available() > 0) { 
         char c = Serial.read(); 
@@ -367,6 +384,8 @@ void loop() {
             incomingBuffer += c; 
         } 
     } 
+
+    delay(2000);
 }
 
 bool processSecureCommand(String rawPacket, String source) {
@@ -494,6 +513,9 @@ bool processSecureCommand(String rawPacket, String source) {
                 WiFi.disconnect();
                 delay(200);
                 
+                IPAddress dnsServer(8, 8, 8, 8);
+                WiFi.setDNS(dnsServer);
+
                 WiFi.begin(routerSSID.c_str(), routerPASS.c_str());
                 
                 int connectionCheckTimer = 0;
@@ -697,6 +719,9 @@ void setupWiFiAPI() {
 
     if (savedSSID.length() > 0) {
         writeLog("[SYS] Attempting Link to Home Station...");
+
+        IPAddress dnsServer(8, 8, 8, 8);
+        WiFi.setDNS(dnsServer);
         WiFi.begin(savedSSID.c_str(), savedPASS.c_str());
         
         int attempts = 0;
@@ -723,10 +748,24 @@ void setupWiFiAPI() {
         systemIsCurrentlyInFallbackApMode = false;
         
         RTC.begin();
-        unsigned long globalEpochTime = WiFi.getTime();
+        
+        int timeSyncAttempts = 0;
+        unsigned long globalEpochTime = 0;
+        
+        while (globalEpochTime == 0 && timeSyncAttempts < 3) {
+            globalEpochTime = WiFi.getTime();
+            if (globalEpochTime == 0) {
+                delay(500);
+                timeSyncAttempts++;
+            }
+        }
+
         if (globalEpochTime > 0) {
-        RTCTime activeTimeConvert(globalEpochTime);
-        RTC.setTime(activeTimeConvert);
+            RTCTime activeTimeConvert(globalEpochTime);
+            RTC.setTime(activeTimeConvert);
+            writeLog("[SYS] Core RTC Clock successfully locked onto network atomic time!");
+        } else {
+            writeLog("[WAN WARN]: NTP server unreachable. Internal clock starting from zero baseline.");
         }
     }
     webServer.begin();
@@ -934,6 +973,9 @@ void handleWiFiAPI() {
 
                 String savedCfId = readSecureStringFromEEPROM(EEPROM_CF_CLIENT_ID_ADDR);
                 if (savedCfId.length() == 0) savedCfId = "NONE";
+
+                String savedCfSecret = readSecureStringFromEEPROM(EEPROM_CF_SECRET_ADDR);
+                if (savedCfSecret.length() == 0) savedCfSecret = "NONE";                
                     
                 String jsonAdminProfile = "";
                 jsonAdminProfile.reserve(400);
@@ -944,6 +986,7 @@ void handleWiFiAPI() {
                 jsonAdminProfile += "\",\"router_ssid\":\""; jsonAdminProfile += savedSSID;
                 jsonAdminProfile += "\",\"cf_host\":\"";     jsonAdminProfile += savedCfHost;
                 jsonAdminProfile += "\",\"cf_id\":\"";       jsonAdminProfile += savedCfId;
+                jsonAdminProfile += "\",\"cf_secret\":\"";   jsonAdminProfile += savedCfSecret;
                 jsonAdminProfile += "\"}";
 
                 String encryptedPayload = encryptPayloadAES128CBC(jsonAdminProfile);
@@ -1302,7 +1345,7 @@ String encryptPayloadAES128CBC(const String& plainInput) {
 }
 
 void transmitSecureHTTPTelemetry(String jsonPayload) {
-    if (cloudLimitLockoutTimestampAnchor > 0 && (millis() - cloudLimitLockoutTimestampAnchor < 600000)) {
+    if (cloudLimitLockoutTimestampAnchor > 0 && (millis() - cloudLimitLockoutTimestampAnchor < 300000)) {
         return; 
     }
     else {
@@ -1318,16 +1361,8 @@ void transmitSecureHTTPTelemetry(String jsonPayload) {
                                CF_CLIENT_SECRET.length() > 5;
 
     if (!hasValidCredentials) return;
-
-    if (!lastCloudTransmitSuccessful) {
-        unsigned long dynamicEpochProbe = WiFi.getTime();
-        if (dynamicEpochProbe > 0) {
-            RTCTime activeTimeConvert(dynamicEpochProbe);
-            RTC.setTime(activeTimeConvert);
-        }
-    }    
     
-    writeLog("--> [WAN HTTPS]: Opening hardware-accelerated TLS 443 channel to Cloudflare edge...");
+    writeLog("--> [WAN HTTPS]: Opening hardware-accelerated TLS 443 channel to Cloudflare edge host " + CLOUDFLARE_HOST + "...");
 
     if (globalTelemetryClient.connect(CLOUDFLARE_HOST.c_str(), 443)) { 
         writeLog("--> [WAN HTTPS SUCCESS]: Handshake authorized! Flushing data payload..."); 
@@ -1342,11 +1377,37 @@ void transmitSecureHTTPTelemetry(String jsonPayload) {
         globalTelemetryClient.println();
         globalTelemetryClient.print(jsonPayload);
 
-        lastCloudTransmitSuccessful = true;
+        unsigned long httpResponseSafetyTimer = millis();
+        bool isResponseVerifiedHeaderPassed = false;
+
+        while (globalTelemetryClient.connected() && !isResponseVerifiedHeaderPassed && (millis() - httpResponseSafetyTimer < 3000)) {
+            if (globalTelemetryClient.available()) {
+                String httpStatusLineText = globalTelemetryClient.readStringUntil('\n');
+                httpStatusLineText.trim();
+                
+                if (httpStatusLineText.indexOf("200") != -1) {
+                    lastCloudTransmitSuccessful = true;
+                }
+                else if (httpStatusLineText.indexOf("429") != -1 || httpStatusLineText.indexOf("403") != -1) {
+                    writeLog("--> [WAN REJECTED]: Edge API rejection (" + httpStatusLineText + "). Activating 5-minute lockout cooldown!");
+                    
+                    if (httpStatusLineText.indexOf("429") != -1 || httpStatusLineText.indexOf("403") != -1) {
+                        writeLog("--> [WAN SECURITY SHIELD]: Server restriction tripped. Activating 5-minute cooldown...");
+                        cloudLimitLockoutTimestampAnchor = millis(); 
+                        lastCloudTransmitSuccessful = false;
+                    }
+                }
+                
+                isResponseVerifiedHeaderPassed = true;
+            }
+        }
+
+        globalTelemetryClient.stop();
     } 
     else {
-        writeLog("--> [WAN HTTPS ERROR]: Handshake aborted. Edge network unreachable.");
+        writeLog("--> [WAN HTTPS ERROR]: Handshake aborted. Edge network unreachable. Waiting 5 minutes to retry...");
         lastCloudTransmitSuccessful = false;
+        cloudLimitLockoutTimestampAnchor = millis();
 
         globalTelemetryClient.flush();
         globalTelemetryClient.stop();
@@ -1420,13 +1481,7 @@ void checkCloudCommandMailbox() {
     }
 }
 
-bool flushAdminConfigurationToCloud() {
-  if (WiFi.status() != WL_CONNECTED) {
-    return false; 
-  }
-
-  if (systemIsCurrentlyInFallbackApMode || BLE.connected()) return false;
-  
+bool flushAdminConfigurationToCloud() { 
   String activeAP = readStringFromEEPROM(EEPROM_CUSTOM_WIFI_AP);
   if (activeAP.length() == 0) activeAP = DEFAULT_WIFI_AP_NAME;
 
@@ -1496,9 +1551,9 @@ bool flushAdminConfigurationToCloud() {
   return false;
 }
 
-bool flushTelemetryToCloud() {
+void flushTelemetryToCloud() {
     unsigned long currentMillis = millis();
-    if (!systemIsCurrentlyInFallbackApMode && !BLE.connected()) {
+    if (!(systemIsCurrentlyInFallbackApMode && BLE.connected()) || triggerCloudUploadOnStart) {
         if (currentMillis - lastAdminSyncMillis >= adminSyncInterval) {
             adminNeedsCloudSync = true;
         }
@@ -1509,8 +1564,13 @@ bool flushTelemetryToCloud() {
             if (flushAdminConfigurationToCloud()) {
                 adminNeedsCloudSync = false; 
                 lastAdminSyncMillis = currentMillis;
-            } else {
-                writeLog("--> [WAN REFRESH]: Sync failed. Will retry on next telemetry pass.");
+                lastCloudUploadTimestamp = currentMillis; 
+            } 
+            else {
+                writeLog("--> [WAN REFRESH]: Sync failed. Applying a 5-minute back-off delay penalty threshold...");
+                
+                lastAdminSyncMillis = currentMillis - 1500000; 
+                adminNeedsCloudSync = false;
             }
         }
 
@@ -1585,10 +1645,7 @@ bool flushTelemetryToCloud() {
  
             writeLog("--> [WAN REFRESH]: Uploading telemetry to Cloudflare..."); 
             transmitSecureHTTPTelemetry(jsonOutput);
-            return true;
         }
-
-        return false;
     }
 }
 

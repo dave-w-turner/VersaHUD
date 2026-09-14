@@ -46,8 +46,7 @@
                 <Border BackgroundColor="{Binding BorderBluetoothStatusBackgroundColor}"
                         Stroke="{Binding BorderBluetoothStatusStrokeColor}" 
                         StrokeThickness="1" 
-                        Margin="0,2" 
-                        Padding="10,0"
+                        Padding="10,5"
                         HorizontalOptions="Center"
                         WidthRequest="340">
                     <Border.StrokeShape>
@@ -81,8 +80,8 @@
                                    FontSize="11" 
                                    FontAttributes="Bold" 
                                    HorizontalTextAlignment="End"
-                                   IsVisible="False"
-                                   Margin="0,12,0,0"/>
+                                   IsVisible="{Binding BluetoothSignalVisible}"
+                                   Margin="0,5,5,0"/>
 
                             <Button Text="🔄 CHANGE" 
                                     FontSize="9" 
@@ -148,7 +147,7 @@
                     <VerticalStackLayout Grid.Column="1" Spacing="10" HorizontalOptions="Center">
                         <HorizontalStackLayout Spacing="8" HorizontalOptions="Center">
                             <Label Text="{Binding BackIconTextLabel}" FontSize="28" VerticalOptions="Center"/>
-                            <Label Text="{Binding FrontPercentTextLabel}" TextColor="#FFFFFF" FontSize="24" FontAttributes="Bold" VerticalOptions="Center"/>
+                            <Label Text="{Binding BackPercentTextLabel}" TextColor="#FFFFFF" FontSize="24" FontAttributes="Bold" VerticalOptions="Center"/>
                         </HorizontalStackLayout>
 
                         <ProgressBar Progress="{Binding ProgressBackValue}" ProgressColor="{Binding ProgressBackColorValueProperty}" BackgroundColor="#2D2D2D" WidthRequest="130" HeightRequest="10"/>

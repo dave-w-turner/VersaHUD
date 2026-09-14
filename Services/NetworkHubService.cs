@@ -27,11 +27,11 @@ public class NetworkHubService
     private readonly Guid TxCharUuid = Guid.Parse("19B10002-E8F2-537E-4F1D-223A12345678");
     private readonly HttpClient _httpClient = new(new SocketsHttpHandler
     {
-        ConnectTimeout = TimeSpan.FromMilliseconds(800),
+        ConnectTimeout = TimeSpan.FromMilliseconds(1500),
         PooledConnectionLifetime = TimeSpan.FromMinutes(2)
     })
     {
-        Timeout = TimeSpan.FromMilliseconds(1500)
+        Timeout = TimeSpan.FromMilliseconds(2500)
     };
 
     private int _WANFailureCount = 0;
@@ -48,7 +48,7 @@ public class NetworkHubService
     public bool IsConnecting { get; private set; } = false;
     private const int TRANSPORT_FLAPPING_COOLDOWN_SECONDS = 30;
     private const int DEBOUNCE_COOLDOWN_MILLISECONDS = 3500;
-    private const int MIN_PASS_RSSI_VALUE = -80;
+    private const int MIN_PASS_RSSI_VALUE = -75;
 
     private CancellationTokenSource? _autoConnectLoopCts;
     private CancellationTokenSource? _reconnectLoopCts = null;
@@ -62,8 +62,8 @@ public class NetworkHubService
     public int ActiveRssi { get; set; } = -100;
     public bool IsRebootingWatchdogActive { get; set; } = false;
     public string CloudflareHost { get; set; } = Preferences.Default.Get("CloudflareHostKey", string.Empty);
-    public string ClientId { get; set; } = Preferences.Default.Get("CloudflareClientIdKey", string.Empty);
-    public string ClientSecret { get; set; } = Preferences.Default.Get("CloudflareClientSecretKey", string.Empty);
+    public string CloudflareClientId { get; set; } = Preferences.Default.Get("CloudflareClientIdKey", string.Empty);
+    public string CloudflareClientSecret { get; set; } = Preferences.Default.Get("CloudflareClientSecretKey", string.Empty);
     public bool IsUsingWifiTransportMode { get; set; } = false;
     public bool IsUsingLocalApMode { get; set; } = false;
     public bool IsUsingCloudWanMode { get; set; } = false;
@@ -102,7 +102,7 @@ public class NetworkHubService
     public bool IsWifiTelemetryDead { get; set; } = false;
     public bool IsPromptingForMasterPassword { get; set; } = false;
 
-    public DateTime LastReportedWANLinkState { get; set; } = DateTime.MinValue;
+    public DateTime LastReportedWANLinkState { get; set; } = DateTime.MaxValue;
     public bool IsAuthorized { get; set; } = false;
     public bool WaitingForAuthorization { get; set; } = false;
     public DateTime LastTransportSwitchTimestamp = DateTime.MinValue;
@@ -196,21 +196,11 @@ public class NetworkHubService
         var secondsSinceLastTransportSwitch = (DateTime.UtcNow - LastTransportSwitchTimestamp).TotalSeconds;
 
         try
-        {
-            if ((!hasPhysicalWifiInterface || wifiAdapterOffOverride) && (IsUsingWifiTransportMode || IsUsingLocalApMode))
-            {
-                IsUsingWifiTransportMode = false;
-                IsUsingLocalApMode = false;
-            }
-
-            if (!phoneHasInternetAccess && IsUsingCloudWanMode)
-            {
-                IsUsingCloudWanMode = false;
-            }
-
+        { 
             if (!IsBluetoothConnected && CrossBluetoothLE.Current.IsOn)
             {
                 string cachedId = Preferences.Default.Get(DeviceCacheKey, string.Empty);
+
                 if (!string.IsNullOrEmpty(cachedId))
                 {
                     await App.Log($"--> [CACHE HIT]: Reconnecting straight to historical device: {cachedId}");
@@ -228,9 +218,7 @@ public class NetworkHubService
                 }
                 else
                 {
-                    await MainThread.InvokeOnMainThreadAsync(async () => await MainPage.CurrentInstance.KickstartWirelessCockpitSync());
-                    await Task.Delay(1000);
-                    StartConnectionSupervisor();
+                    IsConnecting = false;
                     return false;
                 }
             }
@@ -240,26 +228,32 @@ public class NetworkHubService
 
                 if (!_bLECommunicationProvisioned)
                 {
-                    OnConnectionStateChanged?.Invoke(true);
-                    await ProvisionBLECommunication();
+                    if (!(IsUsingWifiTransportMode || IsUsingLocalApMode))
+                    {
+                        if (!IsAuthorized)
+                            WaitingForAuthorization = false;
 
-                    if (hasPhysicalWifiInterface)
-                        LastTransportSwitchTimestamp = DateTime.MinValue;
-                }
-                else if (secondsSinceLastTransportSwitch >= TRANSPORT_FLAPPING_COOLDOWN_SECONDS &&
-                    (ActiveRssi >= MIN_PASS_RSSI_VALUE && (IsUsingWifiTransportMode || IsUsingLocalApMode)) || IsWifiTelemetryDead)
-                {
-                    await App.Log("--> [AUTO-CONNECT]: BLE signal strength is acceptable. Using BLE transport.");
+                        await ProvisionBLECommunication();
 
-                    _txCharacteristic?.ValueUpdated -= NativeCharacteristic_ValueUpdated;
-                    _txCharacteristic?.ValueUpdated += NativeCharacteristic_ValueUpdated;
+                        if (hasPhysicalWifiInterface)
+                            LastTransportSwitchTimestamp = DateTime.MinValue;
+                    }
+                    else if ((secondsSinceLastTransportSwitch >= TRANSPORT_FLAPPING_COOLDOWN_SECONDS &&
+                        ActiveRssi >= MIN_PASS_RSSI_VALUE && (IsUsingWifiTransportMode || IsUsingLocalApMode)) || IsWifiTelemetryDead)
+                    {
+                        await App.Log("--> [AUTO-CONNECT]: BLE signal strength is acceptable. Using BLE transport.");
 
-                    IsUsingWifiTransportMode = false;
-                    IsUsingLocalApMode = false;
-                    IsUsingCloudWanMode = false;
-                    OnConnectionStateChanged?.Invoke(true);
+                        await ManageWifiTelemetryPollingLifecycle(false);
+                        _txCharacteristic?.ValueUpdated -= NativeCharacteristic_ValueUpdated;
+                        _txCharacteristic?.ValueUpdated += NativeCharacteristic_ValueUpdated;
 
-                    LastTransportSwitchTimestamp = DateTime.UtcNow;
+                        IsUsingWifiTransportMode = false;
+                        IsUsingLocalApMode = false;
+                        _bLECommunicationProvisioned = true;
+
+                        OnConnectionStateChanged?.Invoke(true);
+                        LastTransportSwitchTimestamp = DateTime.UtcNow;
+                    }
                 }
             }
         }
@@ -267,8 +261,8 @@ public class NetworkHubService
         {
             await App.Log($"--> [BLE RECOVERY TRACK CHOKE]: {ex.Message}");
         }
-
-        if (hasPhysicalWifiInterface)
+        
+        if (hasPhysicalWifiInterface && ((IsBluetoothConnected && ActiveRssi <= MIN_PASS_RSSI_VALUE) || !IsBluetoothConnected))
         {
             string lastKnownIp = Preferences.Default.Get("LastKnownVehicleIP", "0.0.0.0");
             if (!string.IsNullOrEmpty(lastKnownIp) && (lastKnownIp == "0.0.0.0" || lastKnownIp == "192.168.4.1" || lastKnownIp.Equals("STA_HOTSPOT")) && !IsUsingLocalApMode)
@@ -288,37 +282,60 @@ public class NetworkHubService
             {
                 if (secondsSinceLastTransportSwitch >= TRANSPORT_FLAPPING_COOLDOWN_SECONDS)
                 {
-                    await App.Log("--> [AUTO-CONNECT]: Evaluating network transport route preference to Wifi route...");
+                    
                     var debounceResult = await VerifyWifiHealthWithDebounceAsync(lastKnownIp);
                     bool isWifiServerActive = ActiveRssi < MIN_PASS_RSSI_VALUE && debounceResult || !(IsBluetoothConnected && debounceResult);
 
                     if (isWifiServerActive)
                     {
-                        if (IsUsingLocalApMode)
-                            IsUsingWifiTransportMode = false;
-                        else
-                            IsUsingWifiTransportMode = true;
-
-                        IsUsingCloudWanMode = false;
-                        _txCharacteristic?.ValueUpdated -= NativeCharacteristic_ValueUpdated;
-                        _bLECommunicationProvisioned = false;
-                        LastTransportSwitchTimestamp = DateTime.UtcNow;
-                        WaitingForAuthorization = false;
-
-                        await App.Log("--> [FAILOVER SUCCESS]: Vehicle node discovered live over Wi-Fi Subnet. Engaging Wi-Fi transport channels!");
-
-                        IsConnecting = false;
-                        OnConnectionStateChanged?.Invoke(false);
-
-                        if (IsAuthorized)
+                        if (!(IsUsingWifiTransportMode || IsUsingLocalApMode))
                         {
-                            await ManageWifiTelemetryPollingLifecycle(true);
-                        }
+                            await App.Log("--> [AUTO-CONNECT]: Evaluating network transport route preference to Wifi route...");
 
-                        return true;
+                            if (IsUsingLocalApMode)
+                                IsUsingWifiTransportMode = false;
+                            else
+                                IsUsingWifiTransportMode = true;
+
+                            IsUsingCloudWanMode = false;
+                            _txCharacteristic?.ValueUpdated -= NativeCharacteristic_ValueUpdated;
+                            _bLECommunicationProvisioned = false;
+                            LastTransportSwitchTimestamp = DateTime.UtcNow;
+                            WaitingForAuthorization = false;
+
+                            await App.Log("--> [FAILOVER SUCCESS]: Vehicle node discovered live over Wi-Fi Subnet. Engaging Wi-Fi transport channels!");
+
+                            IsConnecting = false;
+                            OnConnectionStateChanged?.Invoke(false);
+
+                            if (IsAuthorized)
+                            {
+                                _ = ManageWifiTelemetryPollingLifecycle(true);
+                            }
+
+                            return true;
+                        }
+                        else if (IsAuthorized)
+                        {
+                            _ = ManageWifiTelemetryPollingLifecycle(true);
+                        }
+                    }
+                    else if (!debounceResult)
+                    {
+                        IsUsingWifiTransportMode = false;
+                        IsUsingLocalApMode = false;
+                        await ManageWifiTelemetryPollingLifecycle(false);
+
+                        OnConnectionStateChanged?.Invoke(IsBluetoothConnected);
                     }
                 }
             }
+        }
+        else if (!hasPhysicalWifiInterface && (IsUsingWifiTransportMode || IsUsingLocalApMode))
+        {
+            IsUsingWifiTransportMode = false;
+            IsUsingLocalApMode = false;
+            await ManageWifiTelemetryPollingLifecycle(false);
         }
 
         if (!IsBluetoothConnected && IsWifiTelemetryDead && hasPhysicalWifiInterface && (IsUsingWifiTransportMode || IsUsingLocalApMode))
@@ -331,13 +348,6 @@ public class NetworkHubService
             IsWifiTelemetryDead = false;
         }
 
-        if ((!hasPhysicalWifiInterface || IsWifiTelemetryDead) && (IsUsingWifiTransportMode || IsUsingLocalApMode))
-        {
-            await ManageWifiTelemetryPollingLifecycle(false);
-            IsUsingWifiTransportMode = false;
-            IsUsingLocalApMode = false;
-        }
-
         if (IsBluetoothConnected && !(IsUsingWifiTransportMode || IsUsingLocalApMode))
         {
             IsConnecting = false;
@@ -346,7 +356,7 @@ public class NetworkHubService
 
         var minutesSinceWANStatusReported = (DateTime.UtcNow - LastReportedWANLinkState).TotalMinutes;
 
-        if (!(IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode) && !IsWifiTelemetryDead)
+        if (!(IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode) && !IsWifiTelemetryDead && phoneHasInternetAccess)
         {
             var wanActive = await VerifyTrueInternetRouteToHostAsync();
             if (wanActive) IsWANReportedOnline = true;
@@ -370,7 +380,6 @@ public class NetworkHubService
         else if (IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode)
         {
             IsConnecting = false;
-            OnConnectionStateChanged?.Invoke(IsBluetoothConnected);
             return true;
         }
 
@@ -386,6 +395,8 @@ public class NetworkHubService
                 IsConnecting = false;
                 return true;
             }
+
+            await Task.Delay(_isAppInForeground ? 10000 : 30000);
         }
 
         _passwordVerificationCts?.Cancel();
@@ -423,7 +434,7 @@ public class NetworkHubService
             {
                 try
                 {
-                    if (!await AutoConnectAsync(false))
+                    if (!await AutoConnectAsync())
                     {
                         IsMonitorActive = false;
 
@@ -465,13 +476,12 @@ public class NetworkHubService
                         else
                         {
                             StartConnectionSupervisor();
-                            _isFirstConnectionAttempt = true;
+                            _isFirstConnectionAttempt = false;
                         }
 
                         return;
                     }
-
-                    if (!IsAuthorized && (IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
+                    else if (!IsAuthorized && (IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
                     {
                         if (IsWifiTelemetryDead && !IsBluetoothConnected)
                         {
@@ -480,11 +490,7 @@ public class NetworkHubService
 
                         await Task.Delay(1500);
                         await VerifyPasswordAgainstHardwareAsync();
-
-                        if (IsAuthorized && (IsUsingLocalApMode || IsUsingWifiTransportMode))
-                            await ManageWifiTelemetryPollingLifecycle(true);
-                        else if (IsAuthorized && (IsUsingCloudWanMode))
-                            await ManageCloudFlareTelemetryPollingLifecycle();
+                        continue;
                     }
                 }
                 catch (Exception ex)
@@ -510,10 +516,10 @@ public class NetworkHubService
         if (IsUsingCloudWanMode)
         {
             CloudflareHost = Preferences.Default.Get("CloudflareHostKey", string.Empty);
-            ClientId = Preferences.Default.Get("CloudflareClientIdKey", string.Empty);
-            ClientSecret = Preferences.Default.Get("CloudflareClientSecretKey", string.Empty);
+            CloudflareClientId = Preferences.Default.Get("CloudflareClientIdKey", string.Empty);
+            CloudflareClientSecret = Preferences.Default.Get("CloudflareClientSecretKey", string.Empty);
 
-            if (string.IsNullOrEmpty(CloudflareHost) && !string.IsNullOrEmpty(ClientId) && !string.IsNullOrEmpty(ClientSecret))
+            if (string.IsNullOrEmpty(CloudflareHost) && !string.IsNullOrEmpty(CloudflareClientId) && !string.IsNullOrEmpty(CloudflareClientSecret))
 
             {
                 IsWifiTelemetryDead = true;
@@ -524,8 +530,8 @@ public class NetworkHubService
             var wanTargetUrl = $"https://{CloudflareHost}/api/auth";
             using var wanRequestMessage = new HttpRequestMessage(HttpMethod.Post, wanTargetUrl);
 
-            wanRequestMessage.Headers.Add("CF-Access-Client-Id", ClientId);
-            wanRequestMessage.Headers.Add("CF-Access-Client-Secret", ClientSecret);
+            wanRequestMessage.Headers.Add("CF-Access-Client-Id", CloudflareClientId);
+            wanRequestMessage.Headers.Add("CF-Access-Client-Secret", CloudflareClientSecret);
 
             var pwHash = GenerateFletcher16Hash(savedPass).ToString();
             wanRequestMessage.Content = new StringContent(pwHash, Encoding.UTF8, "text/plain");
@@ -560,12 +566,14 @@ public class NetworkHubService
         }
         catch (Exception ex)
         {
-            if (ex.Message == "--> [ADMIN]: Unable to send command." && (IsUsingWifiTransportMode || IsUsingLocalApMode))
+            if (ex.Message.Contains("--> [ADMIN]: Unable to send command.") && (IsUsingWifiTransportMode || IsUsingLocalApMode))
             {
                 await App.Log("--> [ADMIN]: Failure verify master password over Wifi channels. Default to alternate communication routes.");
                 WaitingForAuthorization = false;
                 return;
             }
+
+            throw;
         }
 
         if (cmdResult)
@@ -580,7 +588,7 @@ public class NetworkHubService
                 await App.Log("--> [HANDSHAKE SECURED]: Auth validation state cleared successfully!");
                 OnAuthorizationRequestComplete?.Invoke(false);
             }
-            else
+            else if (IsBluetoothConnected)
             {
                 OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
                 OnTelemetryReceived += PasswordVerificationTelemetryHandler;
@@ -716,7 +724,7 @@ public class NetworkHubService
         {
             try
             {
-                await App.Log("--> [ROUTING]: Commencing Bluetooth byte dispatch...");
+                await App.Log($"--> [ROUTING]: Commencing Bluetooth command action '{action}'...");
                 byte[] txPayloadBytes = Encoding.UTF8.GetBytes(formattedCommandBody);
                 bool bleSuccess = !Convert.ToBoolean(await _rxCharacteristic.WriteAsync(txPayloadBytes));
 
@@ -755,7 +763,7 @@ public class NetworkHubService
                 {
                     if (!string.IsNullOrEmpty(cachedVehicleIP) && !cachedVehicleIP.Contains("0.0.0.0"))
                     {
-                        await App.Log("--> [ROUTING]: Offloading command over Local Wi-Fi API server...");
+                        await App.Log($"--> [ROUTING]: Offloading command '{action}' over Local Wi-Fi API server...");
                         string targetUrl = $"http://{cachedVehicleIP}/api/command";
                         var stringContent = new StringContent(encryptedBase64CommandString, Encoding.UTF8, "text/plain");
 
@@ -772,17 +780,18 @@ public class NetworkHubService
                         }
                     }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
                     postRetries++;
-                }
-            }
+                    
+                    if (postRetries == maxPostRetries)
+                    {
+                        await App.Log($"--> [HYBRID WARNING]: Wi-Fi transport lane faulted....");
+                        throw new Exception($"--> [ADMIN]: Unable to send command. Message: {ex.Message}");
+                    }
 
-            if (postRetries == maxPostRetries)
-            {
-                IsWifiTelemetryDead = true;
-                await App.Log($"--> [HYBRID WARNING]: Wi-Fi transport lane faulted....");
-                throw new Exception("--> [ADMIN]: Unable to send command.");
+                    await Task.Delay(1000);
+                }
             }
         }
 
@@ -791,18 +800,18 @@ public class NetworkHubService
             try
             {
                 CloudflareHost = Preferences.Default.Get("CloudflareHostKey", string.Empty);
-                ClientId = Preferences.Default.Get("CloudflareClientIdKey", string.Empty);
-                ClientSecret = Preferences.Default.Get("CloudflareClientSecretKey", string.Empty);
+                CloudflareClientId = Preferences.Default.Get("CloudflareClientIdKey", string.Empty);
+                CloudflareClientSecret = Preferences.Default.Get("CloudflareClientSecretKey", string.Empty);
 
-                if (string.IsNullOrEmpty(CloudflareHost) && !string.IsNullOrEmpty(ClientId) && !string.IsNullOrEmpty(ClientSecret))
+                if (string.IsNullOrEmpty(CloudflareHost) && !string.IsNullOrEmpty(CloudflareClientId) && !string.IsNullOrEmpty(CloudflareClientSecret))
                     return false;
 
                 await App.Log("--> [ROUTING]: Launching Cloudflare Zero-Trust WAN packet...");
                 var wanTargetUrl = $"https://{CloudflareHost}/api/command";
                 using var wanRequestMessage = new HttpRequestMessage(HttpMethod.Post, wanTargetUrl);
 
-                wanRequestMessage.Headers.Add("CF-Access-Client-Id", ClientId);
-                wanRequestMessage.Headers.Add("CF-Access-Client-Secret", ClientSecret);
+                wanRequestMessage.Headers.Add("CF-Access-Client-Id", CloudflareClientId);
+                wanRequestMessage.Headers.Add("CF-Access-Client-Secret", CloudflareClientSecret);
                 wanRequestMessage.Content = new StringContent(encryptedBase64CommandString, Encoding.UTF8, "text/plain");
 
                 HttpResponseMessage wanResponse = await _httpClient.SendAsync(wanRequestMessage);
@@ -947,7 +956,7 @@ public class NetworkHubService
         await App.Log("--> [WATCHDOG CRITICAL FAILURE]: Both communication channels are exhausted.");
     }
 
-    public static async Task<(string wifiAp, string wifiApPw, string bleName, string routerSsid, string cfHost, string cfId, bool isOk)> FetchWifiAdminParametersAsync()
+    public static async Task<(string wifiAp, string wifiApPw, string bleName, string routerSsid, string cfHost, string cfId, string cfSecret, bool isOk)> FetchWifiAdminParametersAsync()
     {
         int maxRetries = 3;
         int currentTry = 0;
@@ -967,7 +976,7 @@ public class NetworkHubService
                     }
                 }
 
-                if (string.IsNullOrEmpty(cachedVehicleIP) || cachedVehicleIP == "0.0.0.0") return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
+                if (string.IsNullOrEmpty(cachedVehicleIP) || cachedVehicleIP == "0.0.0.0") return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
 
                 using var localWebClient = new HttpClient();
                 localWebClient.Timeout = TimeSpan.FromMilliseconds(3000);
@@ -979,12 +988,12 @@ public class NetworkHubService
                     string encryptedBase64Payload = await apiResponse.Content.ReadAsStringAsync();
 
                     if (string.IsNullOrEmpty(encryptedBase64Payload))
-                        return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
+                        return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
 
                     string rawJsonProfileText = await DecryptLocalPayloadAES128CBC(encryptedBase64Payload);
 
                     if (string.IsNullOrEmpty(rawJsonProfileText))
-                        return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
+                        return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
 
                     using JsonDocument jsonDoc = JsonDocument.Parse(rawJsonProfileText);
                     var root = jsonDoc.RootElement;
@@ -995,8 +1004,9 @@ public class NetworkHubService
                     string routerSsid = root.TryGetProperty("router_ssid", out JsonElement ssidNode) ? ssidNode.GetString() ?? "NONE" : "NONE";
                     string cfHost = root.TryGetProperty("cf_host", out JsonElement hProp) ? hProp.GetString() ?? "Error" : "Loading...";
                     string cfId = root.TryGetProperty("cf_id", out JsonElement idProp) ? idProp.GetString() ?? "Error" : "Loading...";
+                    string cfSecret = root.TryGetProperty("cf_secret", out JsonElement secretProp) ? secretProp.GetString() ?? "Error" : "NONE";
 
-                    return (wifiAp, wifiApPw, bleName, routerSsid, cfHost, cfId, true);
+                    return (wifiAp, wifiApPw, bleName, routerSsid, cfHost, cfId, cfSecret, true);
                 }
                 else
                 {
@@ -1024,10 +1034,10 @@ public class NetworkHubService
             }
         }
 
-        return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
+        return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
     }
 
-    public static async Task<(string wifiAp, string wifiApPw, string bleName, string routerSsid, string cfHost, string cfId, bool isOk)> FetchCloudAdminParametersAsync()
+    public static async Task<(string wifiAp, string wifiApPw, string bleName, string routerSsid, string cfHost, string cfId, string cfSecret, bool isOk)> FetchCloudAdminParametersAsync()
     {
         int maxRetries = 3;
         int currentTry = 0;
@@ -1044,7 +1054,7 @@ public class NetworkHubService
                 if (string.IsNullOrEmpty(cfHost) || string.IsNullOrEmpty(cfId) || string.IsNullOrEmpty(cfSecret))
                 {
                     await App.Log("--> [WAN PROFILE ERROR]: Missing local Zero-Trust configuration passport keys.");
-                    return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
+                    return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
                 }
 
                 using var cloudWebClient = new HttpClient();
@@ -1063,7 +1073,7 @@ public class NetworkHubService
                     string rawJsonProfileText = await apiResponse.Content.ReadAsStringAsync();
 
                     if (string.IsNullOrEmpty(rawJsonProfileText))
-                        return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
+                        return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
 
                     using JsonDocument jsonDoc = JsonDocument.Parse(rawJsonProfileText);
                     var root = jsonDoc.RootElement;
@@ -1076,7 +1086,7 @@ public class NetworkHubService
                     string responseCfId = root.TryGetProperty("cf_id", out JsonElement idProp) ? idProp.GetString() ?? "Error" : "Loading...";
 
                     await App.Log("--> [WAN PROFILE SUCCESS]: Administrative parameter vectors synchronized over Cellular lanes!");
-                    return (wifiAp, wifiApPw, bleName, routerSsid, responseCfHost, responseCfId, true);
+                    return (wifiAp, wifiApPw, bleName, routerSsid, responseCfHost, responseCfId, string.Empty, true);
                 }
                 else
                 {
@@ -1104,7 +1114,7 @@ public class NetworkHubService
             }
         }
 
-        return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
+        return (string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, false);
     }
 
     public async void UpdateLifecycleState(bool isForeground)
@@ -1122,10 +1132,10 @@ public class NetworkHubService
 
             _isTelemetryActive = true;
             CloudflareHost = Preferences.Default.Get("CloudflareHostKey", string.Empty);
-            ClientId = Preferences.Default.Get("CloudflareClientIdKey", string.Empty);
-            ClientSecret = Preferences.Default.Get("CloudflareClientSecretKey", string.Empty);
+            CloudflareClientId = Preferences.Default.Get("CloudflareClientIdKey", string.Empty);
+            CloudflareClientSecret = Preferences.Default.Get("CloudflareClientSecretKey", string.Empty);
 
-            if (string.IsNullOrEmpty(CloudflareHost) || string.IsNullOrEmpty(ClientId) || string.IsNullOrEmpty(ClientSecret))
+            if (string.IsNullOrEmpty(CloudflareHost) || string.IsNullOrEmpty(CloudflareClientId) || string.IsNullOrEmpty(CloudflareClientSecret))
             {
                 _isTelemetryActive = false;
                 IsWANReportedOnline = false;
@@ -1157,8 +1167,8 @@ public class NetworkHubService
 
             using var requestMessage = new HttpRequestMessage(HttpMethod.Post, requestUrl);
 
-            requestMessage.Headers.Add("cf-access-client-id", ClientId);
-            requestMessage.Headers.Add("cf-access-client-secret", ClientSecret);
+            requestMessage.Headers.Add("cf-access-client-id", CloudflareClientId);
+            requestMessage.Headers.Add("cf-access-client-secret", CloudflareClientSecret);
 
             requestMessage.Content = new StringContent(encryptedBase64PasswordString, Encoding.UTF8, "text/plain");
 
@@ -1208,7 +1218,7 @@ public class NetworkHubService
 
     public async Task ManageWifiTelemetryPollingLifecycle(bool startWorker)
     {
-        if (_isTelemetryActive)
+        if (_isTelemetryActive && startWorker)
             return;
 
         _wifiTelemetryCts?.Cancel();
@@ -1217,7 +1227,7 @@ public class NetworkHubService
         if (!startWorker)
         {
             _isTelemetryActive = false;
-            await App.Log("--> [UI NETWORK ENGINE]: Competing HTTP background task loops cleanly suspended.");
+            await App.Log("--> [UI NETWORK ENGINE]: Stopping Wifi telemetry polling.");
             return;
         }
 
@@ -1298,14 +1308,14 @@ public class NetworkHubService
                         else if (networkResponse.StatusCode == System.Net.HttpStatusCode.Unauthorized)
                         {
                             await App.Log("--> [WIFI POLLING]: Telemetry poll rejected due to authorization failure.");
-                            _ = ManageWifiTelemetryPollingLifecycle(false);
+                            await ManageWifiTelemetryPollingLifecycle(false);
                         }
                     }
                     catch (TaskCanceledException cancelEx)
                     {
                         if (IsWifiTelemetryDead || !cancelEx.Message.Contains("The request was canceled due to the configured HttpClient.Timeout"))
                         {
-                            _ = ManageWifiTelemetryPollingLifecycle(false);
+                            await ManageWifiTelemetryPollingLifecycle(false);
                         }
 
                         if (!cancelEx.Message.Contains("The request was canceled due to the configured HttpClient.Timeout"))
@@ -1320,7 +1330,7 @@ public class NetworkHubService
                         {
                             await App.Log("--> [WIFI POLLING]: Max consecutive failures occurred on Wifi telemetry transport.");
                             IsWifiTelemetryDead = true;
-                            _ = ManageWifiTelemetryPollingLifecycle(false);
+                            await ManageWifiTelemetryPollingLifecycle(false);
                         }
                     }
                     catch (Exception loopEx)
@@ -1439,10 +1449,14 @@ public class NetworkHubService
         try
         {
             string cfHost = Preferences.Default.Get("CloudflareHostKey", CloudflareHost);
-            string cfId = Preferences.Default.Get("CloudflareClientIdKey", "9b28e96698ee489c6a80c96c4e211317.access");
-            string cfSecret = Preferences.Default.Get("CloudflareClientSecretKey", "cfast_UZxeMyGQK0vwF6H62qE9V0dot9DNG2qDGvmNAkTQ850111d6");
+            string cfId = Preferences.Default.Get("CloudflareClientIdKey", CloudflareClientId);
+            string cfSecret = Preferences.Default.Get("CloudflareClientSecretKey", CloudflareClientSecret);
 
-            if (string.IsNullOrEmpty(cfHost)) return false;
+            if (string.IsNullOrEmpty(cfHost))
+            {
+                Debug.WriteLine("--> [WAN RADAR]: Missing Cloudflare client configuration. No route to WAN host.");
+                return false;
+            }
 
             using var routeTimeoutToken = new CancellationTokenSource(TimeSpan.FromMilliseconds(1200));
 
@@ -1452,10 +1466,11 @@ public class NetworkHubService
             pingRequest.Headers.Add("cf-access-client-secret", cfSecret);
 
             var response = await _httpClient.SendAsync(pingRequest, routeTimeoutToken.Token);
+            
+            if (response.IsSuccessStatusCode)
+                await App.Log($"--> [WAN RADAR]: Route check to {cfHost} returned status: {response.StatusCode} | Verified Live: {response.IsSuccessStatusCode}");
 
-            bool isRouteLiveAndValid = response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.Unauthorized;
-            await App.Log($"--> [WAN RADAR]: Route check to {cfHost} returned status: {response.StatusCode} | Verified Live: {isRouteLiveAndValid}");
-            return isRouteLiveAndValid;
+            return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
         {
@@ -1533,7 +1548,7 @@ public class NetworkHubService
 
         try
         {
-            await App.Log("--> [TRANSPORT]: Verifying over-the-air channel bandwidth frames...");
+            await App.Log("--> [TRANSPORT]: Getting bluetooth service...");
 
             using (var serviceTimeoutSource = new CancellationTokenSource(TimeSpan.FromSeconds(3)))
             {
@@ -1547,6 +1562,10 @@ public class NetworkHubService
                 OnConnectionStateChanged?.Invoke(false);
                 return;
             }
+            else
+            {
+                await App.Log("--> [TRANSPORT]: Service obtained!");
+            }
 
             _rxCharacteristic = await targetService.GetCharacteristicAsync(RxCharUuid);
             _txCharacteristic = await targetService.GetCharacteristicAsync(TxCharUuid);
@@ -1556,23 +1575,30 @@ public class NetworkHubService
                 _txCharacteristic.ValueUpdated -= NativeCharacteristic_ValueUpdated;
                 _txCharacteristic.ValueUpdated += NativeCharacteristic_ValueUpdated;
 
-                await _txCharacteristic.StartUpdatesAsync();
-                await App.Log("--> [BLE SUCCESS]: Live telemetry channels fully open and sanitized.");
+                try
+                {
+                    await _txCharacteristic.StartUpdatesAsync();
+                    await App.Log("--> [BLE SUCCESS]: Live telemetry channels fully open and sanitized.");
+                }
+                catch (Exception ex)
+                {
+                    await App.Log($"--> [BLE FAILURE]: Unable to start transmission updates. Error: {ex.Message}");
+                    return;
+                }
+
+                _bLECommunicationProvisioned = true;
+                await StartRssiTracking();
+
+                while (ActiveRssi == -100 && IsBluetoothConnected)
+                {
+                    await Task.Delay(1000);
+                }
+
+                await App.Log("--> [GATT SUCCESS]: Primary service bridge successfully discovered!");
+                await App.Log($"--> [TRANSPORT SUCCESS]: Obtained target service with UUID {ServiceUuid}.");
+
+                OnConnectionStateChanged?.Invoke(true);
             }
-
-            await StartRssiTracking();
-
-            while (ActiveRssi == -100 && IsBluetoothConnected)
-            {
-                await Task.Delay(1000);
-            }
-
-            _bLECommunicationProvisioned = true;
-
-            await App.Log("--> [GATT SUCCESS]: Primary service bridge successfully discovered!");
-            await App.Log($"--> [TRANSPORT SUCCESS]: Obtained target service with UUID {ServiceUuid}.");
-
-            OnConnectionStateChanged?.Invoke(true);
             return;
         }
         catch (OperationCanceledException)

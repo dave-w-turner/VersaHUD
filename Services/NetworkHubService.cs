@@ -1577,12 +1577,18 @@ public class NetworkHubService
 
                 try
                 {
-                    await _txCharacteristic.StartUpdatesAsync();
+                    using (var serviceTimeoutSource = new CancellationTokenSource(TimeSpan.FromSeconds(5)))
+                    {
+                        await _txCharacteristic.StartUpdatesAsync().WaitAsync(serviceTimeoutSource.Token);
+                    }
+
                     await App.Log("--> [BLE SUCCESS]: Live telemetry channels fully open and sanitized.");
                 }
                 catch (Exception ex)
                 {
                     await App.Log($"--> [BLE FAILURE]: Unable to start transmission updates. Error: {ex.Message}");
+                    _targetDevice = null;
+                    OnConnectionStateChanged?.Invoke(false);
                     return;
                 }
 

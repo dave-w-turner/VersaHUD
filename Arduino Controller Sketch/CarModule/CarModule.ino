@@ -330,6 +330,10 @@ void loop() {
             crossChargeProtectionActiveFlag = false;
             writeLog("--> [CHARGER SAFETY]: Back battery is charged. Breaking cross-charge link too allow maintenance mode on front battery.");
         }
+        else if (!(backIsCharging || frontIsCharging)){
+            crossChargeProtectionActiveFlag = false;
+            writeLog("--> [CHARGER SAFETY]: Neither battery is charging. Breaking cross-charge link too allow maintenance mode on front battery.");
+        }
         else if ((globalFrontVolts >= 14.1 && globalBackVolts >= 14.2)) {
             crossChargeProtectionActiveFlag = false;
             writeLog("--> [CHARGER SAFETY]: Both batteries over 14 volts. Breaking cross-charge link too prevent cell damage.");

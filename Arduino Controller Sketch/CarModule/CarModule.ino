@@ -172,8 +172,8 @@ void setup() {
 void loop() {
     unsigned long currentMillis = millis();
 
-    handleWiFiAPI();
     BLE.poll();
+    handleWiFiAPI();
 
     if (BLE.connected() && rxCharacteristic.written()) {
         incomingBuffer = rxCharacteristic.value();

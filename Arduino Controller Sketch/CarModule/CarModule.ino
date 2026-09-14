@@ -156,6 +156,24 @@ void setup() {
     }
 
     setupBluetoothNetwork();
+
+    uint16_t activeLockHash = readHashFromEEPROM(EEPROM_LOCK_HASH_ADDR);
+
+    char hexBuffer[12];
+    sprintf(hexBuffer, "%04X", activeLockHash);
+    String dynamicApPassword = String(hexBuffer);
+
+    if (activeLockHash == 0xFFFF || activeLockHash == 0) {
+        dynamicApPassword = DEFAULT_MASTER_PASSWORD;
+    } 
+    else if (dynamicApPassword.length() < 8) {
+        while (dynamicApPassword.length() < 8) {
+            dynamicApPassword += "0";
+        }
+    }
+
+    currentAPPassword = dynamicApPassword;
+
     setupWiFiAPI();
 
     displayMatrixText(" HUB ONLINE ");
@@ -670,22 +688,6 @@ void setupWiFiAPI() {
     String savedPASS = readSecureStringFromEEPROM(EEPROM_WIFI_PASS_ADDR);
 
     bool stationConnectedSuccess = false;
-    uint16_t activeLockHash = readHashFromEEPROM(EEPROM_LOCK_HASH_ADDR);
-
-    char hexBuffer[12];
-    sprintf(hexBuffer, "%04X", activeLockHash);
-    String dynamicApPassword = String(hexBuffer);
-
-    if (activeLockHash == 0xFFFF || activeLockHash == 0) {
-        dynamicApPassword = DEFAULT_MASTER_PASSWORD;
-    } 
-    else if (dynamicApPassword.length() < 8) {
-        while (dynamicApPassword.length() < 8) {
-            dynamicApPassword += "0";
-        }
-    }
-
-    currentAPPassword = dynamicApPassword;
 
     if (savedSSID.length() > 0) {
         writeLog("[SYS] Attempting Link to Home Station...");
@@ -708,11 +710,11 @@ void setupWiFiAPI() {
     if (!stationConnectedSuccess) {
         writeLog("[WAN ALERT]: Station link dropped. Starting Fallback Access Point...");
 
-        WiFi.beginAP(currentBroadcastAP.c_str(), dynamicApPassword.c_str());
+        WiFi.beginAP(currentBroadcastAP.c_str(), currentAPPassword.c_str());
         systemIsCurrentlyInFallbackApMode = true;
         
         Serial.print("--> [AP BOOT SUCCESS]: Local hotspot online. Secure AP Key is: ");
-        Serial.println(dynamicApPassword);
+        Serial.println(currentAPPassword);
     } else {
         writeLog("[SYS] Station Linked! Synchronizing Network Time...");
         systemIsCurrentlyInFallbackApMode = false;

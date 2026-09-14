@@ -121,7 +121,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             int bleIndex = rawPacket.IndexOf("BLE_NAME:");
             int routerIndex = rawPacket.IndexOf("ROUTER_SSID:");
 
-            if (apIndex != -1 || bleIndex != -1 || routerIndex != -1)
+            if (apIndex != -1 || apPwIndex != -1 || bleIndex != -1 || routerIndex != -1)
             {
                 await MainThread.InvokeOnMainThreadAsync(() =>
                 {
@@ -591,26 +591,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         }
     }
 
-    protected override async void OnAppearing()
-    {
-        base.OnAppearing();
-
-        if (App.NetworkService != null && App.NetworkService.IsRebootingWatchdogActive)
-        {
-            RebootLockoutShellVisible = true;
-            return;
-        }
-        else
-            RebootLockoutShellVisible = false;
-
-        await Task.Delay(300);
-
-        if (App.NetworkService != null && !App.NetworkService.IsRebootingWatchdogActive)
-        {
-            await UpdateAdminData();
-        }
-    }
-
     private async Task<bool> HandleWifiAndCloudData()
     {
         var (wifiAp, wifiApPw, bleName, routerSsid, cfHost, cfId, cfSecret, isOk) = App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode ?
@@ -722,6 +702,26 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             }
 
             await Task.Delay(500);
+        }
+    }
+
+    protected override async void OnAppearing()
+    {
+        base.OnAppearing();
+
+        if (App.NetworkService != null && App.NetworkService.IsRebootingWatchdogActive)
+        {
+            RebootLockoutShellVisible = true;
+            return;
+        }
+        else
+            RebootLockoutShellVisible = false;
+
+        await Task.Delay(300);
+
+        if (App.NetworkService != null && !App.NetworkService.IsRebootingWatchdogActive)
+        {
+            await UpdateAdminData();
         }
     }
 

@@ -35,7 +35,7 @@
                     </Border.StrokeShape>
                     <VerticalStackLayout Padding="15" Spacing="15">
                         <VerticalStackLayout Spacing="5">
-                            <Label Text="{Binding APPasswordTextLabel}" TextColor="#3B82F6" FontSize="11" FontAttributes="Bold"/>
+                            <Label Text="{Binding APPasswordTextLabel}" TextColor="CadetBlue" FontSize="15" FontAttributes="Bold"/>
                             <Label Text="LOCAL WI-FI AP NAME SSID" TextColor="#8E8E93" FontSize="11" FontAttributes="Bold"/>
                             <Entry Text="{Binding WifiAPEntryText}" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
                             <Button Text="UPDATE AP SSID" BackgroundColor="#3B82F6" TextColor="#FFFFFF" Clicked="OnUpdateWifiAPClicked" HeightRequest="40"/>

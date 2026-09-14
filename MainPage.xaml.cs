@@ -12,7 +12,8 @@ public partial class MainPage : ContentPage
 {
     private static readonly Regex FrontBatteryRegex = new(@"Front:\s*(?:\[[^\]]+\]\s*)?(?<volts>[\d.]+)\s*V\s*\((?<percent>\d+)%\)", RegexOptions.Compiled);
     private static readonly Regex BackBatteryRegex = new(@"Back:\s*(?:\[[^\]]+\]\s*)?(?<volts>[\d.]+)\s*V\s*\((?<percent>\d+)%\)", RegexOptions.Compiled);
-    private static readonly Regex AvailableRamBytes = new(@"💾\s*\[.+?\]\s*\d+%\s*\((\d+)\s*B\)", RegexOptions.Compiled);
+    private static readonly Regex BLEAvailableRamBytes = new(@"💾\[\d+%\]\s*\((\d+)\s*B\)", RegexOptions.Compiled);
+    private static readonly Regex WiFiAvailableRamBytes = new(@"💾(?:\[[^\]]+\]\s*\d+%\s*|\[\d+%\]\s*)\((\d+)\s*B\)");
     private HashSet<string> _processedVehicleLogLinesBucket = [];
 
     public event Action<string>? OnTelemetryParsed;
@@ -139,13 +140,13 @@ public partial class MainPage : ContentPage
                     foreach (JsonElement individualLine in logsNode.EnumerateArray().Reverse())
                     {
                         string logText = individualLine.GetString() ?? string.Empty;
-                        logText = logText.Trim() + "\n";
+                        logText = logText.Trim();
 
                         if (!string.IsNullOrEmpty(logText))
                         {
                             if (_processedVehicleLogLinesBucket.Add(logText))
                             {
-                                logBuilder.AppendLine($"{logText}\n");
+                                logBuilder.AppendLine($"{logText}");
                                 hasNewUniqueLines = true;
                             }
                         }
@@ -223,7 +224,7 @@ public partial class MainPage : ContentPage
                 try
                 {
                     int keysHeaderIndex = rawDataPacket.IndexOf("CF_KEYS:") + 8;
-                    string encryptedBase64Envelope = rawDataPacket.Substring(keysHeaderIndex).Trim();
+                    string encryptedBase64Envelope = rawDataPacket[keysHeaderIndex..].Trim();
 
                     string decryptedPlaintextKeys = await NetworkHubService.DecryptLocalPayloadAES128CBC(encryptedBase64Envelope);
 
@@ -318,15 +319,27 @@ public partial class MainPage : ContentPage
                 int currentBackPercent = 0;
                 bool currentBackIsCharging = rawDataPacket.Contains("Back: [🔋 CHARGING]");
 
-                Match availableRam = AvailableRamBytes.Match(rawDataPacket);
+                Match? availableRam = null;
 
-                if (availableRam.Success && int.TryParse(availableRam.Groups[1].Value, out int freeBytes))
+                if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode)
                 {
-                    MemoryIndicator.CurrentInstance.UpdateMemoryHardwareGauge(freeBytes);
+                    availableRam = WiFiAvailableRamBytes.Match(rawDataPacket);
                 }
                 else
                 {
-                    MemoryIndicator.CurrentInstance.Hide();
+                    availableRam = BLEAvailableRamBytes.Match(rawDataPacket);
+                }
+
+                if (availableRam != null)
+                {
+                    if (availableRam.Success && int.TryParse(availableRam.Groups[1].Value, out int freeBytes))
+                    {
+                        MemoryIndicator.CurrentInstance.UpdateMemoryHardwareGauge(freeBytes);
+                    }
+                    else
+                    {
+                        MemoryIndicator.CurrentInstance.Hide();
+                    }
                 }
 
                 if (backMatch.Success)
@@ -448,6 +461,8 @@ public partial class MainPage : ContentPage
                 ProgressBackValue = 0.0f;
                 ProgressBackColorValue = Colors.DarkSlateGray;
                 BackIconTextLabel = "❌";
+
+                MemoryIndicator.CurrentInstance?.Hide();
             });
 
             _ = Task.Run(async () => {
@@ -465,6 +480,8 @@ public partial class MainPage : ContentPage
         }
         else
         {
+            BorderNetworkStatusVisible = true;
+
             if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode)
             {
                 ExecuteWifiThemeRedrawPass();
@@ -746,29 +763,37 @@ public partial class MainPage : ContentPage
 
                 if (App.NetworkService.IsBluetoothConnected && !(App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode))
                 {
-                    await Task.Delay(500);
+                    await Task.Delay(2500);
                     string activeKey = Preferences.Default.Get(InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
                     bool commandTransmitted = false;
 
                     try
                     {
-                        commandTransmitted = await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
+                        while (!commandTransmitted)
+                        {
+                            commandTransmitted = await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
 
-                        if (commandTransmitted)
-                        {
-                            await App.Log("--> [BOOT LINK SUCCESS]: Secure BLE key-pull verification request offloaded natively on boot pass!");
-                        }
-                        else
-                        {
-                            await App.Log("--> [BOOT LINK FAILURE]: Failed to process Secure BLE key-pull verification request on boot pass! The command could not be transmitted.");
+                            if (commandTransmitted)
+                            {
+                                await App.Log("--> [BOOT LINK SUCCESS]: Secure BLE key-pull verification request offloaded natively on boot pass!");
+                            }
+                            else
+                            {
+                                await App.Log("--> [BOOT LINK FAILURE]: Failed to process Secure BLE key-pull verification request on boot pass! The command could not be transmitted.");
+                                await Task.Delay(2500);
+                            }
                         }
                     }
                     catch (Exception ex)
                     {
-                        if (!ex.Message.Contains("--> [ADMIN]: Unable to send command."))
+                        if (!ex.Message.Contains("--> [ADMIN]: Unable to send command.") ||
+                        !ex.Message.Contains("--> [ADMIN]: Assuming transport switched during the 'GETCFKEYS'"))
                             throw;
 
-                        await App.Log($"--> [BOOT LINK FAILURE]: Failed to process Secure BLE key-pull verification request on boot pass! Message: {ex.Message}");
+                        if (!ex.Message.Contains("--> [ADMIN]: Assuming transport switched during the 'GETCFKEYS'"))
+                            await App.Log($"--> [BOOT LINK FAILURE]: Failed to process Secure BLE key-pull verification request on boot pass! Message: {ex.Message}");
+                        else
+                            await App.Log(ex.Message);
                     }
                 }
                 else if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode)

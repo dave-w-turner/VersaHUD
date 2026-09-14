@@ -44,6 +44,7 @@ public class NetworkHubService
     private bool _isTelemetryActive = false;
     private readonly Lock _rssiLock = new();
     private bool _isFirstConnectionAttempt = true;
+    private int _firstConnectionAttemptRetryCount = 0;
 
     public bool IsConnecting { get; private set; } = false;
     private const int TRANSPORT_FLAPPING_COOLDOWN_SECONDS = 30;
@@ -101,7 +102,6 @@ public class NetworkHubService
     }
     public bool IsWifiTelemetryDead { get; set; } = false;
     public bool IsPromptingForMasterPassword { get; set; } = false;
-
     public DateTime LastReportedWANLinkState { get; set; } = DateTime.MaxValue;
     public bool IsAuthorized { get; set; } = false;
     public bool WaitingForAuthorization { get; set; } = false;
@@ -443,7 +443,7 @@ public class NetworkHubService
                             _reconnectLoopCts = new();
                             var reconnectToken = _reconnectLoopCts.Token;
 
-                            _ = Task.Run(async () =>
+                            await Task.Run(async () =>
                             {
                                 for (int i = 30; i >= 0; i--)
                                 {
@@ -469,17 +469,21 @@ public class NetworkHubService
                                         break;
                                     }
                                 }
-
-                                StartConnectionSupervisor();
                             }, _reconnectLoopCts.Token);
                         }
                         else
                         {
-                            StartConnectionSupervisor();
-                            _isFirstConnectionAttempt = false;
-                        }
+                            _firstConnectionAttemptRetryCount++;
 
-                        return;
+                            if (_firstConnectionAttemptRetryCount > 5)
+                            {
+                                _isFirstConnectionAttempt = false;
+                            }
+                            else
+                            {
+                                await Task.Delay(5000);
+                            }
+                        }
                     }
                     else if (!IsAuthorized && (IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
                     {
@@ -490,7 +494,6 @@ public class NetworkHubService
 
                         await Task.Delay(1500);
                         await VerifyPasswordAgainstHardwareAsync();
-                        continue;
                     }
                 }
                 catch (Exception ex)
@@ -558,6 +561,28 @@ public class NetworkHubService
             return;
         }
 
+        if (IsBluetoothConnected)
+        {
+            OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
+            OnTelemetryReceived += PasswordVerificationTelemetryHandler;
+
+            _passwordVerificationCts ??= new();
+            var token = _passwordVerificationCts.Token;
+
+            _ = Task.Run(async () =>
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    await Task.Delay(1000);
+                }
+
+                _passwordVerificationCts = null;
+                WaitingForAuthorization = false;
+                OnConnectionStateChanged?.Invoke(true);
+                OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
+            });
+        }
+
         bool cmdResult = false;
 
         try
@@ -570,6 +595,9 @@ public class NetworkHubService
             {
                 await App.Log("--> [ADMIN]: Failure verify master password over Wifi channels. Default to alternate communication routes.");
                 WaitingForAuthorization = false;
+                IsAuthorized = false;
+                _passwordVerificationCts?.Cancel();
+                OnAuthorizationRequestComplete?.Invoke(false);
                 return;
             }
 
@@ -581,44 +609,29 @@ public class NetworkHubService
             if (IsUsingWifiTransportMode || IsUsingLocalApMode)
             {
                 IsAuthorized = true;
-                OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
                 WaitingForAuthorization = false;
+                _passwordVerificationCts?.Cancel();
+
                 OnConnectionStateChanged?.Invoke(false);
 
                 await App.Log("--> [HANDSHAKE SECURED]: Auth validation state cleared successfully!");
                 OnAuthorizationRequestComplete?.Invoke(false);
-            }
-            else if (IsBluetoothConnected)
-            {
-                OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
-                OnTelemetryReceived += PasswordVerificationTelemetryHandler;
-
-                _passwordVerificationCts ??= new();
-                var token = _passwordVerificationCts.Token;
-
-                _ = Task.Run(async () =>
-                {
-                    while (!token.IsCancellationRequested)
-                    {
-                        await Task.Delay(1000);
-                    }
-
-                    _passwordVerificationCts = null;
-                    WaitingForAuthorization = false;
-                    OnConnectionStateChanged?.Invoke(IsBluetoothConnected);
-                    OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
-                });
-            }
+            }            
         }
         else if (IsUsingWifiTransportMode || IsUsingLocalApMode)
         {
-            WaitingForAuthorization = false;
             IsAuthorized = false;
-            OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
+            WaitingForAuthorization = false;
+            _passwordVerificationCts?.Cancel();
+            
+            OnConnectionStateChanged?.Invoke(false);
 
             await App.Log("--> [HANDSHAKE REJECTED]: Auth failed token caught. Displaying single alert prompt...");
-            OnConnectionStateChanged?.Invoke(false);
             OnAuthorizationRequestComplete?.Invoke(true);
+        }
+        else
+        {
+            _passwordVerificationCts?.Cancel();
         }
     }
 
@@ -679,6 +692,11 @@ public class NetworkHubService
                 }
             }
         }
+        else
+        {
+            string savedPass = Preferences.Default.Get(InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
+            await SendSecureCommandAsync(savedPass, "VERIFYPASS");
+        }
     }
 
     public async Task StartDiscoveryScanAsync()
@@ -725,7 +743,7 @@ public class NetworkHubService
             try
             {
                 await App.Log($"--> [ROUTING]: Commencing Bluetooth command action '{action}'...");
-                byte[] txPayloadBytes = Encoding.UTF8.GetBytes(formattedCommandBody);
+                byte[] txPayloadBytes = Encoding.UTF8.GetBytes(encryptedBase64CommandString);
                 bool bleSuccess = !Convert.ToBoolean(await _rxCharacteristic.WriteAsync(txPayloadBytes));
 
                 if (bleSuccess) return true;
@@ -736,6 +754,9 @@ public class NetworkHubService
                 await App.Log($"--> [BLE COMMAND FAULT]: {bleEx.Message}. Cascading smoothly to network layers...");
             }
         }
+
+        if (action == "GETCFKEYS" && (IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
+            throw new Exception("--> [ADMIN]: Assuming transport switched during the 'GETCFKEYS' request which is only required by BLE connectivity."); ;
 
         if ((IsUsingWifiTransportMode || IsUsingLocalApMode) && !IsWifiTelemetryDead)
         {
@@ -795,7 +816,7 @@ public class NetworkHubService
             }
         }
 
-        if (App.NetworkService.IsUsingCloudWanMode)
+        if (IsUsingCloudWanMode)
         {
             try
             {
@@ -1381,7 +1402,7 @@ public class NetworkHubService
                 plaintextOutputResult = streamReader.ReadToEnd();
             }
 
-            await App.Log($"--> [AES DECRYPTION SUCCESS]: Decoded clean JSON frame: {plaintextOutputResult}");
+            await App.Log($"--> [AES DECRYPTION SUCCESS]: Decoded clean JSON frame.");
             return plaintextOutputResult;
         }
         catch (Exception cryptoEx)
@@ -1531,26 +1552,27 @@ public class NetworkHubService
         {
             await App.Log("--> [TRANSPORT]: Verifying over-the-air channel bandwidth frames...");
 
-            using var timeoutSource = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            using var timeoutSource = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             int negotiatedMtuSize = await _targetDevice.RequestMtuAsync(256).WaitAsync(timeoutSource.Token);
             await App.Log($"--> [TRANSPORT SUCCESS]: Channel MTU optimized cleanly to: {negotiatedMtuSize} bytes.");
         }
         catch (OperationCanceledException)
         {
             await App.Log("--> [TRANSPORT WARN]: MTU handshake response timed out. Falling back to OS auto-negotiated limits.");
+            return;
         }
         catch (Exception ex)
         {
             await App.Log($"--> [TRANSPORT ERROR]: Optional MTU negotiation bypassed: {ex.Message}");
+            return;
         }
-
         IService? targetService = null;
 
         try
         {
             await App.Log("--> [TRANSPORT]: Getting bluetooth service...");
 
-            using (var serviceTimeoutSource = new CancellationTokenSource(TimeSpan.FromSeconds(3)))
+            using (var serviceTimeoutSource = new CancellationTokenSource(TimeSpan.FromSeconds(5)))
             {
                 targetService = await _targetDevice.GetServiceAsync(ServiceUuid).WaitAsync(serviceTimeoutSource.Token);
             }
@@ -1558,7 +1580,7 @@ public class NetworkHubService
             if (targetService == null)
             {
                 await App.Log("--> [GATT EXCEPTION]: Service link failure:Target GATT service interface returned null reference profile.");
-                _targetDevice = null;
+                await RecycleBluetoothAdapterStateAsync();
                 OnConnectionStateChanged?.Invoke(false);
                 return;
             }
@@ -1569,6 +1591,8 @@ public class NetworkHubService
 
             _rxCharacteristic = await targetService.GetCharacteristicAsync(RxCharUuid);
             _txCharacteristic = await targetService.GetCharacteristicAsync(TxCharUuid);
+
+            await Task.Delay(1000);
 
             if (_txCharacteristic != null && !(IsUsingWifiTransportMode || IsUsingLocalApMode))
             {
@@ -1587,7 +1611,7 @@ public class NetworkHubService
                 catch (Exception ex)
                 {
                     await App.Log($"--> [BLE FAILURE]: Unable to start transmission updates. Error: {ex.Message}");
-                    _targetDevice = null;
+                    await RecycleBluetoothAdapterStateAsync();
                     OnConnectionStateChanged?.Invoke(false);
                     return;
                 }
@@ -1599,7 +1623,7 @@ public class NetworkHubService
                 {
                     await Task.Delay(1000);
                 }
-
+                
                 await App.Log("--> [GATT SUCCESS]: Primary service bridge successfully discovered!");
                 await App.Log($"--> [TRANSPORT SUCCESS]: Obtained target service with UUID {ServiceUuid}.");
 
@@ -1616,7 +1640,7 @@ public class NetworkHubService
             await App.Log($"--> [GATT EXCEPTION]: Service link failure: {ex.Message}");
         }
 
-        _targetDevice = null;
+        await RecycleBluetoothAdapterStateAsync();
         OnConnectionStateChanged?.Invoke(false);
     }
 
@@ -1787,6 +1811,39 @@ public class NetworkHubService
         catch (Exception ex)
         {
             await App.Log($"--> [BLE VALUE READING CHOKE]: {ex.Message}");
+        }
+    }
+
+    public async Task RecycleBluetoothAdapterStateAsync()
+    {
+        try
+        {
+            await App.Log("--> [BLE SUPERVISOR]: Critical timeout detected. Initiating adapter recycling sequence...");
+
+            _txCharacteristic?.ValueUpdated -= NativeCharacteristic_ValueUpdated;
+
+            if (_targetDevice != null && (_targetDevice.State == DeviceState.Connected || _targetDevice.State == DeviceState.Connecting))
+            {
+                await App.Log("--> [BLE SUPERVISOR]: Terminating active GATT socket handles...");
+
+                using var disconnectToken = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                await CrossBluetoothLE.Current.Adapter.DisconnectDeviceAsync(_targetDevice, disconnectToken.Token);
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Graceful disconnect bypassed: {ex.Message}");
+        }
+        finally
+        {
+            _txCharacteristic = null;
+            _rxCharacteristic = null;
+            _targetDevice = null;
+
+            await App.Log("--> [BLE SUPERVISOR]: Native GATT caches flushed. Radio rails settling...");
+            await Task.Delay(1000);
+
+            await App.Log("--> [BLE SUPERVISOR]: Adapter state recycled successfully. Ready for cold-start reconnect.");
         }
     }
 }

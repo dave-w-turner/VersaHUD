@@ -154,7 +154,7 @@
                             <Grid Grid.Row="1" ColumnDefinitions="*, *" ColumnSpacing="16" VerticalOptions="Center">
                                 <HorizontalStackLayout Grid.Column="0" Spacing="8" HorizontalOptions="Start" VerticalOptions="Center">
                                     <Label Text="DEBUG LOGS" TextColor="#8E8E93" FontSize="10" FontAttributes="Bold" VerticalOptions="Center"/>
-                                    <Switch IsToggled="{Binding SwitchDebugLogsToggled}" OnColor="#3B82F6" ThumbColor="#FFFFFF" VerticalOptions="Center" Scale="0.80" Toggled="OnDebugLogsToggled" />
+                                    <Switch IsToggled="{Binding SwitchDebugLogsToggled}" OnColor="#3B82F6" ThumbColor="#FFFFFF" VerticalOptions="Center" Scale="0.80" />
                                 </HorizontalStackLayout>
 
                                 <HorizontalStackLayout Grid.Column="1" Spacing="8" HorizontalOptions="End" VerticalOptions="Center">

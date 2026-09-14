@@ -92,14 +92,13 @@ float globalBackVolts = 0;
 int frontBatteryPercent = 100;
 int backBatteryPercent = 100;
 
-float frontChargingVolts = 13.40;
-float backChargingVolts = 13.80;
+float chargingVolts = 12.90;
 
 float frontMaxFullChargeVolts = 12.80;
 float backMaxFullChargeVolts = 12.90;
 
-bool frontIsCharging = (globalFrontVolts >= frontChargingVolts);
-bool backIsCharging = (globalBackVolts >= backChargingVolts);
+bool frontIsCharging = (globalFrontVolts >= chargingVolts);
+bool backIsCharging = (globalBackVolts >= chargingVolts);
 
 bool adminNeedsCloudSync = true;
 unsigned long lastAdminSyncMillis = 0;
@@ -110,6 +109,7 @@ static unsigned long lastCloudUploadTimestamp = 0;
 static unsigned long rapidResponseWindowExpiration = 0;
 
 bool crossChargeProtectionActiveFlag = false; 
+bool emergencyCrossChargeActiveFlag = false;
 
 String currentBroadcastAP = "";
 String currentBroadcastBLE = "";
@@ -176,205 +176,22 @@ void loop() {
     handleWiFiAPI();
 
     if (BLE.connected() && rxCharacteristic.written()) {
-        incomingBuffer = rxCharacteristic.value();
-        processSecureCommand(incomingBuffer, "BLE_LINK");
-    }
+        String rawEncryptedPacket = rxCharacteristic.value(); 
+        writeLog("--> [BLE CRYPTO]: Inbound operational envelope detected. Decoding cipher payload...");
 
-    checkCloudCommandMailbox(); 
+        String fullyDecryptedCommand = decryptPayloadAES128CBC(rawEncryptedPacket);
+        fullyDecryptedCommand.trim();
 
-    if (pendingSystemHardwareRebootFlag && (currentMillis - hardwareRebootTimestampCount >= 2500)) {
-        writeLog("--> [WATCHDOG]: Drainage pad completed. Re-flashing core system architecture registers now and rebooting!");
-        delay(2500);
-        NVIC_SystemReset();
-    }
-
-    if (currentMillis - lastNetworkWatchdogCheckMillis >= networkWatchdogInterval) {
-        lastNetworkWatchdogCheckMillis = currentMillis;
-        maintainNetworkHealth();
-    }    
-
-    pinMode(RADIO_SENSOR, INPUT);
-
-    long accumulatedRawFront = 0;
-    long accumulatedRawBack = 0;
-
-    for (int i = 0; i < 8; i++) {
-        analogRead(VOLTAGE_FRONT); 
-        delayMicroseconds(50);
-        accumulatedRawFront += analogRead(VOLTAGE_FRONT);
-
-        analogRead(VOLTAGE_BACK); 
-        delayMicroseconds(50);
-        accumulatedRawBack += analogRead(VOLTAGE_BACK);
-    }
-
-    int rawFront = accumulatedRawFront / 8;
-    int rawBack = accumulatedRawBack / 8;
-
-    globalFrontVolts = ((rawFront * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_FRONT;
-    globalBackVolts = ((rawBack * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_BACK;
-
-    frontIsCharging = globalFrontVolts >= frontChargingVolts;
-    backIsCharging = globalBackVolts >= backChargingVolts;
-
-    bool radioSenseIsActive = (digitalRead(RADIO_SENSOR) == HIGH); 
-
-    int rawFrontCalculatedPercent = 0;
-
-    if (globalFrontVolts >= frontMaxFullChargeVolts) {
-        rawFrontCalculatedPercent = 100;
-    } else if (globalFrontVolts >= (frontMaxFullChargeVolts - 0.30)) {
-        rawFrontCalculatedPercent = 85 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 0.30)) / 0.30 * 15.0);
-    } else if (globalFrontVolts >= (frontMaxFullChargeVolts - 0.50)) {
-        rawFrontCalculatedPercent = 70 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 0.50)) / 0.20 * 15.0);
-    } else if (globalFrontVolts >= (frontMaxFullChargeVolts - 0.70)) {
-        rawFrontCalculatedPercent = 50 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 0.70)) / 0.20 * 20.0);
-    } else if (globalFrontVolts >= (frontMaxFullChargeVolts - 0.90)) {
-        rawFrontCalculatedPercent = 30 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 0.90)) / 0.20 * 20.0);
-    } else if (globalFrontVolts >= (frontMaxFullChargeVolts - 1.20)) {
-        rawFrontCalculatedPercent = 10 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 1.20)) / 0.30 * 20.0);
-    } else if (globalFrontVolts >= (frontMaxFullChargeVolts - 1.30)) {
-        rawFrontCalculatedPercent = 0 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 1.30)) / 0.10 * 10.0);
-    } else {
-        rawFrontCalculatedPercent = 0;
-    }
-
-    if (abs(rawFrontCalculatedPercent - frontBatteryPercent) >= 3 || rawFrontCalculatedPercent == 100 || rawFrontCalculatedPercent == 0) {
-        frontBatteryPercent = rawFrontCalculatedPercent;
-    }
-
-    int rawBackCalculatedPercent = 0;
-
-    if (globalBackVolts >= backMaxFullChargeVolts) {
-        rawBackCalculatedPercent = 100;
-    } else if (globalBackVolts >= (backMaxFullChargeVolts - 0.30)) {
-        rawBackCalculatedPercent = 85 + (int)((globalBackVolts - (backMaxFullChargeVolts - 0.30)) / 0.30 * 15.0);
-    } else if (globalBackVolts >= (backMaxFullChargeVolts - 0.50)) {
-        rawBackCalculatedPercent = 70 + (int)((globalBackVolts - (backMaxFullChargeVolts - 0.50)) / 0.20 * 15.0);
-    } else if (globalBackVolts >= (backMaxFullChargeVolts - 0.70)) {
-        rawBackCalculatedPercent = 50 + (int)((globalBackVolts - (backMaxFullChargeVolts - 0.70)) / 0.20 * 20.0);
-    } else if (globalBackVolts >= (backMaxFullChargeVolts - 0.90)) {
-        rawBackCalculatedPercent = 30 + (int)((globalBackVolts - (backMaxFullChargeVolts - 0.90)) / 0.20 * 20.0);
-    } else if (globalBackVolts >= (backMaxFullChargeVolts - 1.20)) {
-        rawBackCalculatedPercent = 10 + (int)((globalBackVolts - (backMaxFullChargeVolts - 1.20)) / 0.30 * 20.0);
-    } else if (globalBackVolts >= (backMaxFullChargeVolts - 1.30)) {
-        rawBackCalculatedPercent = 0 + (int)((globalBackVolts - (backMaxFullChargeVolts - 1.30)) / 0.10 * 10.0);
-    } else {
-        rawBackCalculatedPercent = 0;
-    }
-
-    if (abs(rawBackCalculatedPercent - backBatteryPercent) >= 3 || rawBackCalculatedPercent == 100 || rawBackCalculatedPercent == 0) {
-        backBatteryPercent = rawBackCalculatedPercent;
-    }    
+        if (fullyDecryptedCommand.length() > 0 && fullyDecryptedCommand.indexOf(':') != -1) {
+            processSecureCommand(fullyDecryptedCommand, "BLE_LINK");
+            
+        } 
+        else {
+            writeLog("--> [BLE CRYPTO ERROR]: Decryption layer mismatch or malformed packet shape envelope.");
+        }
         
-    String telemetryString = "[SYS] ";
-
-    bool isWifiConnected = (WiFi.status() == WL_CONNECTED);
-    if (isWifiConnected) {
-        telemetryString += "IP:" + WiFi.localIP().toString() + " | "; 
-    } else {
-        telemetryString += "IP:STA_HOTSPOT | ";
-    }
-
-    if (lastCloudTransmitSuccessful) {
-        telemetryString += "[📡 WAN_ONLINE] ";
-    } else {
-        telemetryString += "[☁ WAN_OFFLINE] ";
-    }
-
-    if (radioSenseIsActive) { 
-        telemetryString += "[🔊 AMPS ON] ";
-    } else {
-        telemetryString += "[🔇 AMPS OFF] ";
-    }
-
-    if (crossChargeProtectionActiveFlag) {
-        telemetryString += "[⚡ CROSS_CHG ACTIVE] ";
-    } 
-
-    if (globalFrontVolts < 6.50 && globalBackVolts < 6.50) { 
-        telemetryString += "BATTERIES DETECTED: [❌ BOTH DISCONNECTED]"; 
-    } 
-    else { 
-        if (globalFrontVolts < 6.50) telemetryString += "Front: [❌ DISCONNECTED]"; 
-        else { 
-            telemetryString += "Front: "; 
-            if ((frontIsCharging && !backIsCharging) || crossChargeProtectionActiveFlag) telemetryString += "[🔋 CHARGING] "; 
-            telemetryString += String(globalFrontVolts, 1) + "V (" + String(frontBatteryPercent) + "%)"; 
-        } 
-        telemetryString += " | "; 
-        if (globalBackVolts < 6.50) telemetryString += "Back: [❌ DISCONNECTED]"; 
-        else { 
-            telemetryString += "Back: "; 
-            if ((backIsCharging && !frontIsCharging) || crossChargeProtectionActiveFlag) telemetryString += "[ 🔋 CHARGING] "; 
-            telemetryString += String(globalBackVolts, 1) + "V (" + String(backBatteryPercent) + "%)"; 
-        } 
-    } 
-
-    writeLog(telemetryString);      
-
-    if (!crossChargeProtectionActiveFlag) { 
-        if ((frontBatteryPercent <= CRITICAL_BATTERY_LOW && backBatteryPercent >= SAFE_BATTERY_CEILING) ||  
-            (backBatteryPercent <= CRITICAL_BATTERY_LOW && frontBatteryPercent >= SAFE_BATTERY_CEILING) ||
-            (backIsCharging && frontBatteryPercent <= 80) ||
-            (frontIsCharging && backBatteryPercent <= 80)) { 
-            crossChargeProtectionActiveFlag = true; 
-            writeLog("--> [BATTERY CRITICAL]: Threshold protection tripped! Bridging cells for emergency cross-charge."); 
-        } 
-    } else {
-        if (frontBatteryPercent == 100 && backIsCharging) {
-            crossChargeProtectionActiveFlag = false;
-            writeLog("--> [CHARGER SAFETY]: Front battery is charged. Breaking cross-charge link too allow maintenance mode on back battery.");
-        }
-        else if (backBatteryPercent == 100 && frontIsCharging) {
-            crossChargeProtectionActiveFlag = false;
-            writeLog("--> [CHARGER SAFETY]: Back battery is charged. Breaking cross-charge link too allow maintenance mode on front battery.");
-        }
-        else if (!(backIsCharging || frontIsCharging)){
-            crossChargeProtectionActiveFlag = false;
-            writeLog("--> [CHARGER SAFETY]: Neither battery is charging. Breaking cross-charge link too allow maintenance mode on front battery.");
-        }
-        else if ((globalFrontVolts >= 14.1 && globalBackVolts >= 14.2)) {
-            crossChargeProtectionActiveFlag = false;
-            writeLog("--> [CHARGER SAFETY]: Both batteries over 14 volts. Breaking cross-charge link too prevent cell damage.");
-        }
-        else if (frontBatteryPercent <= 5 && backBatteryPercent <= 5) { 
-            crossChargeProtectionActiveFlag = false;
-            writeLog("--> [BATTERY EMERGENCY]: Both banks completely dead! Breaking cross-charge to save core cell hardware."); 
-        } 
-    }
-
-    if (crossChargeProtectionActiveFlag) {        
-        delay(500);
-        digitalWrite(RELAY_SOLENOID, LOW);
-    }
-    else {
-        digitalWrite(RELAY_SOLENOID, HIGH);
-    }
-
-    if (globalFrontVolts >= 11.20) { 
-        if (radioSenseIsActive && digitalRead(RELAY_AMP_REM) != LOW) { 
-            if (digitalRead(RELAY_AMP_REM) == HIGH) { 
-                digitalWrite(RELAY_AMP_REM, LOW);
-                writeLog("--> [AUDIO]: Radio detected active. K4 SNAP CLOSED."); 
-            } 
-        }
-        else if (!radioSenseIsActive) { 
-            if (digitalRead(RELAY_AMP_REM) == LOW) { 
-                digitalWrite(RELAY_AMP_REM, HIGH);
-                writeLog("--> [AUDIO]: Radio detected sleeping. K4 CLICK OPEN."); 
-            } 
-        } 
-    }
-    else if (digitalRead(RELAY_AMP_REM) == LOW) { 
-        digitalWrite(RELAY_AMP_REM, HIGH); 
-        writeLog("--> [AUDIO]: Critical voltage protection tripped! K4 FORCED OPEN."); 
-    } 
-
-    if (currentMillis - previousTelemetryMillis >= telemetryInterval) {
-        previousTelemetryMillis = currentMillis;
-        flushTelemetryToCloud();
-    }
+        incomingBuffer = ""; 
+    }    
 
     while (Serial.available() > 0) { 
         char c = Serial.read(); 
@@ -389,7 +206,156 @@ void loop() {
         } 
     } 
 
-    delay(2000);
+    checkCloudCommandMailbox(); 
+
+    if (pendingSystemHardwareRebootFlag && (currentMillis - hardwareRebootTimestampCount >= 2500)) {
+        writeLog("--> [WATCHDOG]: Drainage pad completed. Resetting registers...");
+        delay(2500);
+        NVIC_SystemReset();
+    }
+
+    if (currentMillis - lastNetworkWatchdogCheckMillis >= networkWatchdogInterval) {
+        lastNetworkWatchdogCheckMillis = currentMillis;
+        maintainNetworkHealth();
+    } 
+
+    static unsigned long lastSensorReadMillis = 0;
+    if (currentMillis - lastSensorReadMillis >= 2000) {
+        lastSensorReadMillis = currentMillis;
+
+        pinMode(RADIO_SENSOR, INPUT);
+
+        long accumulatedRawFront = 0;
+        long accumulatedRawBack = 0;
+
+        for (int i = 0; i < 8; i++) {
+            analogRead(VOLTAGE_FRONT); 
+            delayMicroseconds(50);
+            accumulatedRawFront += analogRead(VOLTAGE_FRONT);
+
+            analogRead(VOLTAGE_BACK); 
+            delayMicroseconds(50);
+            accumulatedRawBack += analogRead(VOLTAGE_BACK);
+        }
+
+        int rawFront = accumulatedRawFront / 8;
+        int rawBack = accumulatedRawBack / 8;
+
+        globalFrontVolts = ((rawFront * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_FRONT;
+        globalBackVolts = ((rawBack * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_BACK;
+
+        frontIsCharging = globalFrontVolts >= chargingVolts;
+        backIsCharging = globalBackVolts >= chargingVolts;
+
+        bool radioSenseIsActive = (digitalRead(RADIO_SENSOR) == HIGH); 
+
+        int rawFrontCalculatedPercent = 0;
+        if (globalFrontVolts >= frontMaxFullChargeVolts) rawFrontCalculatedPercent = 100;
+        else if (globalFrontVolts >= (frontMaxFullChargeVolts - 0.30)) rawFrontCalculatedPercent = 85 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 0.30)) / 0.30 * 15.0);
+        else if (globalFrontVolts >= (frontMaxFullChargeVolts - 0.50)) rawFrontCalculatedPercent = 70 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 0.50)) / 0.20 * 15.0);
+        else if (globalFrontVolts >= (frontMaxFullChargeVolts - 0.70)) rawFrontCalculatedPercent = 50 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 0.70)) / 0.20 * 20.0);
+        else if (globalFrontVolts >= (frontMaxFullChargeVolts - 0.90)) rawFrontCalculatedPercent = 30 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 0.90)) / 0.20 * 20.0);
+        else if (globalFrontVolts >= (frontMaxFullChargeVolts - 1.20)) rawFrontCalculatedPercent = 10 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 1.20)) / 0.30 * 20.0);
+        else if (globalFrontVolts >= (frontMaxFullChargeVolts - 1.30)) rawFrontCalculatedPercent = 0 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 1.30)) / 0.10 * 10.0);
+        else rawFrontCalculatedPercent = 0;
+
+        if (abs(rawFrontCalculatedPercent - frontBatteryPercent) >= 3 || rawFrontCalculatedPercent == 100 || rawFrontCalculatedPercent == 0) {
+            frontBatteryPercent = rawFrontCalculatedPercent;
+        }
+
+        int rawBackCalculatedPercent = 0;
+        if (globalBackVolts >= backMaxFullChargeVolts) rawBackCalculatedPercent = 100;
+        else if (globalBackVolts >= (backMaxFullChargeVolts - 0.30)) rawBackCalculatedPercent = 85 + (int)((globalBackVolts - (backMaxFullChargeVolts - 0.30)) / 0.30 * 15.0);
+        else if (globalBackVolts >= (backMaxFullChargeVolts - 0.50)) rawBackCalculatedPercent = 70 + (int)((globalBackVolts - (backMaxFullChargeVolts - 0.50)) / 0.20 * 15.0);
+        else if (globalBackVolts >= (backMaxFullChargeVolts - 0.70)) rawBackCalculatedPercent = 50 + (int)((globalBackVolts - (backMaxFullChargeVolts - 0.70)) / 0.20 * 20.0);
+        else if (globalBackVolts >= (backMaxFullChargeVolts - 0.90)) rawBackCalculatedPercent = 30 + (int)((globalBackVolts - (backMaxFullChargeVolts - 0.90)) / 0.20 * 20.0);
+        else if (globalBackVolts >= (backMaxFullChargeVolts - 1.20)) rawBackCalculatedPercent = 10 + (int)((globalBackVolts - (backMaxFullChargeVolts - 1.20)) / 0.30 * 20.0);
+        else if (globalBackVolts >= (backMaxFullChargeVolts - 1.30)) rawBackCalculatedPercent = 0 + (int)((globalBackVolts - (backMaxFullChargeVolts - 1.30)) / 0.10 * 10.0);
+        else rawBackCalculatedPercent = 0;
+
+        if (abs(rawBackCalculatedPercent - backBatteryPercent) >= 3 || rawBackCalculatedPercent == 100 || rawBackCalculatedPercent == 0) {
+            backBatteryPercent = rawBackCalculatedPercent;
+        } 
+
+        String telemetryString = "[SYS] ";
+        if (WiFi.status() == WL_CONNECTED) {
+            telemetryString += "IP:" + WiFi.localIP().toString() + " | "; 
+        } else {
+            telemetryString += "IP:STA_HOTSPOT | ";
+        }
+
+        telemetryString += lastCloudTransmitSuccessful ? "[📡 WAN_ONLINE] " : "[☁ WAN_OFFLINE] ";
+        telemetryString += radioSenseIsActive ? "[🔊 AMPS ON] " : "[🔇 AMPS OFF] ";
+        if (crossChargeProtectionActiveFlag) telemetryString += "[⚡ CROSS_CHG ACTIVE] ";
+
+        if (globalFrontVolts < 6.50 && globalBackVolts < 6.50) { 
+            telemetryString += "BATTERIES DETECTED: [❌ BOTH DISCONNECTED]"; 
+        } else { 
+            if (globalFrontVolts < 6.50) telemetryString += "Front: [❌ DISCONNECTED]"; 
+            else { 
+                telemetryString += "Front: "; 
+                if ((frontIsCharging && !backIsCharging) || crossChargeProtectionActiveFlag) telemetryString += "[🔋 CHARGING] "; 
+                telemetryString += String(globalFrontVolts, 1) + "V (" + String(frontBatteryPercent) + "%)"; 
+            } 
+            telemetryString += " | "; 
+            if (globalBackVolts < 6.50) telemetryString += "Back: [❌ DISCONNECTED]"; 
+            else { 
+                telemetryString += "Back: "; 
+                if ((backIsCharging && !frontIsCharging) || crossChargeProtectionActiveFlag) telemetryString += "[🔋 CHARGING] "; 
+                telemetryString += String(globalBackVolts, 1) + "V (" + String(backBatteryPercent) + "%)"; 
+            } 
+        } 
+
+        writeLog(telemetryString); 
+
+        if (!crossChargeProtectionActiveFlag) { 
+            if ((frontBatteryPercent <= CRITICAL_BATTERY_LOW && backBatteryPercent >= SAFE_BATTERY_CEILING) || 
+                (backBatteryPercent <= CRITICAL_BATTERY_LOW && frontBatteryPercent >= SAFE_BATTERY_CEILING) ||
+                (backIsCharging && frontBatteryPercent <= 80) ||
+                (frontIsCharging && backBatteryPercent <= 80)) { 
+                emergencyCrossChargeActiveFlag = true;
+                crossChargeProtectionActiveFlag = true; 
+                writeLog("--> [BATTERY CRITICAL]: Threshold protection tripped! Bridging cells."); 
+            } 
+        } else {
+            if (!(backIsCharging || frontIsCharging) && !emergencyCrossChargeActiveFlag){
+                crossChargeProtectionActiveFlag = false;
+                writeLog("--> [CHARGER SAFETY]: Neither battery is charging. Breaking link.");
+            }
+            else if ((globalFrontVolts >= 14.1 && globalBackVolts >= 14.2)) {
+                emergencyCrossChargeActiveFlag = false;
+                crossChargeProtectionActiveFlag = false;
+                writeLog("--> [CHARGER SAFETY]: Over 14 volts. Breaking link.");
+            }
+            else if (frontBatteryPercent <= 5 && backBatteryPercent <= 5) { 
+                emergencyCrossChargeActiveFlag = false;
+                crossChargeProtectionActiveFlag = false;
+                writeLog("--> [BATTERY EMERGENCY]: Both banks dead! Breaking link."); 
+            } 
+        }
+
+        digitalWrite(RELAY_SOLENOID, crossChargeProtectionActiveFlag ? LOW : HIGH);
+
+        if (globalFrontVolts >= 11.20) { 
+            if (radioSenseIsActive && digitalRead(RELAY_AMP_REM) == HIGH) { 
+                digitalWrite(RELAY_AMP_REM, LOW);
+                writeLog("--> [AUDIO]: Radio active. K4 SNAP CLOSED."); 
+            }
+            else if (!radioSenseIsActive && digitalRead(RELAY_AMP_REM) == LOW) { 
+                digitalWrite(RELAY_AMP_REM, HIGH);
+                writeLog("--> [AUDIO]: Radio sleeping. K4 CLICK OPEN."); 
+            } 
+        }
+        else if (digitalRead(RELAY_AMP_REM) == LOW) { 
+            digitalWrite(RELAY_AMP_REM, HIGH); 
+            writeLog("--> [AUDIO]: Critical voltage protection tripped! K4 FORCED OPEN."); 
+        } 
+    }
+
+    if (currentMillis - previousTelemetryMillis >= telemetryInterval) {
+        previousTelemetryMillis = currentMillis;
+        flushTelemetryToCloud();
+    }
 }
 
 bool processSecureCommand(String rawPacket, String source) {
@@ -1659,18 +1625,19 @@ void writeLog(String txt) {
     if (freeBytes > 32768) freeBytes = 32768;
     int freePercent = (freeBytes * 100) / 32768;
 
-    String ramIcon = "💾 [";
+    String ramIconUsb = "💾 [";
     for (int i = 0; i < 10; i++) {
-        if (i < (freePercent / 10)) ramIcon += "█";
-        else ramIcon += "░";
+        if (i < (freePercent / 10)) ramIconUsb += "█";
+        else ramIconUsb += "░";
     }
-    ramIcon += "] " + String(freePercent) + "% (" + String(freeBytes) + " B) | ";
+    ramIconUsb += "] " + String(freePercent) + "% (" + String(freeBytes) + " B) | ";
+
+    String ramIconBle = "💾[" + String(freePercent) + "%] (" + String(freeBytes) + " B) | ";
 
     String finalizedTimestampedLogLine = "";
-    finalizedTimestampedLogLine.reserve(256);
+    finalizedTimestampedLogLine.reserve(512); 
 
     RTCTime currentSystemClockTime;
-
     if (RTC.getTime(currentSystemClockTime)) {
         char timestampClockBuffer[16];
         sprintf(timestampClockBuffer, "[%02d:%02d:%02d] ", 
@@ -1693,22 +1660,26 @@ void writeLog(String txt) {
     finalizedTimestampedLogLine += txt;
     finalizedTimestampedLogLine.trim();
 
-    if (finalizedTimestampedLogLine.length() > 250) {
-        finalizedTimestampedLogLine = finalizedTimestampedLogLine.substring(0, 247) + "...";
+    String finalOutput = ramIconUsb + finalizedTimestampedLogLine;
+
+    if (finalOutput.indexOf("[SYS]") == -1) {
+        if (finalOutput.length() > 240) {
+            finalOutput = finalOutput.substring(0, 237) + "...";
+        }
     }
 
-    Serial.print(ramIcon);
-    Serial.println(finalizedTimestampedLogLine);
+    Serial.println(finalOutput);
 
-    if (BLE.connected() && txCharacteristic.subscribed()) {
-        txCharacteristic.setValue(ramIcon + finalizedTimestampedLogLine);
+    if (BLE.connected() && txCharacteristic.subscribed()) {        
+        String masterBleLine = ramIconBle + finalizedTimestampedLogLine;
+        txCharacteristic.setValue(masterBleLine); 
     }
 
-    systemLogBufferArray[currentLogWritePointerIndex] = ramIcon + finalizedTimestampedLogLine;
+    systemLogBufferArray[currentLogWritePointerIndex] = finalOutput;
     currentLogWritePointerIndex = (currentLogWritePointerIndex + 1) % MAX_SYSTEM_LOGS;
 }
 
 int getFreeRam() {
     struct mallinfo mi = mallinfo();
-    return mi.fordblks; // Returns total free memory blocks on the heap
+    return mi.fordblks;
 }       

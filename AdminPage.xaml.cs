@@ -172,7 +172,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             }
         }
 
-        if (App.IsDebugOutputEnabled && !(SwitchRemoteTelemetryToggled) && !rawPacket.StartsWith("[DEBUG] -->"))
+        if (!(SwitchDebugLogsToggled || SwitchRemoteTelemetryToggled) || (SwitchDebugLogsToggled && !rawPacket.StartsWith("[DEBUG] -->") && !SwitchRemoteTelemetryToggled))
             return;
 
         await MainThread.InvokeOnMainThreadAsync(async () =>
@@ -591,18 +591,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         }
     }
 
-    private async void OnDebugLogsToggled(object sender, ToggledEventArgs e)
-    {
-        if (e.Value)
-        {
-            App.IsDebugOutputEnabled = true;
-        }
-        else
-        {
-            App.IsDebugOutputEnabled = false;
-        }
-    }
-
     protected override async void OnAppearing()
     {
         base.OnAppearing();
@@ -623,7 +611,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         }
     }
 
-    private async Task HandleWifiAndCloudData()
+    private async Task<bool> HandleWifiAndCloudData()
     {
         var (wifiAp, wifiApPw, bleName, routerSsid, cfHost, cfId, cfSecret, isOk) = App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode ?
             await Services.NetworkHubService.FetchWifiAdminParametersAsync() : await Services.NetworkHubService.FetchCloudAdminParametersAsync();
@@ -653,6 +641,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             });
         }
 
+        return isOk;
     }
 
     private async Task UpdateAdminData()
@@ -661,12 +650,13 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         {
             Debug.WriteLine("--> [ADMIN CONTROL HUB]: Fetching clean configuration matrices straight from API...");
 
-            await HandleWifiAndCloudData();
-
-            await MainThread.InvokeOnMainThreadAsync(async () =>
+            if (await HandleWifiAndCloudData())
             {
-                layoutAdminPage.IsEnabled = true;
-            });
+                await MainThread.InvokeOnMainThreadAsync(async () =>
+                {
+                    layoutAdminPage.IsEnabled = true;
+                });
+            }
         }
         else if (App.NetworkService.IsBluetoothConnected)
         {
@@ -745,7 +735,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         App.NetworkService.OnConnectionStateChanged -= OnVehicleLinkStateChanged;
         MainPage.CurrentInstance?.OnTelemetryParsed -= LogIncomingStreamToTerminal;
 
-        App.IsDebugOutputEnabled = false;
         await Navigation.PushAsync(new MainPage());
     }
 

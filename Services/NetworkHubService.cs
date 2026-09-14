@@ -429,7 +429,7 @@ public class NetworkHubService
 
         _ = Task.Run(async () =>
         {
-            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
             while (!token.IsCancellationRequested && await timer.WaitForNextTickAsync(token))
             {
                 try
@@ -1338,7 +1338,7 @@ public class NetworkHubService
                         await App.Log($"--> [UI POLLING ENGINE DROPOUT]: Sockets handled connection lag safely: {loopEx.Message}");
                     }
 
-                    try { await Task.Delay(5000, executionPassToken); } catch (TaskCanceledException) { break; }
+                    try { await Task.Delay(10000, executionPassToken); } catch (TaskCanceledException) { break; }
                 }
             }
 

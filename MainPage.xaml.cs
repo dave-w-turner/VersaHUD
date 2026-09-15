@@ -124,10 +124,11 @@ public partial class MainPage : ContentPage
                             if (secondsDelta < 0)
                                 secondsDelta += 86400;
 
-                            if (secondsDelta > 800)
+                            if (secondsDelta > 1200)
                             {
                                 await App.Log("--> [DASHBOARD PARSER]: No telemetry being returned from WAN endpoint. Setting flag to default to next transport type.");
                                 App.NetworkService.IsWifiTelemetryDead = true;
+                                App.NetworkService.IsWANReportedOnline = false;
                             }
                         }
                     }
@@ -468,13 +469,13 @@ public partial class MainPage : ContentPage
                 UnLockButtonEnabled = false;
 
                 FrontVoltsTextLabel = "0.00 V";
-                FrontPercentTextLabel = "0%";
+                FrontPercentTextLabel = " 0%";
                 ProgressFrontValue = 0.0f;
                 ProgressFrontColorValue = Colors.DarkSlateGray;
                 FrontIconTextLabel = "❌";
 
                 BackVoltsTextLabel = "0.00 V";
-                BackPercentTextLabel = "0%";
+                BackPercentTextLabel = " 0%";
                 ProgressBackValue = 0.0f;
                 ProgressBackColorValue = Colors.DarkSlateGray;
                 BackIconTextLabel = "❌";

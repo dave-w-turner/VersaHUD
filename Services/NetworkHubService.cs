@@ -43,9 +43,6 @@ public class NetworkHubService
     private bool _bLECommunicationProvisioned = false;
     private bool _isTelemetryActive = false;
     private readonly Lock _rssiLock = new();
-    private bool _isFirstConnectionAttempt = true;
-    private int _firstConnectionAttemptRetryCount = 0;
-
     public bool IsConnecting { get; private set; } = false;
     private const int TRANSPORT_FLAPPING_COOLDOWN_SECONDS = 30;
     private const int DEBOUNCE_COOLDOWN_MILLISECONDS = 3500;
@@ -102,7 +99,7 @@ public class NetworkHubService
     }
     public bool IsWifiTelemetryDead { get; set; } = false;
     public bool IsPromptingForMasterPassword { get; set; } = false;
-    public DateTime LastReportedWANLinkState { get; set; } = DateTime.MaxValue;
+    public DateTime LastReportedWANLinkState { get; set; } = DateTime.MinValue;
     public bool IsAuthorized { get; set; } = false;
     public bool WaitingForAuthorization { get; set; } = false;
     public DateTime LastTransportSwitchTimestamp = DateTime.MinValue;
@@ -356,12 +353,12 @@ public class NetworkHubService
 
         var minutesSinceWANStatusReported = (DateTime.UtcNow - LastReportedWANLinkState).TotalMinutes;
 
-        if (!(IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode) && !IsWifiTelemetryDead && phoneHasInternetAccess)
+        if (!(IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode) && phoneHasInternetAccess &&
+            ((IsWANReportedOnline ?? true) || minutesSinceWANStatusReported >= 20))
         {
-            var wanActive = await VerifyTrueInternetRouteToHostAsync();
-            if (wanActive) IsWANReportedOnline = true;
+            IsWANReportedOnline = await VerifyTrueInternetRouteToHostAsync();
 
-            if (((IsWANReportedOnline ?? true) || minutesSinceWANStatusReported >= 20) && wanActive)
+            if (IsWANReportedOnline ?? true)
             {
                 await App.Log("--> [AUTO-CONNECT SUCCESS]: Bluetooth and Wifi off, but Internet path to Cloudflare verified live. Activating Cloud WAN fallback...");
 
@@ -372,6 +369,8 @@ public class NetworkHubService
                 IsUsingWifiTransportMode = false;
                 IsUsingLocalApMode = false;
                 IsUsingCloudWanMode = true;
+
+                App.NetworkService.LastReportedWANLinkState = DateTime.UtcNow;
 
                 await ManageWifiTelemetryPollingLifecycle(false);
                 OnConnectionStateChanged?.Invoke(false);
@@ -438,52 +437,36 @@ public class NetworkHubService
                     {
                         IsMonitorActive = false;
 
-                        if (!_isFirstConnectionAttempt)
+                        _reconnectLoopCts = new();
+                        var reconnectToken = _reconnectLoopCts.Token;
+
+                        await Task.Run(async () =>
                         {
-                            _reconnectLoopCts = new();
-                            var reconnectToken = _reconnectLoopCts.Token;
-
-                            await Task.Run(async () =>
+                            for (int i = 30; i >= 0; i--)
                             {
-                                for (int i = 30; i >= 0; i--)
-                                {
-                                    ReconnectCountdown = i;
+                                ReconnectCountdown = i;
 
-                                    if (i > 0)
+                                if (i > 0)
+                                {
+                                    await Task.Delay(1000);
+                                }
+
+                                if (reconnectToken.IsCancellationRequested || token.IsCancellationRequested)
+                                {
+                                    ReconnectCountdown = 0;
+                                    OnConnectionStateChanged?.Invoke(IsBluetoothConnected);
+
+                                    while (IsConnecting)
                                     {
                                         await Task.Delay(1000);
                                     }
 
-                                    if (reconnectToken.IsCancellationRequested || token.IsCancellationRequested)
-                                    {
-                                        ReconnectCountdown = 0;
-                                        OnConnectionStateChanged?.Invoke(IsBluetoothConnected);
-
-                                        while (IsConnecting)
-                                        {
-                                            await Task.Delay(1000);
-                                        }
-
-                                        _reconnectLoopCts?.Dispose();
-                                        _reconnectLoopCts = null;
-                                        break;
-                                    }
+                                    _reconnectLoopCts?.Dispose();
+                                    _reconnectLoopCts = null;
+                                    break;
                                 }
-                            }, _reconnectLoopCts.Token);
-                        }
-                        else
-                        {
-                            _firstConnectionAttemptRetryCount++;
-
-                            if (_firstConnectionAttemptRetryCount > 5)
-                            {
-                                _isFirstConnectionAttempt = false;
                             }
-                            else
-                            {
-                                await Task.Delay(5000);
-                            }
-                        }
+                        }, _reconnectLoopCts.Token);
                     }
                     else if (!IsAuthorized && (IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
                     {
@@ -778,7 +761,7 @@ public class NetworkHubService
                 }
             }
 
-            while (postRetries < maxPostRetries)
+            while (postRetries < maxPostRetries && !IsWifiTelemetryDead)
             {
                 try
                 {

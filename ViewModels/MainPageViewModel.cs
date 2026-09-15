@@ -36,7 +36,7 @@ public partial class MainPage : ContentPage
         nameof(FrontPercentTextLabel),
         typeof(string),
         typeof(MainPage),
-        defaultValue: "0%",
+        defaultValue: " 0%",
         defaultBindingMode: BindingMode.TwoWay);
 
     public string FrontPercentTextLabel
@@ -122,7 +122,7 @@ public partial class MainPage : ContentPage
         nameof(BackPercentTextLabel),
         typeof(string),
         typeof(MainPage),
-        defaultValue: "0%",
+        defaultValue: " 0%",
         defaultBindingMode: BindingMode.TwoWay);
 
     public string BackPercentTextLabel

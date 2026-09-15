@@ -123,41 +123,53 @@
                     </HorizontalStackLayout>
                 </Border>
 
-                <VerticalStackLayout Grid.Column="0" Spacing="10" HorizontalOptions="Center" IsVisible="{Binding LayoutReconnectingVisible}" Grid.ColumnSpan="2">
+                <VerticalStackLayout Spacing="10" HorizontalOptions="Center" IsVisible="{Binding LayoutReconnectingVisible}" Grid.ColumnSpan="2">
                     <Label Text="{Binding ReconnectingTextLabel}" FontSize="16" VerticalOptions="Center"/>
                 </VerticalStackLayout>
 
-                <VerticalStackLayout Grid.Column="0" Spacing="10" HorizontalOptions="Center" Grid.ColumnSpan="2" IsVisible="{Binding CrossChargeStatusLayoutVisible}">
+                <VerticalStackLayout Spacing="10" HorizontalOptions="Center" Grid.ColumnSpan="2" IsVisible="{Binding CrossChargeStatusLayoutVisible}">
                     <Label Text="{Binding CrossChargeStatusTextLabel}" TextColor="{Binding CrossChargeStatusTextLabelColorValue}" FontSize="16" VerticalOptions="Center"/>
                 </VerticalStackLayout>
-                
-                <Grid ColumnDefinitions="*, *" Margin="0,15,0,0">
-                    <VerticalStackLayout Grid.Column="0" Spacing="10" HorizontalOptions="Center">
-                        <HorizontalStackLayout Spacing="8" HorizontalOptions="Center">
-                            <Label Text="{Binding FrontIconTextLabel}" FontSize="28" VerticalOptions="Center"/>
-                            <Label Text="{Binding FrontPercentTextLabel}" TextColor="#FFFFFF" FontSize="24" FontAttributes="Bold" VerticalOptions="Center"/>
+
+                <Grid ColumnDefinitions="*, *" HorizontalOptions="Fill" Margin="0,0,0,0">
+                    <VerticalStackLayout Grid.Column="0" Spacing="8" HorizontalOptions="Fill">
+                        <HorizontalStackLayout Spacing="3" HorizontalOptions="Center" VerticalOptions="Center">
+                            <Label Text="{Binding FrontIconTextLabel}" FontSize="22" VerticalOptions="Center" />
+                            <Label Text="{Binding FrontPercentTextLabel}" 
+                               LineBreakMode="NoWrap"
+                               TextColor="#FFFFFF" 
+                               FontSize="18" 
+                               FontAttributes="Bold" 
+                               VerticalOptions="Center"
+                               WidthRequest="50" />
                         </HorizontalStackLayout>
 
-                        <ProgressBar Progress="{Binding ProgressFrontValue}" ProgressColor="{Binding ProgressFrontColorValueProperty}" BackgroundColor="#2D2D2D" WidthRequest="130" HeightRequest="10"/>
+                        <ProgressBar Progress="{Binding ProgressFrontValue}" ProgressColor="{Binding ProgressFrontColorValueProperty}" BackgroundColor="#2D2D2D" WidthRequest="110" HeightRequest="10" HorizontalOptions="Center"/>
 
                         <Label Text="FRONT BATTERY" TextColor="#8E8E93" FontSize="11" FontAttributes="Bold" HorizontalOptions="Center" CharacterSpacing="1"/>
                         <Label Text="{Binding FrontVoltsTextLabel}" TextColor="{Binding FrontVoltsTextLabelColorProperty}" FontSize="20" FontAttributes="Bold" HorizontalOptions="Center"/>
                     </VerticalStackLayout>
 
-                    <VerticalStackLayout Grid.Column="1" Spacing="10" HorizontalOptions="Center">
-                        <HorizontalStackLayout Spacing="8" HorizontalOptions="Center">
-                            <Label Text="{Binding BackIconTextLabel}" FontSize="28" VerticalOptions="Center"/>
-                            <Label Text="{Binding BackPercentTextLabel}" TextColor="#FFFFFF" FontSize="24" FontAttributes="Bold" VerticalOptions="Center"/>
+                    <VerticalStackLayout Grid.Column="1" Spacing="8" HorizontalOptions="Fill">
+                        <HorizontalStackLayout Spacing="3" HorizontalOptions="Center" VerticalOptions="Center">
+                            <Label Text="{Binding BackIconTextLabel}" FontSize="22" VerticalOptions="Center"/>
+                            <Label Text="{Binding BackPercentTextLabel}" 
+                               LineBreakMode="NoWrap"
+                               TextColor="#FFFFFF" 
+                               FontSize="18" 
+                               FontAttributes="Bold" 
+                               VerticalOptions="Center"
+                               WidthRequest="50" />
                         </HorizontalStackLayout>
 
-                        <ProgressBar Progress="{Binding ProgressBackValue}" ProgressColor="{Binding ProgressBackColorValueProperty}" BackgroundColor="#2D2D2D" WidthRequest="130" HeightRequest="10"/>
+                        <ProgressBar Progress="{Binding ProgressBackValue}" ProgressColor="{Binding ProgressBackColorValueProperty}" BackgroundColor="#2D2D2D" WidthRequest="110" HeightRequest="10" HorizontalOptions="Center"/>
 
                         <Label Text="BACK BATTERY" TextColor="#8E8E93" FontSize="11" FontAttributes="Bold" HorizontalOptions="Center" CharacterSpacing="1"/>
                         <Label Text="{Binding BackVoltsTextLabel}" TextColor="{Binding BackVoltsTextLabelColorProperty}" FontSize="20" FontAttributes="Bold" HorizontalOptions="Center"/>
-                    </VerticalStackLayout>                   
+                    </VerticalStackLayout>
                 </Grid>
 
-                <BoxView HeightRequest="2" BackgroundColor="#2D2D2D" Margin="0,10" />
+                <BoxView Grid.Row="2" HeightRequest="2" BackgroundColor="#2D2D2D" Margin="0,10" />
             </VerticalStackLayout>
         </ScrollView>
 
@@ -193,7 +205,7 @@
 
         <controls:BTDevicePicker IsVisible="{Binding BluetoothDevicePickerVisible}" Grid.Row="2" VerticalOptions="Fill" HorizontalOptions="Fill" />
 
-        <Grid Grid.RowSpan="2" IsVisible="{Binding LayoutPasswordInitVisible}" ZIndex="100" BackgroundColor="#E6000000">
+        <Grid Grid.Row="3" Grid.RowSpan="2" IsVisible="{Binding LayoutPasswordInitVisible}" ZIndex="100" BackgroundColor="#E6000000">
             <controls:InitMasterPassword VerticalOptions="Center" HorizontalOptions="Fill" />
         </Grid>
     </Grid>

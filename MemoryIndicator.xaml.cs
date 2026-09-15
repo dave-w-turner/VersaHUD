@@ -25,7 +25,7 @@ public partial class MemoryIndicator : ContentView, INotifyPropertyChanged
         return Math.Clamp(percentage, 0, 100);
     }
 
-    public void UpdateMemoryHardwareGauge(int availableBytes)
+    public async void UpdateMemoryHardwareGauge(int availableBytes)
     {
         if (BatteryFillBlock == null) return;
 
@@ -36,7 +36,7 @@ public partial class MemoryIndicator : ContentView, INotifyPropertyChanged
 
         double targetFillWidth = (freeRamPercent * 56.0) / 100.0;
 
-        MainThread.BeginInvokeOnMainThread(() =>
+        await MainThread.InvokeOnMainThreadAsync(() =>
         {
             if (BatteryFillBlock == null) return;
 
@@ -50,13 +50,16 @@ public partial class MemoryIndicator : ContentView, INotifyPropertyChanged
                 RamIndicatorColorBrush = Color.FromArgb("#D83B01");
             else
                 RamIndicatorColorBrush = Color.FromArgb("#A80000");
-        });
 
-        IsVisible = true;
+            IsVisible = true;
+        });
     }
 
-    public void Hide()
+    public async void Hide()
     {
-        IsVisible = false;
+        await MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            IsVisible = false;
+        });
     }
 }

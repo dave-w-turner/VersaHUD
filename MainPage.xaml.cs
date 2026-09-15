@@ -567,6 +567,7 @@ public partial class MainPage : ContentPage
             if (rssi == 0)
             {
                 BluetoothSignalTextLabel = string.Empty;
+                BluetoothSignalVisible = false;
                 return;
             }
 
@@ -590,6 +591,8 @@ public partial class MainPage : ContentPage
                 BluetoothSignalTextLabel = $"⚠ CRITICAL ({rssi} dBm)";
                 BluetoothSignalTextLabelColor = Color.Parse("#EF4444");
             }
+
+            BluetoothSignalVisible = true;
         });
     }
 

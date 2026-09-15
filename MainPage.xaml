@@ -202,8 +202,7 @@
                         Clicked="OnUnlockClicked" />
             </Grid>
         </Border>
-
-        <controls:BTDevicePicker IsVisible="{Binding BluetoothDevicePickerVisible}" Grid.Row="2" VerticalOptions="Fill" HorizontalOptions="Fill" />
-        <controls:InitMasterPassword IsVisible="{Binding LayoutPasswordInitVisible}" Grid.Row="3" VerticalOptions="Center" HorizontalOptions="Fill" Background="Transparent" />
+        <controls:BTDevicePicker IsVisible="{Binding BluetoothDevicePickerVisible}" VerticalOptions="Fill" HorizontalOptions="Fill" />
+        <controls:InitMasterPassword IsVisible="{Binding LayoutPasswordInitVisible}" VerticalOptions="Center" HorizontalOptions="Fill" Background="Transparent" />
     </Grid>
 </ContentPage>

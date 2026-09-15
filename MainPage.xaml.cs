@@ -13,7 +13,7 @@ public partial class MainPage : ContentPage
     private static readonly Regex FrontBatteryRegex = new(@"Front:\s*(?:\[[^\]]+\]\s*)?(?<volts>[\d.]+)\s*V\s*\((?<percent>\d+)%\)", RegexOptions.Compiled);
     private static readonly Regex BackBatteryRegex = new(@"Back:\s*(?:\[[^\]]+\]\s*)?(?<volts>[\d.]+)\s*V\s*\((?<percent>\d+)%\)", RegexOptions.Compiled);
     private static readonly Regex BLEAvailableRamBytes = new(@"💾\[\d+%\]\s*\((\d+)\s*B\)", RegexOptions.Compiled);
-    private static readonly Regex WiFiAvailableRamBytes = new(@"💾(?:\[[^\]]+\]\s*\d+%\s*|\[\d+%\]\s*)\((\d+)\s*B\)");
+    private static readonly Regex WiFiAvailableRamBytes = new(@"\((\d+)\s*B\)");
     private HashSet<string> _processedVehicleLogLinesBucket = [];
 
     public event Action<string>? OnTelemetryParsed;
@@ -226,7 +226,25 @@ public partial class MainPage : ContentPage
                 });
 
                 if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode)
+                {
+                    Match? availableRam = null;
+
+                    availableRam = WiFiAvailableRamBytes.Match(rawDataPacket);
+
+                    if (availableRam != null)
+                    {
+                        if (availableRam.Success && int.TryParse(availableRam.Groups[1].Value, out int freeBytes))
+                        {
+                            MemoryIndicator.CurrentInstance.UpdateMemoryHardwareGauge(freeBytes);
+                        }
+                        else
+                        {
+                            MemoryIndicator.CurrentInstance.Hide();
+                        }
+                    }
+
                     ExecuteWifiThemeRedrawPass();
+                }
                 else if (App.NetworkService.IsUsingCloudWanMode)
                     ExecuteCloudWanThemeRedrawPass();
 
@@ -338,16 +356,9 @@ public partial class MainPage : ContentPage
                 bool currentBackIsCharging = rawDataPacket.Contains("Back: [🔋 CHARGING]");
 
                 Match? availableRam = null;
-
-                if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode)
-                {
-                    availableRam = WiFiAvailableRamBytes.Match(rawDataPacket);
-                }
-                else
-                {
-                    availableRam = BLEAvailableRamBytes.Match(rawDataPacket);
-                }
-
+                                
+                availableRam = BLEAvailableRamBytes.Match(rawDataPacket);
+                
                 if (availableRam != null)
                 {
                     if (availableRam.Success && int.TryParse(availableRam.Groups[1].Value, out int freeBytes))

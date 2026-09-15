@@ -1481,8 +1481,8 @@ void handleCrossCharging() {
     if (!crossChargeProtectionActiveFlag) { 
         if ((frontBatteryPercent <= CRITICAL_BATTERY_LOW && backBatteryPercent >= SAFE_BATTERY_CEILING) || 
             (backBatteryPercent <= CRITICAL_BATTERY_LOW && frontBatteryPercent >= SAFE_BATTERY_CEILING) ||
-            (backIsCharging && frontBatteryPercent <= 80) ||
-            (frontIsCharging && backBatteryPercent <= 80)) { 
+            (backIsCharging && backBatteryPercent == 100 && frontBatteryPercent <= 80) ||
+            (frontIsCharging && frontBatteryPercent == 100 && backBatteryPercent <= 80)) { 
                 crossChargeProtectionActiveFlag = true; 
                 writeLog("--> [BATTERY CRITICAL]: Threshold protection tripped! Bridging cells."); 
             } 

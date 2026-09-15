@@ -30,9 +30,12 @@ public class NotificationActionReceiver : BroadcastReceiver
 
                     if (App.Current?.MainPage != null)
                     {
-                        await App.Current.MainPage.DisplayAlertAsync("COMMAND FAILURE", "Unable to deliver the LOCK command! Please check your connection.", "OK");
+                        await MainThread.InvokeOnMainThreadAsync(async () =>
+                        {
+                            await App.Current.MainPage.DisplayAlertAsync("COMMAND FAILURE", "Unable to deliver the LOCK command! Please check your connection.", "OK");
+                        });
                     }
-                }                
+                }
             });
         }
         else if (action == "VERSAHUD_ACTION_UNLOCK")
@@ -50,7 +53,10 @@ public class NotificationActionReceiver : BroadcastReceiver
 
                     if (App.Current?.MainPage != null)
                     {
-                        await App.Current.MainPage.DisplayAlertAsync("COMMAND FAILURE", "Unable to deliver the UNLOCK command! Please check your connection.", "OK");
+                        await MainThread.InvokeOnMainThreadAsync(async () =>
+                        {
+                            await App.Current.MainPage.DisplayAlertAsync("COMMAND FAILURE", "Unable to deliver the UNLOCK command! Please check your connection.", "OK");
+                        });
                     }
                 }
             });

@@ -37,8 +37,10 @@ public partial class InitMasterPassword : ContentView
 
         if (string.IsNullOrWhiteSpace(enteredPasscode) || enteredPasscode.Trim().Length < 3)
         {
-            await App.Current.MainPage.DisplayAlertAsync("INVALID REGISTER KEY",
-                "Your initialization master passcode must be at least 3 characters long.", "TRY AGAIN");
+            await MainThread.InvokeOnMainThreadAsync(async () => { 
+                await App.Current.MainPage.DisplayAlertAsync("INVALID REGISTER KEY",
+                    "Your initialization master passcode must be at least 3 characters long.", "TRY AGAIN");
+                });
             return;
         }
 

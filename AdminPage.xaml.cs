@@ -172,7 +172,8 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             }
         }
 
-        if (!(SwitchDebugLogsToggled || SwitchRemoteTelemetryToggled) || (SwitchDebugLogsToggled && !rawPacket.StartsWith("[DEBUG] -->") && !SwitchRemoteTelemetryToggled))
+        if ((!SwitchDebugLogsToggled && rawPacket.StartsWith("[DEBUG] -->")) || (!SwitchRemoteTelemetryToggled && !SwitchDebugLogsToggled) ||
+            (!SwitchRemoteTelemetryToggled && !rawPacket.StartsWith("[DEBUG] -->")))
             return;
 
         await MainThread.InvokeOnMainThreadAsync(async () =>

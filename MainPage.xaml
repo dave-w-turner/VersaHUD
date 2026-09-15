@@ -204,9 +204,6 @@
         </Border>
 
         <controls:BTDevicePicker IsVisible="{Binding BluetoothDevicePickerVisible}" Grid.Row="2" VerticalOptions="Fill" HorizontalOptions="Fill" />
-
-        <Grid Grid.Row="3" Grid.RowSpan="2" IsVisible="{Binding LayoutPasswordInitVisible}" ZIndex="100" BackgroundColor="#E6000000">
-            <controls:InitMasterPassword VerticalOptions="Center" HorizontalOptions="Fill" />
-        </Grid>
+        <controls:InitMasterPassword IsVisible="{Binding LayoutPasswordInitVisible}" Grid.Row="3" VerticalOptions="Center" HorizontalOptions="Fill" Background="Transparent" />
     </Grid>
 </ContentPage>

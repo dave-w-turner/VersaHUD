@@ -198,11 +198,10 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         {
             if (RebootLockoutShellVisible && !App.NetworkService.IsRebootingWatchdogActive)
             {
+                UpdateAdminData();
                 RebootLockoutShellVisible = false;
             }
         });
-
-        await UpdateAdminData();
     }
 
     private async void OnRotateMasterPassClicked(object sender, EventArgs e)

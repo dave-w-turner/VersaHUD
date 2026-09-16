@@ -149,18 +149,22 @@ void setup() {
 void loop() {
     unsigned long currentMillis = millis();
     bool radioSenseIsActive = (digitalRead(RADIO_SENSOR) == HIGH); 
-    
+
     BLE.poll();
+    
+    handleVotages();
+
+    maintainNetworkHealth(currentMillis);
+    handlePendingReboot(currentMillis);
+    handleCrossCharging();
+    handleRadioSense(radioSenseIsActive, currentMillis);
     
     handleWiFiAPI();
     handleBLERead();
     handleSerialRead();
-    checkCloudCommandMailbox(currentMillis); 
-    handlePendingReboot(currentMillis);
-    maintainNetworkHealth(currentMillis);
+
     handleTelemetry(radioSenseIsActive, currentMillis);
-    handleCrossCharging();
-    handleRadioSense(radioSenseIsActive, currentMillis);
+    checkCloudCommandMailbox(currentMillis); 
     flushTelemetryToCloud(currentMillis);
 }
 
@@ -1495,6 +1499,11 @@ void handleCrossCharging() {
             crossChargeProtectionActiveFlag = false;
             writeLog("--> [BATTERY EMERGENCY]: Both banks dead! Breaking link."); 
         }
+        else if ((!backIsCharging && frontBatteryPercent >= CRITICAL_BATTERY_LOW) ||
+                 (!frontIsCharging && backBatteryPercent >= CRITICAL_BATTERY_LOW)) {
+            crossChargeProtectionActiveFlag = false;
+            writeLog("--> [BATTERY SAFETY]: Neither back or front is charging and both batteries over critical low battery levels. Breaking Link."); 
+        }
     }
 
     digitalWrite(RELAY_SOLENOID, crossChargeProtectionActiveFlag ? LOW : HIGH);    
@@ -1525,28 +1534,6 @@ void handleRadioSense(bool radioSenseIsActive, int currentMillis) {
 void handleTelemetry(bool radioSenseIsActive, int currentMillis) {
     if (currentMillis - lastTelemetryOutput < 2000) return;
     lastTelemetryOutput = currentMillis;
-
-    long accumulatedRawFront = 0;
-    long accumulatedRawBack = 0;
-
-    for (int i = 0; i < 8; i++) {
-        analogRead(VOLTAGE_FRONT); 
-        delayMicroseconds(50);
-        accumulatedRawFront += analogRead(VOLTAGE_FRONT);
-
-        analogRead(VOLTAGE_BACK); 
-        delayMicroseconds(50);
-        accumulatedRawBack += analogRead(VOLTAGE_BACK);
-    }
-
-    int rawFront = accumulatedRawFront / 8;
-    int rawBack = accumulatedRawBack / 8;
-
-    globalFrontVolts = ((rawFront * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_FRONT;
-    globalBackVolts = ((rawBack * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_BACK;
-
-    frontIsCharging = globalFrontVolts >= chargingVolts;
-    backIsCharging = globalBackVolts >= chargingVolts;
 
     int rawFrontCalculatedPercent = 0;
     
@@ -1704,6 +1691,30 @@ void handlePendingReboot(int currentMillis) {
         delay(2500);
         NVIC_SystemReset();
     }
+}
+
+void handleVotages() {
+    long accumulatedRawFront = 0;
+    long accumulatedRawBack = 0;
+
+    for (int i = 0; i < 8; i++) {
+        analogRead(VOLTAGE_FRONT); 
+        delayMicroseconds(50);
+        accumulatedRawFront += analogRead(VOLTAGE_FRONT);
+
+        analogRead(VOLTAGE_BACK); 
+        delayMicroseconds(50);
+        accumulatedRawBack += analogRead(VOLTAGE_BACK);
+    }
+
+    int rawFront = accumulatedRawFront / 8;
+    int rawBack = accumulatedRawBack / 8;
+
+    globalFrontVolts = ((rawFront * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_FRONT;
+    globalBackVolts = ((rawBack * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_BACK;
+
+    frontIsCharging = globalFrontVolts >= chargingVolts;
+    backIsCharging = globalBackVolts >= chargingVolts;
 }
 
 int getFreeRam() {

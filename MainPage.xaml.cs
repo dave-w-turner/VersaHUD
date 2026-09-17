@@ -975,6 +975,24 @@ public partial class MainPage : ContentPage
 
         App.NetworkService?.UpdateLifecycleState(true);
         UpdateBluetoothStatusBadge(App.NetworkService?.IsBluetoothConnected ?? false);
+
+        string crashDumpPath = Path.Combine(FileSystem.Current.AppDataDirectory, "versa_crash_dump.txt");
+
+        if (File.Exists(crashDumpPath))
+        {
+            string completeCrashDetails = File.ReadAllText(crashDumpPath);
+
+            System.Diagnostics.Debug.WriteLine(completeCrashDetails);
+
+            bool clearDump = await DisplayAlertAsync("SYSTEM CRASH DETECTED",
+                completeCrashDetails.Substring(0, Math.Min(completeCrashDetails.Length, 600)),
+                "CLEAR & EXPORT", "OK");
+
+            if (clearDump)
+            {
+                File.Delete(crashDumpPath);
+            }
+        }
     }
 
     public async Task KickstartWirelessCockpitSync()

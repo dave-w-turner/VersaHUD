@@ -198,7 +198,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         {
             if (RebootLockoutShellVisible && !App.NetworkService.IsRebootingWatchdogActive)
             {
-                UpdateAdminData();
+                await UpdateAdminData();
                 RebootLockoutShellVisible = false;
             }
         });

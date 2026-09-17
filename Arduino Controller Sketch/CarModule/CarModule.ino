@@ -153,11 +153,11 @@ void loop() {
     BLE.poll();
     
     handleVotages();
-
-    maintainNetworkHealth(currentMillis);
-    handlePendingReboot(currentMillis);
     handleCrossCharging();
     handleRadioSense(radioSenseIsActive, currentMillis);
+    
+    maintainNetworkHealth(currentMillis);
+    handlePendingReboot(currentMillis);
     
     handleWiFiAPI();
     handleBLERead();
@@ -1499,11 +1499,14 @@ void handleCrossCharging() {
             crossChargeProtectionActiveFlag = false;
             writeLog("--> [BATTERY EMERGENCY]: Both banks dead! Breaking link."); 
         }
-        else if ((!backIsCharging && frontBatteryPercent >= CRITICAL_BATTERY_LOW) ||
-                 (!frontIsCharging && backBatteryPercent >= CRITICAL_BATTERY_LOW)) {
+        else if (!backIsCharging && backBatteryPercent < SAFE_BATTERY_CEILING && frontBatteryPercent < backBatteryPercent) {
             crossChargeProtectionActiveFlag = false;
-            writeLog("--> [BATTERY SAFETY]: Neither back or front is charging and both batteries over critical low battery levels. Breaking Link."); 
+            writeLog("--> [CHARGER SAFETY]: Back donor is not charging and fell beneath safe levels. Breaking link.");
         }
+        else if (!frontIsCharging && frontBatteryPercent < SAFE_BATTERY_CEILING && backBatteryPercent < frontBatteryPercent) {
+            crossChargeProtectionActiveFlag = false;
+            writeLog("--> [CHARGER SAFETY]: Front donor is not charging and fell beneath safe levels. Breaking link.");
+        }        
     }
 
     digitalWrite(RELAY_SOLENOID, crossChargeProtectionActiveFlag ? LOW : HIGH);    

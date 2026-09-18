@@ -1,6 +1,7 @@
 ﻿using Plugin.BLE;
 using Plugin.BLE.Abstractions;
 using Plugin.BLE.Abstractions.Contracts;
+using System.Data;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
@@ -132,21 +133,41 @@ public class NetworkHubService
         };
 
         Connectivity.Current.ConnectivityChanged += OnSystemWirelessHardwareStateChanged;
+#if ANDROID
+        global::VersaHUD.BootReceiver.OnBLEStateChange += BootReceiver_OnBLEStateChange;
+#endif
+        OnConnectionStateChanged?.Invoke(IsBluetoothConnected);
     }
 
-    public async Task<bool> AutoConnectAsync(bool wifiAdapterOffOverride = false, bool bluetoothAdapterOffOverride = false)
+    private void BootReceiver_OnBLEStateChange(bool bleOn)
     {
-        if (IsConnecting && !(wifiAdapterOffOverride || bluetoothAdapterOffOverride))
+        if (bleOn)
+        {
+            App.NetworkService.IsUsingCloudWanMode = false;
+            App.NetworkService.IsUsingWifiTransportMode = false;
+            App.NetworkService.IsUsingLocalApMode = false;
+            _reconnectLoopCts?.Cancel();
+        }
+
+        OnConnectionStateChanged?.Invoke(bleOn);
+
+        if (!(IsMonitorActive || bleOn))
+        {
+            StartConnectionSupervisor();
+        }
+    }
+
+    public async Task<bool> AutoConnectAsync()
+    {
+        if (IsConnecting)
             return false;
         
         IsConnecting = true;
-
+                
         if (ReconnectCountdown > 0)
         {
             _reconnectLoopCts?.Cancel();
-        }
-        else if (!(IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
-            OnConnectionStateChanged?.Invoke(false);
+        }        
 
         var activeProfiles = Connectivity.Current.ConnectionProfiles;
         bool hasPhysicalWifiInterface = activeProfiles.Contains(ConnectionProfile.WiFi) &&
@@ -190,6 +211,9 @@ public class NetworkHubService
             _hasShownNoRadioAlert = false;
         }
 
+        if (!(IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
+            OnConnectionStateChanged?.Invoke(false);
+
         var secondsSinceLastTransportSwitch = (DateTime.UtcNow - LastTransportSwitchTimestamp).TotalSeconds;
 
         try
@@ -212,6 +236,8 @@ public class NetworkHubService
                         IsUsingCloudWanMode = false;
                         await ProvisionBLECommunication();
                     }
+
+                    _passwordVerificationCts?.Cancel();
                 }
                 else
                 {
@@ -427,7 +453,7 @@ public class NetworkHubService
         var token = _autoConnectLoopCts.Token;
 
         _ = Task.Run(async () =>
-        {
+        {            
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
             while (!token.IsCancellationRequested && await timer.WaitForNextTickAsync(token))
             {
@@ -935,26 +961,31 @@ public class NetworkHubService
 
         await Task.Delay(1000);
 
-        while (currentAttempt < maxReconnectionAttempts && IsRebootingWatchdogActive)
+        while (IsRebootingWatchdogActive)
         {
-            currentAttempt++;
-            await App.Log($"--> [BLE WATCHDOG]: Attempting hardware re-link #{currentAttempt} of {maxReconnectionAttempts} to: {targetedMacAddress}");
-            try
-            {
-                if (await AutoConnectAsync(false))
-                {
-                    IsRebootingWatchdogActive = false;
-                    await App.Log("--> [BLE WATCHDOG SUCCESS]: Radio pipeline synchronized cleanly!");
-                    return;
-                }
-                else throw new Exception("Connection attempt failed. Device still booting or unreachable.");
-            }
-            catch (Exception ex)
-            {
-                await App.Log($"--> [BLE WATCHDOG RETRY PASS]: Module still power-cycling: {ex.Message}");
-                await Task.Delay(800);
-            }
+            await Task.Delay(1000);
         }
+
+        //while (currentAttempt < maxReconnectionAttempts && IsRebootingWatchdogActive)
+        //{
+        //    currentAttempt++;
+        //    await App.Log($"--> [BLE WATCHDOG]: Attempting hardware re-link #{currentAttempt} of {maxReconnectionAttempts} to: {targetedMacAddress}");
+        //    try
+        //    {
+        //        if (await AutoConnectAsync(false))
+        //        {
+        //            IsRebootingWatchdogActive = false;
+        //            await App.Log("--> [BLE WATCHDOG SUCCESS]: Radio pipeline synchronized cleanly!");
+        //            return;
+        //        }
+        //        else throw new Exception("Connection attempt failed. Device still booting or unreachable.");
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        await App.Log($"--> [BLE WATCHDOG RETRY PASS]: Module still power-cycling: {ex.Message}");
+        //        await Task.Delay(800);
+        //    }
+        //}
 
         IsRebootingWatchdogActive = false;
         await App.Log("--> [WATCHDOG CRITICAL FAILURE]: Both communication channels are exhausted.");
@@ -1778,7 +1809,7 @@ public class NetworkHubService
 
         LastTransportSwitchTimestamp = DateTime.MinValue;
 
-        await AutoConnectAsync(!hasPhysicalWifiInterface);
+        OnConnectionStateChanged?.Invoke(IsBluetoothConnected);
     }
 
     private async void NativeCharacteristic_ValueUpdated(object? sender, Plugin.BLE.Abstractions.EventArgs.CharacteristicUpdatedEventArgs args)

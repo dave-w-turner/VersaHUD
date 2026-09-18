@@ -356,9 +356,9 @@ public partial class MainPage : ContentPage
                 bool currentBackIsCharging = rawDataPacket.Contains("Back: [🔋 CHARGING]");
 
                 Match? availableRam = null;
-                                
+
                 availableRam = BLEAvailableRamBytes.Match(rawDataPacket);
-                
+
                 if (availableRam != null)
                 {
                     if (availableRam.Success && int.TryParse(availableRam.Groups[1].Value, out int freeBytes))
@@ -423,7 +423,7 @@ public partial class MainPage : ContentPage
                 BluetoothStatusTextLabel = "RECONNECTING TO VEHICLE CORES...";
                 BluetoothStatusTextLabelColor = Color.Parse("#FFBF00");
                 BluetoothSignalTextLabel = string.Empty;
-
+                BorderNetworkStatusVisible = false;
                 ManualScanButtonVisible = true;
                 AdminNavigationButtonEnabled = false;
                 UnLockButtonEnabled = false;
@@ -437,6 +437,7 @@ public partial class MainPage : ContentPage
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
                 BorderNetworkStatusVisible = false;
+                CrossChargeStatusLayoutVisible = false;
 
                 BorderBluetoothStatusBackgroundColor = Color.Parse("#2D1A1A");
                 BorderBluetoothStatusStrokeColor = Color.Parse("#EF4444");
@@ -494,7 +495,8 @@ public partial class MainPage : ContentPage
                 MemoryIndicator.CurrentInstance?.Hide();
             });
 
-            _ = Task.Run(async () => {
+            _ = Task.Run(async () =>
+            {
                 await MainThread.InvokeOnMainThreadAsync(async () =>
                 {
                     LayoutReconnectingVisible = true;
@@ -516,7 +518,7 @@ public partial class MainPage : ContentPage
                 ExecuteWifiThemeRedrawPass();
                 return;
             }
-            else if (App.NetworkService.IsUsingCloudWanMode)
+            else if (App.NetworkService.IsUsingCloudWanMode && !isConnected)
             {
                 ExecuteCloudWanThemeRedrawPass();
                 return;
@@ -539,15 +541,12 @@ public partial class MainPage : ContentPage
 
                 ManualScanButtonVisible = false;
 
-                if (!BluetoothSignalVisible)
+                if (!BluetoothSignalVisible || BluetoothSignalTextLabel == " 📶 WAN LIVE")
                 {
                     BluetoothSignalVisible = true;
                     BluetoothSignalTextLabelColor = Color.Parse("#EF4444");
-
-                    if (App.NetworkService.ActiveRssi == -100)
-                    {
-                        BluetoothSignalTextLabel = "Waiting For RSSI Update";
-                    }
+                    BluetoothSignalTextLabel = "Waiting For RSSI Update";
+                    BorderNetworkStatusVisible = false;
                 }
 
                 if (App.NetworkService.IsAuthorized)
@@ -710,7 +709,7 @@ public partial class MainPage : ContentPage
         {
             BluetoothSignalTextLabel = " 📶 WAN LIVE";
             BluetoothSignalTextLabelColor = Color.Parse("#F59E0B");
-            
+
             BluetoothSignalVisible = true;
             ManualScanButtonVisible = false;
 
@@ -799,33 +798,35 @@ public partial class MainPage : ContentPage
                     string activeKey = Preferences.Default.Get(InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
                     bool commandTransmitted = false;
 
-                    try
+
+                    while (!commandTransmitted)
                     {
-                        while (!commandTransmitted)
+                        try
                         {
                             commandTransmitted = await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
 
-                            if (commandTransmitted)
-                            {
-                                await App.Log("--> [BOOT LINK SUCCESS]: Secure BLE key-pull verification request offloaded natively on boot pass!");
-                            }
-                            else
-                            {
-                                await App.Log("--> [BOOT LINK FAILURE]: Failed to process Secure BLE key-pull verification request on boot pass! The command could not be transmitted.");
-                                await Task.Delay(2500);
-                            }
                         }
-                    }
-                    catch (Exception ex)
-                    {
-                        if (!ex.Message.Contains("--> [ADMIN]: Unable to send command.") ||
-                        !ex.Message.Contains("--> [ADMIN]: Assuming transport switched during the 'GETCFKEYS'"))
-                            throw;
+                        catch (Exception ex)
+                        {
+                            if (!ex.Message.Contains("--> [ADMIN]: Unable to send command.") ||
+                            !ex.Message.Contains("--> [ADMIN]: Assuming transport switched during the 'GETCFKEYS'"))
+                                throw;
 
-                        if (!ex.Message.Contains("--> [ADMIN]: Assuming transport switched during the 'GETCFKEYS'"))
-                            await App.Log($"--> [BOOT LINK FAILURE]: Failed to process Secure BLE key-pull verification request on boot pass! Message: {ex.Message}");
+                            if (!ex.Message.Contains("--> [ADMIN]: Assuming transport switched during the 'GETCFKEYS'"))
+                                await App.Log($"--> [BOOT LINK FAILURE]: Failed to process Secure BLE key-pull verification request on boot pass! Message: {ex.Message}");
+                            else
+                                await App.Log(ex.Message);
+                        }
+
+                        if (commandTransmitted)
+                        {
+                            await App.Log("--> [BOOT LINK SUCCESS]: Secure BLE key-pull verification request offloaded natively on boot pass!");
+                        }
                         else
-                            await App.Log(ex.Message);
+                        {
+                            await App.Log("--> [BOOT LINK FAILURE]: Failed to process Secure BLE key-pull verification request on boot pass! The command could not be transmitted.");
+                            await Task.Delay(2500);
+                        }
                     }
                 }
                 else if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode)
@@ -850,7 +851,7 @@ public partial class MainPage : ContentPage
                             await App.Log("--> [BOOT LINK FAILURE]: Failed to process Secure WiFi key-pull verification request on boot pass! The command could not be transmitted.");
                         }
                     }
-                    else 
+                    else
                     {
                         await App.Log("--> [BOOT LINK FAILURE]: Failed to process Secure WiFi key-pull verification request on boot pass! The command could not be transmitted.");
                     }
@@ -1010,14 +1011,14 @@ public partial class MainPage : ContentPage
             {
                 await App.Log("--> [BOOT SYNC]: Zero historical pairings found. Inflating UI elements before permissions...");
 
-                    if (BTDevicePicker.CurrentInstance != null)
-                    {
-                        await App.Log("--> [HARDWARE MONITOR]: Forcing active device list reset sweep over radio waves...");
-                        LockButtonEnabled = false;
-                        UnLockButtonEnabled = false;
-                        AdminNavigationButtonEnabled = false;
-                        await BTDevicePicker.CurrentInstance.InitializePickerLifecycleAsync();
-                    }
+                if (BTDevicePicker.CurrentInstance != null)
+                {
+                    await App.Log("--> [HARDWARE MONITOR]: Forcing active device list reset sweep over radio waves...");
+                    LockButtonEnabled = false;
+                    UnLockButtonEnabled = false;
+                    AdminNavigationButtonEnabled = false;
+                    await BTDevicePicker.CurrentInstance.InitializePickerLifecycleAsync();
+                }
             }
             else
             {

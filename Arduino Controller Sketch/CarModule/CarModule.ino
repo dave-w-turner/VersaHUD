@@ -8,8 +8,8 @@
 #include <WiFiSSLClient.h>
 #include <RTC.h>
 
-#define CRITICAL_BATTERY_LOW      15  // 15% Trigger threshold
-#define SAFE_BATTERY_CEILING      30  // 30% Release threshold
+#define CRITICAL_BATTERY_LOW      15
+#define SAFE_BATTERY_CEILING      30
 
 String CLOUDFLARE_HOST     = "silent-bird-d9c0.taigon1984.workers.dev";
 const uint16_t CLOUDFLARE_PORT  = 443;
@@ -57,6 +57,8 @@ const unsigned long networkWatchdogInterval = 15000;
 unsigned long continuousDisconnectAnchorMillis = 0;
 const unsigned long maxDowntimeBeforeHardReset = 300000;
 bool systemIsCurrentlyInFallbackApMode = false;
+
+bool emergencyDisconnectLockoutFlag = false;
 
 const int RELAY_LOCK = 8;
 const int RELAY_UNLOCK = 9;
@@ -126,6 +128,7 @@ void setup() {
     setupPins();
     
     Serial.begin(9600);
+    RTC.begin();
     matrix.begin(); 
     displayMatrixText(" START ");
 
@@ -140,10 +143,10 @@ void setup() {
     continuousDisconnectAnchorMillis = millis();
     String currentRadioFirmwareVersion = WiFi.firmwareVersion();
     
-    Serial.println("\n==================================================");
+    Serial.println("\n=======================================================");
     Serial.print("📡 Active Onboard ESP32 Radio Firmware Version: ");
     Serial.println(currentRadioFirmwareVersion);
-    Serial.println("==================================================\n");
+    Serial.println("=======================================================\n");
 }
 
 void loop() {
@@ -490,12 +493,12 @@ void setupWiFiAPI() {
         
         int attempts = 0;
         while (WiFi.status() != WL_CONNECTED && attempts < 10) {
-        delay(500); 
-        attempts++;
+            delay(500); 
+            attempts++;
         }
         
         if (WiFi.status() == WL_CONNECTED) {
-        stationConnectedSuccess = true;
+            stationConnectedSuccess = true;
         }
     }
 
@@ -510,29 +513,58 @@ void setupWiFiAPI() {
     } else {
         writeLog("[SYS] Station Linked! Synchronizing Network Time...");
         systemIsCurrentlyInFallbackApMode = false;
-        
-        RTC.begin();
-        
-        int timeSyncAttempts = 0;
-        unsigned long globalEpochTime = 0;
-        
-        while (globalEpochTime == 0 && timeSyncAttempts < 3) {
-            globalEpochTime = WiFi.getTime();
-            if (globalEpochTime == 0) {
-                delay(500);
-                timeSyncAttempts++;
-            }
-        }
 
-        if (globalEpochTime > 0) {
-            RTCTime activeTimeConvert(globalEpochTime);
-            RTC.setTime(activeTimeConvert);
-            writeLog("[SYS] Core RTC Clock successfully locked onto network atomic time!");
-        } else {
-            writeLog("[WAN WARN]: NTP server unreachable. Internal clock starting from zero baseline.");
-        }
+        setCurrentTime();
     }
     webServer.begin();
+}
+
+void setCurrentTime() {
+    if (WiFi.status() != WL_CONNECTED) return;
+
+    static bool clockHasLockedOnAtomicTime = false;
+    static bool hasSyncedToday = false;
+
+    RTCTime currentSystemClockTime;
+    bool isClockCurrentlySet = RTC.getTime(currentSystemClockTime);
+
+    int hr  = isClockCurrentlySet ? currentSystemClockTime.getHour() : 0;
+    int min = isClockCurrentlySet ? currentSystemClockTime.getMinutes() : 0;
+    int sec = isClockCurrentlySet ? currentSystemClockTime.getSeconds() : 0;
+
+    bool isClockZeroBaseline = (!isClockCurrentlySet || (hr == 0 && min == 0 && sec == 0));
+    bool isMidnightSyncWindow = (hr == 0 && min == 0 && sec >= 2 && sec <= 12 && !hasSyncedToday);
+
+    if (!isClockZeroBaseline && !isMidnightSyncWindow) {
+        if (clockHasLockedOnAtomicTime) {
+            return;
+        }
+    }
+
+    Serial.println("--> [NTP SYSTEM]: Clock is zero or daily calibration required. Requesting sync...");
+    
+    unsigned long globalEpochTime = WiFi.getTime();
+
+    if (globalEpochTime > 0) {
+        RTCTime activeTimeConvert(globalEpochTime);
+        RTC.setTime(activeTimeConvert);
+        
+        clockHasLockedOnAtomicTime = true; 
+        hasSyncedToday = true;
+        
+        writeLog("[SYS] Core RTC Clock successfully locked onto network atomic time!");
+    } 
+    else {
+        Serial.println("--> [WAN WARN]: NTP server pool busy. Will retry on next pass.");
+    }
+
+    if (hr == 0 && min == 0 && sec > 15) {
+        hasSyncedToday = false;
+    }
+    
+    if (hr == 23 && min == 50) {
+        clockHasLockedOnAtomicTime = false;
+    }
 }
 
 void maintainNetworkHealth(int currentMillis) {
@@ -557,9 +589,6 @@ void maintainNetworkHealth(int currentMillis) {
             delay(100);
             WiFi.beginAP(currentBroadcastAP.c_str(), currentAPPassword.c_str());
             systemIsCurrentlyInFallbackApMode = true;
-        } 
-        else {
-            return; 
         }
     }
 }
@@ -1318,6 +1347,8 @@ bool flushAdminConfigurationToCloud() {
 void flushTelemetryToCloud(int currentMillis) {
     if (currentMillis - previousTelemetryMillis >= telemetryInterval) {
         previousTelemetryMillis = currentMillis;
+
+        setCurrentTime();
         unsigned long currentMillis = millis();
         if (!(systemIsCurrentlyInFallbackApMode && BLE.connected()) || triggerCloudUploadOnStart) {
             if (currentMillis - lastAdminSyncMillis >= adminSyncInterval) {
@@ -1438,7 +1469,7 @@ void writeLog(String txt) {
 
     String finalizedTimestampedLogLine = "";
     finalizedTimestampedLogLine.reserve(512); 
-
+    
     RTCTime currentSystemClockTime;
     if (RTC.getTime(currentSystemClockTime)) {
         char timestampClockBuffer[16];
@@ -1482,7 +1513,18 @@ void writeLog(String txt) {
 }
 
 void handleCrossCharging() {
+    if (frontIsCharging || backIsCharging) {
+        if (emergencyDisconnectLockoutFlag) {
+            emergencyDisconnectLockoutFlag = false;
+            writeLog("--> [RE-ENABLE ENGINE]: Charging current detected. Safety lockout flag cleared.");
+        }
+    }
+
     if (!crossChargeProtectionActiveFlag) { 
+        if (emergencyDisconnectLockoutFlag) {
+            return; 
+        }
+
         if ((frontBatteryPercent <= CRITICAL_BATTERY_LOW && backBatteryPercent >= SAFE_BATTERY_CEILING) || 
             (backBatteryPercent <= CRITICAL_BATTERY_LOW && frontBatteryPercent >= SAFE_BATTERY_CEILING) ||
             (backIsCharging && backBatteryPercent == 100 && frontBatteryPercent <= 80) ||
@@ -1490,23 +1532,32 @@ void handleCrossCharging() {
                 crossChargeProtectionActiveFlag = true; 
                 writeLog("--> [BATTERY CRITICAL]: Threshold protection tripped! Bridging cells."); 
             } 
-    } else {
+    } 
+    else {
         if ((globalFrontVolts >= 14.1 && globalBackVolts >= 14.2)) {
             crossChargeProtectionActiveFlag = false;
             writeLog("--> [CHARGER SAFETY]: Over 14 volts. Breaking link.");
         }
         else if (frontBatteryPercent <= 5 && backBatteryPercent <= 5) { 
             crossChargeProtectionActiveFlag = false;
+            emergencyDisconnectLockoutFlag = true;
             writeLog("--> [BATTERY EMERGENCY]: Both banks dead! Breaking link."); 
         }
         else if (!backIsCharging && backBatteryPercent < SAFE_BATTERY_CEILING && frontBatteryPercent < backBatteryPercent) {
             crossChargeProtectionActiveFlag = false;
+            emergencyDisconnectLockoutFlag = true;
             writeLog("--> [CHARGER SAFETY]: Back donor is not charging and fell beneath safe levels. Breaking link.");
         }
         else if (!frontIsCharging && frontBatteryPercent < SAFE_BATTERY_CEILING && backBatteryPercent < frontBatteryPercent) {
             crossChargeProtectionActiveFlag = false;
+            emergencyDisconnectLockoutFlag = true;
             writeLog("--> [CHARGER SAFETY]: Front donor is not charging and fell beneath safe levels. Breaking link.");
         }        
+        else if (!frontIsCharging && !backIsCharging && frontBatteryPercent > CRITICAL_BATTERY_LOW && backBatteryPercent > CRITICAL_BATTERY_LOW) {
+            crossChargeProtectionActiveFlag = false;
+            emergencyDisconnectLockoutFlag = true;
+            writeLog("--> [BATTERY SAFETY]: Recovery complete. Both banks are above critical thresholds. Separating cells.");
+        }
     }
 
     digitalWrite(RELAY_SOLENOID, crossChargeProtectionActiveFlag ? LOW : HIGH);    
@@ -1515,21 +1566,20 @@ void handleCrossCharging() {
 void handleRadioSense(bool radioSenseIsActive, int currentMillis) {       
     if (currentMillis - lastSensorReadMillis >= 2000) {
         lastSensorReadMillis = currentMillis;
-        pinMode(RADIO_SENSOR, INPUT);
         
-        if (globalFrontVolts >= 11.20) { 
+        if (backBatteryPercent >= 5) { 
             if (radioSenseIsActive && digitalRead(RELAY_AMP_REM) == HIGH) { 
                 digitalWrite(RELAY_AMP_REM, LOW);
-                writeLog("--> [AUDIO]: Radio active. K4 SNAP CLOSED."); 
+                writeLog("--> [AUDIO]: Radio on. Turning on amps."); 
             }
             else if (!radioSenseIsActive && digitalRead(RELAY_AMP_REM) == LOW) { 
                 digitalWrite(RELAY_AMP_REM, HIGH);
-                writeLog("--> [AUDIO]: Radio sleeping. K4 CLICK OPEN."); 
+                writeLog("--> [AUDIO]: Radio off. Turning off amps."); 
             } 
         }
         else if (digitalRead(RELAY_AMP_REM) == LOW) { 
             digitalWrite(RELAY_AMP_REM, HIGH); 
-            writeLog("--> [AUDIO]: Critical voltage protection tripped! K4 FORCED OPEN."); 
+            writeLog("--> [AUDIO]: Back battery less than 5%. Turning off amps."); 
         }        
     }
 }

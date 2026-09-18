@@ -14,6 +14,8 @@ namespace VersaHUD;
 })]
 public class BootReceiver : BroadcastReceiver
 {
+    public static event Action<bool>? OnBLEStateChange;
+
     public override async void OnReceive(Context context, Intent intent)
     {
         await App.Log($"--> [HARDWARE MONITOR]: Intercepted native phone radio event: {intent.Action}");
@@ -26,6 +28,7 @@ public class BootReceiver : BroadcastReceiver
 
             if (stateCode == (int)State.On)
             {
+                OnBLEStateChange?.Invoke(true);
                 await App.Log("--> [HARDWARE MONITOR]: Bluetooth hardware initialized. Triggering rapid background reconnection pipeline...");
             }
             else if (stateCode == (int)State.Off || stateCode == (int)State.TurningOff)
@@ -33,6 +36,7 @@ public class BootReceiver : BroadcastReceiver
                 if (App.NetworkService != null)
                 {
                     App.NetworkService.StopRssiTracking();
+                    OnBLEStateChange?.Invoke(false);
 
                     if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingCloudWanMode || App.NetworkService.IsUsingLocalApMode)
                     {
@@ -44,25 +48,7 @@ public class BootReceiver : BroadcastReceiver
                     }
                 }
             }
-
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await Task.Delay(500);
-                    await App.Log("--> [HARDWARE MONITOR]: Invoking AutoConnectAsync dynamically over active radio waves...");
-
-                    await MainThread.InvokeOnMainThreadAsync(async () =>
-                    {
-                        await App.NetworkService.AutoConnectAsync(bluetoothAdapterOffOverride: stateCode == (int)State.TurningOff);
-                    });
-                }
-                catch (Exception ex)
-                {
-                    await App.Log($"--> [HARDWARE MONITOR RECOVERY CHOKE]: {ex.Message}");
-                }
-            });
-
+            
             return;
         }
 

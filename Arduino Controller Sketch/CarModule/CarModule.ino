@@ -62,6 +62,7 @@ const unsigned long maxDowntimeBeforeHardReset = 300000;
 bool systemIsCurrentlyInFallbackApMode = false;
 
 bool emergencyDisconnectLockoutFlag = false;
+bool isTopUpChargeActive = false;
 
 const int RELAY_LOCK = 8;
 const int RELAY_UNLOCK = 9;
@@ -101,7 +102,7 @@ float globalBackVolts = 0;
 int frontBatteryPercent = 100;
 int backBatteryPercent = 100;
 
-float chargingVolts = 13.00;
+float chargingVolts = 13.10;
 
 float frontMaxFullChargeVolts = 12.80;
 float backMaxFullChargeVolts = 12.90;
@@ -1536,18 +1537,26 @@ void handleCrossCharging() {
         }
     }
 
+    if (isTopUpChargeActive && backBatteryPercent == 100 && frontBatteryPercent == 100) {
+        isTopUpChargeActive = false;
+    }
+
     if (!crossChargeProtectionActiveFlag) { 
         if (emergencyDisconnectLockoutFlag) {
             return; 
         }
 
         if ((frontBatteryPercent <= CRITICAL_BATTERY_LOW && backBatteryPercent >= SAFE_BATTERY_CEILING) || 
-            (backBatteryPercent <= CRITICAL_BATTERY_LOW && frontBatteryPercent >= SAFE_BATTERY_CEILING) ||
-            (backIsCharging && backBatteryPercent == 100 && frontBatteryPercent <= 80) ||
-            (frontIsCharging && frontBatteryPercent == 100 && backBatteryPercent <= 80)) { 
+            (backBatteryPercent <= CRITICAL_BATTERY_LOW && frontBatteryPercent >= SAFE_BATTERY_CEILING)) { 
                 crossChargeProtectionActiveFlag = true; 
                 writeLog("--> [BATTERY CRITICAL]: Threshold protection tripped! Bridging cells."); 
-            } 
+            }
+        else if ((backIsCharging && backBatteryPercent == 100 && frontBatteryPercent <= 80) ||
+            (frontIsCharging && frontBatteryPercent == 100 && backBatteryPercent <= 80)) {
+                crossChargeProtectionActiveFlag = true;
+                isTopUpChargeActive = true;
+                writeLog("--> [BATTERY MAINTENANCE]: Charging active. Bridging cells for topup.");
+            }
     } 
     else {
         if ((globalFrontVolts >= 14.1 && globalBackVolts >= 14.2)) {
@@ -1569,7 +1578,7 @@ void handleCrossCharging() {
             emergencyDisconnectLockoutFlag = true;
             writeLog("--> [CHARGER SAFETY]: Front donor is not charging and fell beneath safe levels. Breaking link.");
         }
-        else if (!frontIsCharging && !backIsCharging && frontBatteryPercent > CRITICAL_BATTERY_LOW && backBatteryPercent > CRITICAL_BATTERY_LOW) {
+        else if (!frontIsCharging && !backIsCharging && frontBatteryPercent > CRITICAL_BATTERY_LOW && backBatteryPercent > CRITICAL_BATTERY_LOW && !isTopUpChargeActive) {
             crossChargeProtectionActiveFlag = false;
             emergencyDisconnectLockoutFlag = true;
             writeLog("--> [BATTERY SAFETY]: Recovery complete. Both banks are above critical thresholds. Separating cells.");

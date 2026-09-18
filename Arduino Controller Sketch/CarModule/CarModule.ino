@@ -522,8 +522,9 @@ void setupWiFiAPI() {
 void setCurrentTime() {
     if (WiFi.status() != WL_CONNECTED) return;
 
-    static bool clockHasLockedOnAtomicTime = false;
+    static unsigned long lastNtpSyncTimestamp = 0;
     static bool hasSyncedToday = false;
+    unsigned long currentMillis = millis();
 
     RTCTime currentSystemClockTime;
     bool isClockCurrentlySet = RTC.getTime(currentSystemClockTime);
@@ -534,36 +535,31 @@ void setCurrentTime() {
 
     bool isClockZeroBaseline = (!isClockCurrentlySet || (hr == 0 && min == 0 && sec == 0));
     bool isMidnightSyncWindow = (hr == 0 && min == 0 && sec >= 2 && sec <= 12 && !hasSyncedToday);
+    bool driftWindowExpired = (lastNtpSyncTimestamp == 0 || (currentMillis - lastNtpSyncTimestamp >= 1800000));
 
-    if (!isClockZeroBaseline && !isMidnightSyncWindow) {
-        if (clockHasLockedOnAtomicTime) {
-            return;
-        }
+    if (!isClockZeroBaseline && !isMidnightSyncWindow && !driftWindowExpired) {
+        return;
     }
 
-    Serial.println("--> [NTP SYSTEM]: Clock is zero or daily calibration required. Requesting sync...");
+    Serial.println("--> [NTP SYSTEM]: Correcting hardware clock oscillator drift... Requesting sync...");
     
     unsigned long globalEpochTime = WiFi.getTime();
 
     if (globalEpochTime > 0) {
         RTCTime activeTimeConvert(globalEpochTime);
-        RTC.setTime(activeTimeConvert);
         
-        clockHasLockedOnAtomicTime = true; 
-        hasSyncedToday = true;
-        
-        writeLog("[SYS] Core RTC Clock successfully locked onto network atomic time!");
+        if (RTC.setTime(activeTimeConvert)) {
+            lastNtpSyncTimestamp = currentMillis;
+            hasSyncedToday = true;
+            writeLog("[SYS] Core RTC Clock successfully re-aligned to network atomic time.");
+        }
     } 
     else {
-        Serial.println("--> [WAN WARN]: NTP server pool busy. Will retry on next pass.");
+        Serial.println("--> [WAN WARN]: NTP server pool busy. Will retry on next loop pass.");
     }
 
     if (hr == 0 && min == 0 && sec > 15) {
         hasSyncedToday = false;
-    }
-    
-    if (hr == 23 && min == 50) {
-        clockHasLockedOnAtomicTime = false;
     }
 }
 

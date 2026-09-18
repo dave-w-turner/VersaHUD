@@ -119,12 +119,11 @@ public partial class MainPage : ContentPage
                         string timeString = ls.GetString();
                         if (TimeSpan.TryParse(timeString, out TimeSpan parsedTime))
                         {
-                            double secondsDelta = (DateTime.UtcNow.TimeOfDay - parsedTime).TotalSeconds;
+                            double telemetryLagInSeconds = (DateTime.UtcNow.TimeOfDay - parsedTime).TotalMinutes;
 
-                            if (secondsDelta < 0)
-                                secondsDelta += 86400;
+                            System.Diagnostics.Debug.WriteLine($"--> [LAG MONITOR]: Telemetry lag is precisely {telemetryLagInSeconds} seconds.");
 
-                            if (secondsDelta > 1200)
+                            if (Math.Abs(telemetryLagInSeconds) > 30)
                             {
                                 await App.Log("--> [DASHBOARD PARSER]: No telemetry being returned from WAN endpoint. Setting flag to default to next transport type.");
                                 App.NetworkService.IsWifiTelemetryDead = true;
@@ -804,7 +803,6 @@ public partial class MainPage : ContentPage
                         try
                         {
                             commandTransmitted = await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
-
                         }
                         catch (Exception ex)
                         {

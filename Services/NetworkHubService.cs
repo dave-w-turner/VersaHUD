@@ -1,7 +1,6 @@
 ﻿using Plugin.BLE;
 using Plugin.BLE.Abstractions;
 using Plugin.BLE.Abstractions.Contracts;
-using System.Data;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;

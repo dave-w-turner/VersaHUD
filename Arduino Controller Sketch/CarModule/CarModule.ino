@@ -19,6 +19,9 @@ String CF_CLIENT_SECRET    = "PASTE_YOUR_CF_ACCESS_CLIENT_SECRET_HERE";
 
 bool lastCloudTransmitSuccessful = false;
 bool triggerCloudUploadOnStart = true;
+unsigned long telemetryBoostExpirationTimestamp = 0;
+bool isTelemetryBoostModeActive = false;
+
 String lastAdminPayload = "";
 
 static unsigned long lastSensorReadMillis = 0;
@@ -472,6 +475,12 @@ bool processSecureCommand(String rawPacket, String source) {
             writeLog("[SYS] CF_KEYS:ERR_EMPTY_VAULTS");
             writeLog("--> [ADMIN_WARN]: Key retrieval aborted. Stored vaults are currently unconfigured.");
         }
+        return true;
+    }
+    else if (actionPayload == "BOOST_TELEMETRY") {
+        telemetryBoostExpirationTimestamp = millis() + 1800000;
+        isTelemetryBoostModeActive = true;
+        writeLog("--> [SYS CONTROL]: Remote override triggered. Telemetry boosted to 10s intervals for 30 minutes.");
         return true;
     }
 
@@ -1367,18 +1376,29 @@ void flushTelemetryToCloud(int currentMillis) {
                 }
             }
 
-            unsigned long activeCloudPacingInterval = 10000; 
-                            
-            if (currentMillis < rapidResponseWindowExpiration) { 
-                activeCloudPacingInterval = 5000; 
-            } 
-            else if (digitalRead(RADIO_SENSOR) == LOW) { 
-                activeCloudPacingInterval = 300000; 
-            }
+            unsigned long activeCloudPacingInterval = 15000; 
 
-            if (triggerCloudUploadOnStart || currentMillis - lastCloudUploadTimestamp >= activeCloudPacingInterval) { 
+            if (isTelemetryBoostModeActive) {
+                if (telemetryBoostExpirationTimestamp - millis() > 1800000) {
+                    isTelemetryBoostModeActive = false;
+                    writeLog("--> [SYS CONTROL]: Boost window expired. Restoring default power-saver curves.");
+                } else {
+                    activeCloudPacingInterval = 10000;
+                }
+            }  
+            
+            if (!isTelemetryBoostModeActive) {
+                if (currentMillis < rapidResponseWindowExpiration) { 
+                    activeCloudPacingInterval = 5000;
+                } 
+                else if (digitalRead(RADIO_SENSOR) == LOW) { 
+                    activeCloudPacingInterval = 300000; // Parked Mode Battery Saver: 5 Minutes
+                }
+            }
+                      
+            if (triggerCloudUploadOnStart || (currentMillis - lastCloudUploadTimestamp >= activeCloudPacingInterval)) { 
                 triggerCloudUploadOnStart = false;
-                lastCloudUploadTimestamp = currentMillis; 
+                lastCloudUploadTimestamp = currentMillis;
 
                 String jsonLogArrayPayload = "["; 
                 int logsCompiledCount = 0; 
@@ -1548,7 +1568,7 @@ void handleCrossCharging() {
             crossChargeProtectionActiveFlag = false;
             emergencyDisconnectLockoutFlag = true;
             writeLog("--> [CHARGER SAFETY]: Front donor is not charging and fell beneath safe levels. Breaking link.");
-        }        
+        }
         else if (!frontIsCharging && !backIsCharging && frontBatteryPercent > CRITICAL_BATTERY_LOW && backBatteryPercent > CRITICAL_BATTERY_LOW) {
             crossChargeProtectionActiveFlag = false;
             emergencyDisconnectLockoutFlag = true;

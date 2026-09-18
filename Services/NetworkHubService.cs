@@ -19,6 +19,7 @@ public class NetworkHubService
     private CancellationTokenSource? _rssiLoopCts;
     private CancellationTokenSource? _wifiTelemetryCts;
     private CancellationTokenSource? _passwordVerificationCts;
+    private CancellationTokenSource? _wanTelemetryFastTrackCancellation;
 
     private const string DeviceCacheKey = "LastConnectedBleId";
 
@@ -401,6 +402,70 @@ public class NetworkHubService
 
                 await ManageWifiTelemetryPollingLifecycle(false);
                 OnConnectionStateChanged?.Invoke(false);
+
+                _wanTelemetryFastTrackCancellation?.Cancel();
+                _wanTelemetryFastTrackCancellation = new();
+
+                _ = Task.Run(async () =>
+                {
+                    await App.Log("--> [TELEMETRY ENGINE]: Dynamic 30-minute remote override scheduler online.");
+
+                    while (IsUsingCloudWanMode && !_wanTelemetryFastTrackCancellation.Token.IsCancellationRequested)
+                    {
+                        bool commandTransmitted = false;
+                        int maximumRetryAttempts = 3;
+                        int currentAttemptCounter = 0;
+
+                        if (_isAppInForeground)
+                        {
+                            while (!commandTransmitted && currentAttemptCounter < maximumRetryAttempts && !_wanTelemetryFastTrackCancellation.Token.IsCancellationRequested)
+                            {
+                                currentAttemptCounter++;
+                                try
+                                {
+                                    string activeKey = Preferences.Default.Get("VersaPasscodeKey", "VersaPasscode99");
+                                    commandTransmitted = await App.NetworkService.SendSecureCommandAsync(activeKey, "BOOST_TELEMETRY");
+                                }
+                                catch (Exception ex)
+                                {
+                                    if (!ex.Message.Contains("--> [ADMIN]: Unable to send command.") ||
+                                        !ex.Message.Contains("--> [ADMIN]: Assuming transport switched during the 'BOOST_TELEMETRY'"))
+                                    {
+                                        throw;
+                                    }
+
+                                    if (!ex.Message.Contains("--> [ADMIN]: Assuming transport switched during the 'BOOST_TELEMETRY'"))
+                                    {
+                                        await App.Log($"--> [BOOST OVERRIDE FAILURE]: Transport failure on attempt {currentAttemptCounter}/{maximumRetryAttempts}! Message: {ex.Message}");
+                                    }
+                                    else
+                                    {
+                                        await App.Log(ex.Message);
+                                    }
+                                }
+
+                                if (commandTransmitted)
+                                {
+                                    await App.Log("--> [BOOST OVERRIDE SUCCESS]: Remote override command offloaded natively! Arduino tracking locked to 10s intervals.");
+                                }
+                                else
+                                {
+                                    await App.Log($"--> [BOOST OVERRIDE FAILURE]: Command transmission rejected on attempt {currentAttemptCounter}/{maximumRetryAttempts}.");
+
+                                    if (currentAttemptCounter < maximumRetryAttempts)
+                                    {
+                                        await Task.Delay(3000);
+                                    }
+                                }
+                            }
+
+                            await App.Log("--> [TELEMETRY ENGINE]: Entering 30-minute background resting buffer interval window...");
+                            await Task.Delay(1800000, _wanTelemetryFastTrackCancellation.Token);
+                        }
+                    }
+                }, _wanTelemetryFastTrackCancellation.Token);
+
+
             }
         }
         else if (IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode)
@@ -1157,6 +1222,11 @@ public class NetworkHubService
     {
         _isAppInForeground = isForeground;
         await App.Log($"--> [WAN WATCHDOG]: Foreground layout state changed: {_isAppInForeground}");
+
+        if (isForeground)
+        {
+            _wanTelemetryFastTrackCancellation?.Cancel();
+        }
     }
 
     public async Task ManageCloudFlareTelemetryPollingLifecycle()

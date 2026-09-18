@@ -15,7 +15,7 @@ public partial class MainPage : ContentPage
     private static readonly Regex BLEAvailableRamBytes = new(@"💾\[\d+%\]\s*\((\d+)\s*B\)", RegexOptions.Compiled);
     private static readonly Regex WiFiAvailableRamBytes = new(@"\((\d+)\s*B\)");
     private HashSet<string> _processedVehicleLogLinesBucket = [];
-
+    
     public event Action<string>? OnTelemetryParsed;
     public static MainPage CurrentInstance { get; private set; }
 
@@ -119,11 +119,11 @@ public partial class MainPage : ContentPage
                         string timeString = ls.GetString();
                         if (TimeSpan.TryParse(timeString, out TimeSpan parsedTime))
                         {
-                            double telemetryLagInSeconds = (DateTime.UtcNow.TimeOfDay - parsedTime).TotalMinutes;
+                            double telemetryLagInMinutes = (DateTime.UtcNow.TimeOfDay - parsedTime).TotalMinutes;
 
-                            System.Diagnostics.Debug.WriteLine($"--> [LAG MONITOR]: Telemetry lag is precisely {telemetryLagInSeconds} seconds.");
+                            System.Diagnostics.Debug.WriteLine($"--> [LAG MONITOR]: Telemetry lag is precisely {telemetryLagInMinutes} minutes.");
 
-                            if (Math.Abs(telemetryLagInSeconds) > 30)
+                            if (Math.Abs(telemetryLagInMinutes) > 12)
                             {
                                 await App.Log("--> [DASHBOARD PARSER]: No telemetry being returned from WAN endpoint. Setting flag to default to next transport type.");
                                 App.NetworkService.IsWifiTelemetryDead = true;
@@ -793,10 +793,8 @@ public partial class MainPage : ContentPage
 
                 if (App.NetworkService.IsBluetoothConnected && !(App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode))
                 {
-                    await Task.Delay(2500);
-                    string activeKey = Preferences.Default.Get(InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
+                    await Task.Delay(2500);                    
                     bool commandTransmitted = false;
-
 
                     while (!commandTransmitted)
                     {

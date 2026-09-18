@@ -125,11 +125,8 @@ public partial class BTDevicePicker : ContentView
 
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
-                if (Shell.Current?.CurrentPage is MainPage mainPage)
-                {
-                    await Task.Delay(1000);
+                if (!App.NetworkService.IsMonitorActive)
                     App.NetworkService.StartConnectionSupervisor();
-                }
 
                 BluetoothDeviceListSelectedItem = null;
             });

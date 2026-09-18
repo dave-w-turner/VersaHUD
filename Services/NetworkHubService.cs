@@ -252,6 +252,8 @@ public class NetworkHubService
                 {
                     if (!(IsUsingWifiTransportMode || IsUsingLocalApMode))
                     {
+                        OnConnectionStateChanged?.Invoke(false);
+
                         if (!IsAuthorized)
                             WaitingForAuthorization = false;
 
@@ -454,7 +456,7 @@ public class NetworkHubService
         _ = Task.Run(async () =>
         {            
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
-            while (!token.IsCancellationRequested && await timer.WaitForNextTickAsync(token))
+            do
             {
                 try
                 {
@@ -508,7 +510,7 @@ public class NetworkHubService
                 {
                     await App.Log($"Supervisor error: {ex.Message}");
                 }
-            }
+            } while (!token.IsCancellationRequested && await timer.WaitForNextTickAsync(token));
         }, token);
     }
 

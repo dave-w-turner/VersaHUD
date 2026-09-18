@@ -1509,7 +1509,7 @@ void writeLog(String txt) {
 }
 
 void handleCrossCharging() {
-    if (frontIsCharging || backIsCharging) {
+    if ((frontIsCharging && backBatteryPercent < 80) || (backIsCharging && frontBatteryPercent < 80)) {
         if (emergencyDisconnectLockoutFlag) {
             emergencyDisconnectLockoutFlag = false;
             writeLog("--> [RE-ENABLE ENGINE]: Charging current detected. Safety lockout flag cleared.");

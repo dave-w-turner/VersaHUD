@@ -800,6 +800,7 @@ public partial class MainPage : ContentPage
                     {
                         try
                         {
+                            string activeKey = Preferences.Default.Get(InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
                             commandTransmitted = await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
                         }
                         catch (Exception ex)

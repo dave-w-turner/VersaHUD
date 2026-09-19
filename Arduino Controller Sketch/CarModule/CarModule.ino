@@ -102,11 +102,11 @@ float globalBackVolts = 0;
 int frontBatteryPercent = 100;
 int backBatteryPercent = 100;
 
-float backChargingVolts = 13.30;
+float backChargingVolts = 13.40;
 float frontChargingVolts = 14.10;
 
-float frontMaxFullChargeVolts = 12.80;
-float backMaxFullChargeVolts = 12.90;
+float frontMaxFullChargeVolts = 12.50;
+float backMaxFullChargeVolts = 13.30;
 
 bool frontIsCharging = false;
 bool backIsCharging = false;

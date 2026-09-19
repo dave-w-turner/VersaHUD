@@ -102,13 +102,14 @@ float globalBackVolts = 0;
 int frontBatteryPercent = 100;
 int backBatteryPercent = 100;
 
-float chargingVolts = 13.10;
+float backChargingVolts = 13.30;
+float frontChargingVolts = 14.10;
 
 float frontMaxFullChargeVolts = 12.80;
 float backMaxFullChargeVolts = 12.90;
 
-bool frontIsCharging = (globalFrontVolts >= chargingVolts);
-bool backIsCharging = (globalBackVolts >= chargingVolts);
+bool frontIsCharging = false;
+bool backIsCharging = false;
 
 bool adminNeedsCloudSync = true;
 unsigned long lastAdminSyncMillis = 0;
@@ -1559,14 +1560,19 @@ void handleCrossCharging() {
             }
     } 
     else {
-        if ((globalFrontVolts >= 14.1 && globalBackVolts >= 14.2)) {
+        if (backIsCharging && (globalFrontVolts >= 14.3 && globalBackVolts >= 14.3)) {
             crossChargeProtectionActiveFlag = false;
-            writeLog("--> [CHARGER SAFETY]: Over 14 volts. Breaking link.");
+            writeLog("--> [CHARGER SAFETY]: Back is charging and both batteries over 14.3 volts. Breaking link.");
         }
-        else if (frontBatteryPercent <= 5 && backBatteryPercent <= 5) { 
+        else if (!backIsCharging && frontBatteryPercent <= 5) { 
             crossChargeProtectionActiveFlag = false;
             emergencyDisconnectLockoutFlag = true;
-            writeLog("--> [BATTERY EMERGENCY]: Both banks dead! Breaking link."); 
+            writeLog("--> [BATTERY EMERGENCY]: Front battery dead and back is not charging. Breaking link."); 
+        }
+        else if (!frontIsCharging && backBatteryPercent <= 5) { 
+            crossChargeProtectionActiveFlag = false;
+            emergencyDisconnectLockoutFlag = true;
+            writeLog("--> [BATTERY EMERGENCY]: Back battery dead and front is not charging. Breaking link."); 
         }
         else if (!backIsCharging && backBatteryPercent < SAFE_BATTERY_CEILING && frontBatteryPercent < backBatteryPercent) {
             crossChargeProtectionActiveFlag = false;
@@ -1791,8 +1797,18 @@ void handleVotages() {
     globalFrontVolts = ((rawFront * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_FRONT;
     globalBackVolts = ((rawBack * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_BACK;
 
-    frontIsCharging = globalFrontVolts >= chargingVolts;
-    backIsCharging = globalBackVolts >= chargingVolts;
+    if (!frontIsCharging && !backIsCharging && globalFrontVolts >= frontChargingVolts) {
+        frontIsCharging = true;
+    }
+    else if (!backIsCharging && !frontIsCharging && globalBackVolts >= backChargingVolts) {
+        backIsCharging = true;
+    }
+    else if (frontIsCharging && globalFrontVolts < frontChargingVolts) {
+        frontIsCharging = false;
+    }
+    else if (backIsCharging && globalBackVolts < backChargingVolts) {
+        backIsCharging = false;
+    }
 }
 
 int getFreeRam() {

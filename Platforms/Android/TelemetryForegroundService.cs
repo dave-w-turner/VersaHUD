@@ -23,6 +23,9 @@ public class TelemetryForegroundService : Service
     private bool _isFrontCharging = false;
     private bool _isTrunkCharging = false;
     private bool _isCrossCharging = false;
+    private bool _hasFiredEmergencyPowerAlert = false;
+
+    private const string ALERT_CHANNEL_ID = "versahud_emergency_alerts";
 
     private BootReceiver? _dynamicBluetoothStateReceiver;
 
@@ -231,8 +234,55 @@ public class TelemetryForegroundService : Service
             _isCrossCharging = rawPacket.Contains("[⚡ CROSS_CHG ACTIVE]") || rawPacket.Contains("cross_charging\":true");
         }
 
+        if (_frontPercent >= 50)
+        {
+            _hasFiredEmergencyPowerAlert = false;
+        }
+
+        if (_frontPercent > 0 && _frontPercent <= 15 && !_hasFiredEmergencyPowerAlert)
+        {
+            _hasFiredEmergencyPowerAlert = true;
+            TriggerLocalEmergencyPushAlert(_frontPercent);
+        }
+
         _notificationManager.Notify(NOTIFICATION_ID, BuildTelemetryStatusNotification());
     }
+
+    private void TriggerLocalEmergencyPushAlert(int lowPercentValue)
+    {
+        if (_notificationManager == null) return;
+
+        if (global::Android.OS.Build.VERSION.SdkInt >= global::Android.OS.BuildVersionCodes.O)
+        {
+            var alertChannel = new NotificationChannel(ALERT_CHANNEL_ID, "Critical Power Alerts", NotificationImportance.Max)
+            {
+                Description = "Intrusive alerts for dead vehicle power rails."
+            };
+            alertChannel.EnableVibration(true);
+            alertChannel.LockscreenVisibility = NotificationVisibility.Public;
+            _notificationManager.CreateNotificationChannel(alertChannel);
+        }
+
+        // 2. CONSTRUCT THE SYSTEM OVERRIDE NOTIFICATION PACKET
+        Notification.Builder alertBuilder = (global::Android.OS.Build.VERSION.SdkInt >= global::Android.OS.BuildVersionCodes.O)
+            ? new Notification.Builder(this, ALERT_CHANNEL_ID)
+            : new Notification.Builder(this);
+
+        Intent appIntent = new(this, typeof(MainActivity));
+        appIntent.SetFlags(ActivityFlags.ClearTop | ActivityFlags.SingleTop);
+        PendingIntent pIntent = PendingIntent.GetActivity(this, 99, appIntent, PendingIntentFlags.UpdateCurrent | PendingIntentFlags.Immutable);
+
+        alertBuilder.SetContentIntent(pIntent)
+            .SetContentTitle("🚨 CRITICAL FRONT BATTERY LOW")
+            .SetContentText($"VersaHUD Warning: Front capacity has collapsed to {lowPercentValue}%! Start your car or attach a charger immediately!")
+            .SetSmallIcon(global::Android.Resource.Drawable.IcDialogAlert)
+            .SetPriority((int)NotificationPriority.Max)
+            .SetDefaults(NotificationDefaults.Sound | NotificationDefaults.Vibrate)
+            .SetAutoCancel(true);
+
+        _notificationManager.Notify(912, alertBuilder.Build());
+    }
+
 
     public override IBinder OnBind(Intent intent) => null;
 

@@ -1782,11 +1782,23 @@ void handleVotages() {
     long accumulatedRawBack = 0;
 
     for (int i = 0; i < 8; i++) {
-        analogRead(VOLTAGE_FRONT); 
+        long frontVolts = analogRead(VOLTAGE_FRONT); 
+        if (frontVolts <= 6.5) {
+            analogReadResolution(14); 
+            delay(5);
+            analogReadResolution(12);
+        }
+
         delayMicroseconds(50);
         accumulatedRawFront += analogRead(VOLTAGE_FRONT);
 
-        analogRead(VOLTAGE_BACK); 
+        long backVolts = analogRead(VOLTAGE_BACK); 
+        if (backVolts <= 6.5) {
+            analogReadResolution(14); 
+            delay(5);
+            analogReadResolution(12);
+        } 
+        
         delayMicroseconds(50);
         accumulatedRawBack += analogRead(VOLTAGE_BACK);
     }

@@ -106,7 +106,7 @@ float backChargingVolts = 13.80;
 float frontChargingVolts = 14.10;
 
 float frontMaxFullChargeVolts = 12.50;
-float backMaxFullChargeVolts = 13.60;
+float backMaxFullChargeVolts = 13.40;
 
 bool frontIsCharging = false;
 bool backIsCharging = false;
@@ -481,6 +481,7 @@ bool processSecureCommand(String rawPacket, String source) {
     }
     else if (actionPayload == "BOOST_TELEMETRY") {
         telemetryBoostExpirationTimestamp = millis() + 1800000;
+        activeCloudPacingInterval = 10000;
         isTelemetryBoostModeActive = true;
         writeLog("--> [SYS CONTROL]: Remote override triggered. Telemetry boosted to 10s intervals for 30 minutes.");
         return true;

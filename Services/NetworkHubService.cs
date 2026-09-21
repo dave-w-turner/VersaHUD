@@ -255,7 +255,6 @@ public class NetworkHubService
                 else
                 {
                     await App.Log($"--> [CACHE HIT]: No historical device configured, exiting auto-connect function.");
-
                     return false;
                 }
             }
@@ -380,13 +379,10 @@ public class NetworkHubService
                                 WaitingForAuthorization = false;
                                 await App.Log($"--> [AUTOCONNECT WIFI FAILURE]: User unauthorized, initializing fallback routine!");
                             }
-
-                            return true;
                         }
                         else if (IsAuthorized)
                         {
                             _ = Task.Run(async () => await ManageWifiTelemetryPollingLifecycle(true));
-                            return true;
                         }
                         else if (!IsAuthorized && !MainPage.CurrentInstance.LayoutPasswordInitVisible)
                         {
@@ -400,7 +396,7 @@ public class NetworkHubService
                     }
                     else
                     {
-                        await App.Log($"--> [AUTOCONNECT WIFI FAILURE]: WiFi server not active, disable WiFi transport and terminating telemtry!");
+                        await App.Log($"--> [AUTOCONNECT WIFI FAILURE]: WiFi server not active, disabling WiFi transport and terminating telemtry!");
                         IsUsingWifiTransportMode = false;
                         IsUsingLocalApMode = false;
                         await ManageWifiTelemetryPollingLifecycle(false);

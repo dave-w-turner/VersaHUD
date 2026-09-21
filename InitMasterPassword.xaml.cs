@@ -48,7 +48,7 @@ public partial class InitMasterPassword : ContentView
 
         try
         {
-            Debug.WriteLine("--> [VAULT CORES]: Synchronizing master preference keys globally...");
+            await App.Log("--> [VAULT CORES]: Synchronizing master preference keys globally...");
 
             Preferences.Default.Set(MasterPasswordKey, enteredPasscode);
 
@@ -62,7 +62,6 @@ public partial class InitMasterPassword : ContentView
                 storageEditor.PutString("MasterPasswordKey", enteredPasscode);
                 storageEditor.Apply();
             }
-            Debug.WriteLine($"--> [NATIVE STORAGE LINK]: Master password token saved cleanly: {enteredPasscode}");
 #else
             Preferences.Default.Set("MasterPasswordKey", enteredPasscode);
 #endif
@@ -81,7 +80,7 @@ public partial class InitMasterPassword : ContentView
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"--> [INITIALIZATION FAULT SHIELD]: {ex.Message}");
+            await App.Log($"--> [INITIALIZATION FAULT SHIELD]: {ex.Message}");
         }
     }
 

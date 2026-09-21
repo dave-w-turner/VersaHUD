@@ -121,7 +121,7 @@ public partial class MainPage : ContentPage
                         {
                             double telemetryLagInMinutes = (DateTime.UtcNow.TimeOfDay - parsedTime).TotalMinutes;
 
-                            System.Diagnostics.Debug.WriteLine($"--> [LAG MONITOR]: Telemetry lag is precisely {telemetryLagInMinutes} minutes.");
+                            await App.Log($"--> [LAG MONITOR]: Telemetry lag is precisely {telemetryLagInMinutes} minutes.");
 
                             if (Math.Abs(telemetryLagInMinutes) > 12)
                             {
@@ -177,7 +177,7 @@ public partial class MainPage : ContentPage
 
                     if (_processedVehicleLogLinesBucket.Count > 30)
                     {
-                        System.Diagnostics.Debug.WriteLine("--> [Telemetry Parser]: Purging last 20 log items.");
+                        await App.Log("--> [Telemetry Parser]: Purging last 20 log items.");
                         _processedVehicleLogLinesBucket = [.. _processedVehicleLogLinesBucket.TakeLast(10)];
                     }
 
@@ -980,7 +980,7 @@ public partial class MainPage : ContentPage
         {
             string completeCrashDetails = File.ReadAllText(crashDumpPath);
 
-            System.Diagnostics.Debug.WriteLine(completeCrashDetails);
+            await App.Log(completeCrashDetails);
 
             bool clearDump = await DisplayAlertAsync("SYSTEM CRASH DETECTED",
                 completeCrashDetails.Substring(0, Math.Min(completeCrashDetails.Length, 600)),

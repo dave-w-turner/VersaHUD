@@ -107,7 +107,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"--> [ADMIN CRYPTO EXCEPTION]: Failure unpacking over-the-air parameters: {ex.Message}");
+                    await App.Log($"--> [ADMIN CRYPTO EXCEPTION]: Failure unpacking over-the-air parameters: {ex.Message}");
                 }
 
                 await MainThread.InvokeOnMainThreadAsync(async () =>
@@ -225,9 +225,9 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         var rotationCompletedSource = new TaskCompletionSource<bool>();
         Action<string> telemetryVerificationHandler = null;
 
-        telemetryVerificationHandler = (incomingStreamMessage) =>
+        telemetryVerificationHandler = async (incomingStreamMessage) =>
         {
-            Debug.WriteLine($"--> [ADMIN ROTATION INSPECTOR]: {incomingStreamMessage}");
+            await App.Log($"--> [ADMIN ROTATION INSPECTOR]: {incomingStreamMessage}");
             if (incomingStreamMessage.Contains("Master Cryptographic Token Rotated"))
             {
                 App.NetworkService.OnTelemetryReceived -= telemetryVerificationHandler;
@@ -290,7 +290,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         catch (Exception ex)
         {
             App.NetworkService.OnTelemetryReceived -= telemetryVerificationHandler;
-            Debug.WriteLine($"--> [ADMIN SYNC CRASH SHIELD]: {ex.Message}");
+            await App.Log($"--> [ADMIN SYNC CRASH SHIELD]: {ex.Message}");
         }
     }
 
@@ -301,7 +301,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         string targetNewAPId = WifiAPEntryText.Trim();
         string currentActiveKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
 
-        Debug.WriteLine($"--> [ADMIN CONTROL HUB]: Dispatching secure over-the-air Wifi AP ID swap to '{targetNewAPId}'...");
+        await App.Log($"--> [ADMIN CONTROL HUB]: Dispatching secure over-the-air Wifi AP ID swap to '{targetNewAPId}'...");
 
         bool commandTransmitted = false;
 
@@ -332,7 +332,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         string targetNewBleId = BluetoothNameText.Trim();
         string currentActiveKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
 
-        Debug.WriteLine($"--> [ADMIN CONTROL HUB]: Dispatching secure over-the-air BLE ID swap to '{targetNewBleId}'...");
+        await App.Log($"--> [ADMIN CONTROL HUB]: Dispatching secure over-the-air BLE ID swap to '{targetNewBleId}'...");
 
         bool commandTransmitted = false;
 
@@ -392,7 +392,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
     {
         try
         {
-            Debug.WriteLine("--> [WIFI RADAR]: Initializing live vehicle airwave scan pass...");
+            await App.Log("--> [WIFI RADAR]: Initializing live vehicle airwave scan pass...");
             string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
 
             bool commandTransmitted = false;
@@ -455,7 +455,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"--> [WIFI SCAN CHOKE]: {ex.Message}");
+            await App.Log($"--> [WIFI SCAN CHOKE]: {ex.Message}");
         }
     }
 
@@ -586,7 +586,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         catch (Exception ex)
         {
             RebootLockoutShellVisible = false;
-            Debug.WriteLine($"--> [CLOUDFLARE WRITE CHOKE]: {ex.Message}");
+            await App.Log($"--> [CLOUDFLARE WRITE CHOKE]: {ex.Message}");
             await DisplayAlertAsync("LINK FAULT", $"The transmission stream encountered an exception: {ex.Message}", "OK");
         }
     }
@@ -628,7 +628,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
     {
         if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode)
         {
-            Debug.WriteLine("--> [ADMIN CONTROL HUB]: Fetching clean configuration matrices straight from API...");
+            await App.Log("--> [ADMIN CONTROL HUB]: Fetching clean configuration matrices straight from API...");
 
             if (await HandleWifiAndCloudData())
             {
@@ -640,7 +640,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         }
         else if (App.NetworkService.IsBluetoothConnected)
         {
-            Debug.WriteLine("--> [ADMIN CONTROL HUB]: Fetching parameters over-the-air via serial text scraping...");
+            await App.Log("--> [ADMIN CONTROL HUB]: Fetching parameters over-the-air via serial text scraping...");
             string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
 
             try

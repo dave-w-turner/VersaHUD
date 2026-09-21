@@ -37,6 +37,7 @@ public class NetworkHubService
 
     private int _WANFailureCount = 0;
     private bool _hasShownNoRadioAlert = false;
+    private bool _telemetryBoostActive = false;
     private bool _isAppInForeground = true;
     private bool? _isWANReportedOnline = false;
     private static readonly SemaphoreSlim _wifiRadarLockoutMutedGate = new(1, 1);
@@ -141,239 +142,214 @@ public class NetworkHubService
 
     private void BootReceiver_OnBLEStateChange(bool bleOn)
     {
-        if (bleOn)
-        {
-            App.NetworkService.IsUsingCloudWanMode = false;
-            App.NetworkService.IsUsingWifiTransportMode = false;
-            App.NetworkService.IsUsingLocalApMode = false;
-            _reconnectLoopCts?.Cancel();
-        }
-
-        OnConnectionStateChanged?.Invoke(bleOn);
-
-        if (!(IsMonitorActive || bleOn))
-        {
-            StartConnectionSupervisor();
-        }
+        StartConnectionSupervisor();
     }
 
     public async Task<bool> AutoConnectAsync()
     {
         if (IsConnecting)
             return false;
-        
-        IsConnecting = true;
-                
-        if (ReconnectCountdown > 0)
+
+        try
         {
-            _reconnectLoopCts?.Cancel();
-        }        
+            IsConnecting = true;
 
-        var activeProfiles = Connectivity.Current.ConnectionProfiles;
-        bool hasPhysicalWifiInterface = activeProfiles.Contains(ConnectionProfile.WiFi) &&
-                                       (Connectivity.Current.NetworkAccess != NetworkAccess.None || Connectivity.Current.NetworkAccess == NetworkAccess.Unknown);
-        bool phoneHasInternetAccess = Connectivity.Current.NetworkAccess == NetworkAccess.Internet;
-
-        bool allRadiosOff = !(CrossBluetoothLE.Current.IsOn || hasPhysicalWifiInterface || phoneHasInternetAccess);
-
-        if (allRadiosOff)
-        {
-            if (!_hasShownNoRadioAlert)
+            if (ReconnectCountdown > 0)
             {
-                _hasShownNoRadioAlert = true;
-
-                await MainThread.InvokeOnMainThreadAsync(async () =>
-                {
-                    await MainPage.CurrentInstance.DisplayAlertAsync(
-                        "Network Error",
-                        "No active network interfaces detected. Please enable Bluetooth, Wi-Fi, or Cellular data to continue.",
-                        "OK");
-                });
+                _reconnectLoopCts?.Cancel();
             }
 
-            IsUsingCloudWanMode = false;
-            IsUsingLocalApMode = false;
-            IsUsingWifiTransportMode = false;
-            IsWifiTelemetryDead = false;
-            IsConnecting = false;
-            _passwordVerificationCts?.Cancel();
+            var activeProfiles = Connectivity.Current.ConnectionProfiles;
+            bool hasPhysicalWifiInterface = activeProfiles.Contains(ConnectionProfile.WiFi) &&
+                                           (Connectivity.Current.NetworkAccess != NetworkAccess.None || Connectivity.Current.NetworkAccess == NetworkAccess.Unknown);
+            bool phoneHasInternetAccess = Connectivity.Current.NetworkAccess == NetworkAccess.Internet;
 
-            while (WaitingForAuthorization)
+            bool allRadiosOff = !(CrossBluetoothLE.Current.IsOn || hasPhysicalWifiInterface || phoneHasInternetAccess);
+
+            if (allRadiosOff)
             {
-                await Task.Delay(500);
-            }
-
-            OnConnectionStateChanged?.Invoke(false);
-
-            await App.Log($"--> [AUTOCONNECT]: All radios offline.");
-            return false;
-        }
-        else
-        {
-            _hasShownNoRadioAlert = false;
-        }
-
-        if (!(IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
-        {
-            OnConnectionStateChanged?.Invoke(false);
-            await App.Log($"--> [AUTOCONNECT]: Current status, all connections severed.");
-        }
-
-        var secondsSinceLastTransportSwitch = (DateTime.UtcNow - LastTransportSwitchTimestamp).TotalSeconds;
-
-        await App.Log($"--> [AUTOCONNECT]: Attempting BLE connection.");
-
-        if (!IsBluetoothConnected && CrossBluetoothLE.Current.IsOn)
-        {
-            string cachedId = Preferences.Default.Get(DeviceCacheKey, string.Empty);
-            await App.Log($"--> [AUTOCONNECT]: BLE not connected and radio is on, attempting connection.");
-
-            if (!string.IsNullOrEmpty(cachedId))
-            {
-                await App.Log($"--> [CACHE HIT]: Reconnecting straight to historical device: {cachedId}");
-                Guid deviceGuid = Guid.Parse(cachedId);
-
-                await Task.Delay(2500);
-
-                try
+                if (!_hasShownNoRadioAlert)
                 {
-                    _targetDevice = await _adapter.ConnectToKnownDeviceAsync(deviceGuid);
-                }
-                catch (Exception ex)
-                {
-                    await App.Log($"--> [AUTOCONNECT BLE FAILURE]: Unable to connect to historic device. {ex.Message}");
+                    _hasShownNoRadioAlert = true;
+
+                    await MainThread.InvokeOnMainThreadAsync(async () =>
+                    {
+                        await MainPage.CurrentInstance.DisplayAlertAsync(
+                            "Network Error",
+                            "No active network interfaces detected. Please enable Bluetooth, Wi-Fi, or Cellular data to continue.",
+                            "OK");
+                    });
                 }
 
-                if (IsBluetoothConnected)
-                {
-                    LastTransportSwitchTimestamp = DateTime.MinValue;
-                    IsUsingCloudWanMode = false;
-                    await ProvisionBLECommunication();
-                }
-
+                IsUsingCloudWanMode = false;
+                IsUsingLocalApMode = false;
+                IsUsingWifiTransportMode = false;
+                IsWifiTelemetryDead = false;
                 _passwordVerificationCts?.Cancel();
+
+                while (WaitingForAuthorization)
+                {
+                    await Task.Delay(500);
+                }
+
+                OnConnectionStateChanged?.Invoke(false);
+
+                await App.Log($"--> [AUTOCONNECT]: All radios offline.");
+                return false;
             }
             else
             {
-                await App.Log($"--> [CACHE HIT]: No historical device configured, exiting auto-connect function.");
-
-                IsConnecting = false;
-                return false;
+                _hasShownNoRadioAlert = false;
             }
-        }
-        else if (IsBluetoothConnected)
-        {
-            await App.Log($"--> [AUTOCONNECT]: Bluetooth already connected.");
 
-            IsUsingCloudWanMode = false;
-
-            if (!_bLECommunicationProvisioned)
+            if (!(IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
             {
-                if (!(IsUsingWifiTransportMode || IsUsingLocalApMode))
+                OnConnectionStateChanged?.Invoke(false);
+                await App.Log($"--> [AUTOCONNECT]: Current status, all connections severed.");
+            }
+
+            var secondsSinceLastTransportSwitch = (DateTime.UtcNow - LastTransportSwitchTimestamp).TotalSeconds;
+
+            if (!IsBluetoothConnected && CrossBluetoothLE.Current.IsOn)
+            {
+                string cachedId = Preferences.Default.Get(DeviceCacheKey, string.Empty);
+                await App.Log($"--> [AUTOCONNECT]: BLE not connected and radio is on, attempting connection.");
+
+                if (!string.IsNullOrEmpty(cachedId))
                 {
-                    await App.Log($"--> [AUTOCONNECT]: Bluetooth not provisioned and WiFi disconnected, configuring settings...");
+                    await App.Log($"--> [CACHE HIT]: Reconnecting straight to historical device: {cachedId}");
+                    Guid deviceGuid = Guid.Parse(cachedId);
 
-                    OnConnectionStateChanged?.Invoke(false);
+                    await Task.Delay(2500);
 
-                    if (!IsAuthorized)
-                        WaitingForAuthorization = false;
+                    try
+                    {
+                        _targetDevice = await _adapter.ConnectToKnownDeviceAsync(deviceGuid);
+                    }
+                    catch (Exception ex)
+                    {
+                        await App.Log($"--> [AUTOCONNECT BLE FAILURE]: Unable to connect to historic device. {ex.Message}");
+                    }
 
-                    await ProvisionBLECommunication();
-
-                    if (hasPhysicalWifiInterface)
+                    if (IsBluetoothConnected)
+                    {
                         LastTransportSwitchTimestamp = DateTime.MinValue;
-                }
-                else if ((secondsSinceLastTransportSwitch >= TRANSPORT_FLAPPING_COOLDOWN_SECONDS &&
-                    ActiveRssi >= MIN_PASS_RSSI_VALUE && (IsUsingWifiTransportMode || IsUsingLocalApMode)) || IsWifiTelemetryDead)
-                {
-                    if (IsWifiTelemetryDead)
-                    {
-                        await App.Log($"--> [AUTOCONNECT]: WiFi telemetry is dead. Switching to BLE transport.");
-                    }
-                    else
-                    {
-                        await App.Log("--> [AUTO-CONNECT]: BLE signal strength is acceptable. Switching to BLE transport.");
+                        IsUsingCloudWanMode = false;
+                        await ProvisionBLECommunication();
                     }
 
-                    await ManageWifiTelemetryPollingLifecycle(false);
-                    _txCharacteristic?.ValueUpdated -= NativeCharacteristic_ValueUpdated;
-                    _txCharacteristic?.ValueUpdated += NativeCharacteristic_ValueUpdated;
-
-                    IsUsingWifiTransportMode = false;
-                    IsUsingLocalApMode = false;
-                    _bLECommunicationProvisioned = true;
-
-                    OnConnectionStateChanged?.Invoke(true);
-                    LastTransportSwitchTimestamp = DateTime.UtcNow;
-                }
-            }
-        }
-
-        if (hasPhysicalWifiInterface && ((IsBluetoothConnected && ActiveRssi <= MIN_PASS_RSSI_VALUE) || !IsBluetoothConnected))
-        {
-            string lastKnownIp = Preferences.Default.Get("LastKnownVehicleIP", "0.0.0.0");
-            if (!string.IsNullOrEmpty(lastKnownIp) && (lastKnownIp == "0.0.0.0" || lastKnownIp == "192.168.4.1" || lastKnownIp.Equals("STA_HOTSPOT")) && !IsUsingLocalApMode)
-            {
-                await App.Log($"--> [AUTOCONNECT WIFI]: Arduino currently in AP mode.");
-
-                var currentSubnet = GetCurrentWifiSubnetBase();
-
-                if (!string.IsNullOrEmpty(currentSubnet) && currentSubnet == "192.168.4.")
-                {
-                   
-
-                    lastKnownIp = "192.168.4.1";
-                    IsUsingLocalApMode = true;
-                    IsWifiTelemetryDead = false;
-                    await App.Log("--> [AUTO-CONNECT]: Vehicle node is in hotspot mode. Attempting to connect over Wi-Fi transport...");
+                    _passwordVerificationCts?.Cancel();
                 }
                 else
                 {
-                    await App.Log($"--> [AUTOCONNECT WIFI AP]: Current device not on same WiFi subnet, skipping AP connection..");
+                    await App.Log($"--> [CACHE HIT]: No historical device configured, exiting auto-connect function.");
+
+                    return false;
+                }
+            }
+            else if (IsBluetoothConnected)
+            {
+                IsUsingCloudWanMode = false;
+
+                if (!_bLECommunicationProvisioned)
+                {
+                    if (!(IsUsingWifiTransportMode || IsUsingLocalApMode))
+                    {
+                        await App.Log($"--> [AUTOCONNECT]: Bluetooth not provisioned and WiFi disconnected, configuring settings...");
+
+                        OnConnectionStateChanged?.Invoke(false);
+
+                        if (!IsAuthorized)
+                            WaitingForAuthorization = false;
+
+                        await ProvisionBLECommunication();
+
+                        if (hasPhysicalWifiInterface)
+                            LastTransportSwitchTimestamp = DateTime.MinValue;
+                    }
+                    else if ((secondsSinceLastTransportSwitch >= TRANSPORT_FLAPPING_COOLDOWN_SECONDS &&
+                        ActiveRssi >= MIN_PASS_RSSI_VALUE && (IsUsingWifiTransportMode || IsUsingLocalApMode)) || IsWifiTelemetryDead)
+                    {
+                        if (IsWifiTelemetryDead)
+                        {
+                            await App.Log($"--> [AUTOCONNECT]: WiFi telemetry is dead. Switching to BLE transport.");
+                        }
+                        else
+                        {
+                            await App.Log("--> [AUTO-CONNECT]: BLE signal strength is acceptable. Switching to BLE transport.");
+                        }
+
+                        await ManageWifiTelemetryPollingLifecycle(false);
+                        _txCharacteristic?.ValueUpdated -= NativeCharacteristic_ValueUpdated;
+                        _txCharacteristic?.ValueUpdated += NativeCharacteristic_ValueUpdated;
+
+                        IsUsingWifiTransportMode = false;
+                        IsUsingLocalApMode = false;
+                        _bLECommunicationProvisioned = true;
+
+                        OnConnectionStateChanged?.Invoke(true);
+                        LastTransportSwitchTimestamp = DateTime.UtcNow;
+                    }
                 }
             }
 
-            if (!string.IsNullOrEmpty(lastKnownIp) && !lastKnownIp.Equals("0.0.0.0") && !lastKnownIp.Equals("STA_HOTSPOT") && !IsWifiTelemetryDead)
+            if (hasPhysicalWifiInterface && ((IsBluetoothConnected && ActiveRssi <= MIN_PASS_RSSI_VALUE) || !IsBluetoothConnected))
             {
-                if (secondsSinceLastTransportSwitch >= TRANSPORT_FLAPPING_COOLDOWN_SECONDS)
+                string lastKnownIp = Preferences.Default.Get("LastKnownVehicleIP", "0.0.0.0");
+                if (!string.IsNullOrEmpty(lastKnownIp) && (lastKnownIp == "0.0.0.0" || lastKnownIp == "192.168.4.1" || lastKnownIp.Equals("STA_HOTSPOT")) && !IsUsingLocalApMode)
                 {
+                    await App.Log($"--> [AUTOCONNECT WIFI]: Arduino currently in AP mode.");
 
-                    if (!IsBluetoothConnected)
+                    var currentSubnet = await GetCurrentWifiSubnetBase();
+
+                    if (!string.IsNullOrEmpty(currentSubnet) && currentSubnet == "192.168.4.")
                     {
-                        await App.Log($"--> [AUTOCONNECT]: Bluetooth connection severed. Switching to WiFi transport.");
+                        lastKnownIp = "192.168.4.1";
+                        IsUsingLocalApMode = true;
+                        IsWifiTelemetryDead = false;
+                        await App.Log("--> [AUTO-CONNECT]: Vehicle node is in hotspot mode. Attempting to connect over Wi-Fi transport...");
                     }
                     else
                     {
-                        await App.Log($"--> [AUTOCONNECT]: Bleutooth signal unstable. Switching to WiFi transport.");
+                        await App.Log($"--> [AUTOCONNECT WIFI AP]: Current device not on same WiFi subnet, skipping AP connection..");
                     }
+                }
 
-
+                if (!string.IsNullOrEmpty(lastKnownIp) && !lastKnownIp.Equals("0.0.0.0") && !lastKnownIp.Equals("STA_HOTSPOT") && !IsWifiTelemetryDead)
+                {
                     await App.Log($"--> [AUTOCONNECT WIFI]: Checking health of Wifi endpoint.");
+
                     bool isWifiServerActive = await VerifyWifiHealthWithDebounceAsync(lastKnownIp);
 
                     if (isWifiServerActive)
                     {
                         await App.Log($"--> [AUTOCONNECT WIFI]: Server live!");
 
-                        if (!(IsUsingWifiTransportMode || IsUsingLocalApMode))
+                        if (!(IsUsingWifiTransportMode || IsUsingLocalApMode) && (secondsSinceLastTransportSwitch >= TRANSPORT_FLAPPING_COOLDOWN_SECONDS || !IsBluetoothConnected))
                         {
-                            await App.Log("--> [AUTO-CONNECT]: Evaluating network transport route preference to Wifi route...");
+                            if (!IsBluetoothConnected)
+                            {
+                                await App.Log($"--> [AUTOCONNECT]: Bluetooth connection severed. Switching to WiFi transport.");
+                            }
+                            else
+                            {
+                                await App.Log($"--> [AUTOCONNECT]: Bluetooth signal below acceptable levels. Switching to WiFi transport.");
+                            }
 
                             if (IsUsingLocalApMode)
                                 IsUsingWifiTransportMode = false;
                             else
                                 IsUsingWifiTransportMode = true;
 
-                            IsUsingCloudWanMode = false;
                             _txCharacteristic?.ValueUpdated -= NativeCharacteristic_ValueUpdated;
                             _bLECommunicationProvisioned = false;
-                            LastTransportSwitchTimestamp = DateTime.UtcNow;
+
+                            IsUsingCloudWanMode = false;
                             WaitingForAuthorization = false;
 
-                            await App.Log("--> [FAILOVER SUCCESS]: Vehicle node discovered live over Wi-Fi Subnet. Engaging Wi-Fi transport channels!");
+                            LastTransportSwitchTimestamp = DateTime.UtcNow;
 
-                            IsConnecting = false;
-                            OnConnectionStateChanged?.Invoke(false);
+                            await App.Log("--> [FAILOVER SUCCESS]: Vehicle node discovered live over Wi-Fi Subnet. Engaging Wi-Fi transport channels!");
 
                             if (IsAuthorized)
                             {
@@ -382,23 +358,31 @@ public class NetworkHubService
                             }
                             else
                             {
+                                WaitingForAuthorization = false;
                                 await App.Log($"--> [AUTOCONNECT WIFI FAILURE]: User unauthorized, initializing fallback routine!");
                             }
 
+                            OnConnectionStateChanged?.Invoke(false);
                             return true;
                         }
                         else if (IsAuthorized)
                         {
-                            await App.Log($"--> [AUTOCONNECT WIFI]: Starting WIFI telemetry!");
                             _ = ManageWifiTelemetryPollingLifecycle(true);
+                            return true;
                         }
-                        else if (!IsAuthorized)
+                        else if (!IsAuthorized && !MainPage.CurrentInstance.LayoutPasswordInitVisible)
                         {
-                            await App.Log($"--> [AUTOCONNECT WIFI FAILURE]: User unauthorized, initializing fallback routine!");
+                            _ = ManageWifiTelemetryPollingLifecycle(false);
+                            IsUsingWifiTransportMode = false;
+                            IsUsingLocalApMode = false;
+                            return false;
                         }
+
+                        return true;
                     }
                     else
                     {
+                        await App.Log($"--> [AUTOCONNECT WIFI FAILURE]: WiFi server not active, disable WiFi transport and terminating telemtry!");
                         IsUsingWifiTransportMode = false;
                         IsUsingLocalApMode = false;
                         await ManageWifiTelemetryPollingLifecycle(false);
@@ -407,157 +391,157 @@ public class NetworkHubService
                     }
                 }
             }
-        }
-        else if (!hasPhysicalWifiInterface && (IsUsingWifiTransportMode || IsUsingLocalApMode))
-        {
-            await App.Log($"--> [AUTOCONNECT WIFI]: WiFi disconnected but engine reporting WiFi transport mode active! Disabling WiFi configurations.");
-
-            IsUsingWifiTransportMode = false;
-            IsUsingLocalApMode = false;
-            await ManageWifiTelemetryPollingLifecycle(false);
-        }
-
-        if (!IsBluetoothConnected && IsWifiTelemetryDead && hasPhysicalWifiInterface && (IsUsingWifiTransportMode || IsUsingLocalApMode))
-        {
-            await App.Log("--> [AUTO-CONNECT]: No bluetooth available. Retaining WIFI connection regardless of empty telemetry.");
-            IsWifiTelemetryDead = false;
-        }
-        else if (!(IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
-        {
-            IsWifiTelemetryDead = false;
-        }
-
-        if (IsBluetoothConnected && !(IsUsingWifiTransportMode || IsUsingLocalApMode))
-        {
-            await App.Log($"--> [AUTOCONNECT]: WiFi disconnected but bluetooth active, returning from auto connection loop.");
-            IsConnecting = false;
-            return true;
-        }
-
-        var minutesSinceWANStatusReported = (DateTime.UtcNow - LastReportedWANLinkState).TotalMinutes;
-
-        if (!(IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode) && phoneHasInternetAccess &&
-            ((IsWANReportedOnline ?? true) || minutesSinceWANStatusReported >= 20))
-        {
-            if (!(IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
-                await App.Log($"--> [AUTOCONNECT WAN]: BLE & WiFi disconnected. Checking route to WAN services....");
-            else if (minutesSinceWANStatusReported >= 20)
-                await App.Log($"--> [AUTOCONNECT WAN]: 20 minute timeout expired for WAN being reported offline. Checking route to WAN services....");
-
-            IsWANReportedOnline = await VerifyTrueInternetRouteToHostAsync();
-
-            if (IsWANReportedOnline ?? true)
+            else if (!hasPhysicalWifiInterface && (IsUsingWifiTransportMode || IsUsingLocalApMode))
             {
-                await App.Log("--> [AUTO-CONNECT SUCCESS]: Bluetooth and Wifi off, but Internet path to Cloudflare verified live. Activating Cloud WAN fallback...");
+                await App.Log($"--> [AUTOCONNECT WIFI]: WiFi disconnected but engine reporting WiFi transport mode active! Disabling WiFi configurations and terminating telemetry.");
 
-                _txCharacteristic?.ValueUpdated -= NativeCharacteristic_ValueUpdated;
-                _bLECommunicationProvisioned = false;
-                _isTelemetryActive = false;
-                IsWifiTelemetryDead = false;
                 IsUsingWifiTransportMode = false;
                 IsUsingLocalApMode = false;
-                IsUsingCloudWanMode = true;
-
-                App.NetworkService.LastReportedWANLinkState = DateTime.UtcNow;
-
                 await ManageWifiTelemetryPollingLifecycle(false);
-                OnConnectionStateChanged?.Invoke(false);
+            }
 
-                _wanTelemetryFastTrackCancellation?.Cancel();
-                _wanTelemetryFastTrackCancellation = new();
+            if (!IsBluetoothConnected && IsWifiTelemetryDead && hasPhysicalWifiInterface && (IsUsingWifiTransportMode || IsUsingLocalApMode) && !IsUsingCloudWanMode)
+            {
+                await App.Log("--> [AUTO-CONNECT]: No bluetooth available. Retaining WIFI connection regardless of empty telemetry.");
+                IsWifiTelemetryDead = false;
+            }
+            else if (!(IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
+            {
+                IsWifiTelemetryDead = false;
+            }
 
-                _ = Task.Run(async () =>
+            if (IsBluetoothConnected && !(IsUsingWifiTransportMode || IsUsingLocalApMode))
+            {
+                await App.Log($"--> [AUTOCONNECT]: WiFi disconnected but bluetooth active, returning from auto connection loop.");
+                OnConnectionStateChanged?.Invoke(true);
+                return true;
+            }
+
+            var minutesSinceWANStatusReported = (DateTime.UtcNow - LastReportedWANLinkState).TotalMinutes;
+
+            if (!(IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode) && phoneHasInternetAccess &&
+                ((IsWANReportedOnline ?? true) || minutesSinceWANStatusReported >= 20))
+            {
+                if (!(IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
+                    await App.Log($"--> [AUTOCONNECT WAN]: BLE & WiFi disconnected. Checking route to WAN services....");
+                else if (minutesSinceWANStatusReported >= 20)
+                    await App.Log($"--> [AUTOCONNECT WAN]: 20 minute timeout expired for WAN being reported offline. Checking route to WAN services....");
+
+                IsWANReportedOnline = await VerifyTrueInternetRouteToHostAsync();
+
+                if (IsWANReportedOnline ?? true)
                 {
-                    await App.Log("--> [TELEMETRY ENGINE]: Dynamic 30-minute remote override scheduler online.");
+                    await App.Log("--> [AUTO-CONNECT SUCCESS]: Bluetooth and Wifi off, but Internet path to Cloudflare verified live. Activating Cloud WAN fallback...");
 
-                    while (IsUsingCloudWanMode && !_wanTelemetryFastTrackCancellation.Token.IsCancellationRequested)
+                    _txCharacteristic?.ValueUpdated -= NativeCharacteristic_ValueUpdated;
+                    _bLECommunicationProvisioned = false;
+                    _isTelemetryActive = false;
+                    IsWifiTelemetryDead = false;
+                    IsUsingWifiTransportMode = false;
+                    IsUsingLocalApMode = false;
+                    IsUsingCloudWanMode = true;
+
+                    _telemetryBoostActive = false;
+
+                    App.NetworkService.LastReportedWANLinkState = DateTime.UtcNow;
+
+                    await ManageWifiTelemetryPollingLifecycle(false);
+                    OnConnectionStateChanged?.Invoke(false);
+                    return true;
+                }
+            }
+
+            if (IsAuthorized && IsUsingCloudWanMode && !IsWifiTelemetryDead)
+            {
+                if (!_telemetryBoostActive)
+                {
+                    _telemetryBoostActive = true;
+
+                    _wanTelemetryFastTrackCancellation?.Cancel();
+                    _wanTelemetryFastTrackCancellation = new();
+
+                    _ = Task.Run(async () =>
                     {
-                        bool commandTransmitted = false;
-                        int maximumRetryAttempts = 3;
-                        int currentAttemptCounter = 0;
+                        await App.Log("--> [TELEMETRY ENGINE]: Dynamic 30-minute remote override scheduler online.");
 
-                        if (_isAppInForeground)
+                        while (IsUsingCloudWanMode && !_wanTelemetryFastTrackCancellation.Token.IsCancellationRequested)
                         {
-                            while (!commandTransmitted && currentAttemptCounter < maximumRetryAttempts && !_wanTelemetryFastTrackCancellation.Token.IsCancellationRequested)
+                            bool commandTransmitted = false;
+                            int maximumRetryAttempts = 3;
+                            int currentAttemptCounter = 0;
+
+                            if (_isAppInForeground)
                             {
-                                currentAttemptCounter++;
-                                try
+                                while (!commandTransmitted && currentAttemptCounter < maximumRetryAttempts && !_wanTelemetryFastTrackCancellation.Token.IsCancellationRequested)
                                 {
-                                    string activeKey = Preferences.Default.Get("VersaPasscodeKey", "VersaPasscode99");
-                                    commandTransmitted = await App.NetworkService.SendSecureCommandAsync(activeKey, "BOOST_TELEMETRY");
-                                }
-                                catch (Exception ex)
-                                {
-                                    if (!ex.Message.Contains("--> [ADMIN]: Unable to send command.") ||
-                                        !ex.Message.Contains("--> [ADMIN]: Assuming transport switched during the 'BOOST_TELEMETRY'"))
+                                    currentAttemptCounter++;
+                                    try
                                     {
-                                        throw;
+                                        string activeKey = Preferences.Default.Get("VersaPasscodeKey", "VersaPasscode99");
+                                        commandTransmitted = await App.NetworkService.SendSecureCommandAsync(activeKey, "BOOST_TELEMETRY");
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        if (!ex.Message.Contains("--> [ADMIN]: Unable to send command.") ||
+                                            !ex.Message.Contains("--> [ADMIN]: Assuming transport switched during the 'BOOST_TELEMETRY'"))
+                                        {
+                                            throw;
+                                        }
+
+                                        if (!ex.Message.Contains("--> [ADMIN]: Assuming transport switched during the 'BOOST_TELEMETRY'"))
+                                        {
+                                            await App.Log($"--> [BOOST OVERRIDE FAILURE]: Transport failure on attempt {currentAttemptCounter}/{maximumRetryAttempts}! Message: {ex.Message}");
+                                        }
+                                        else
+                                        {
+                                            await App.Log(ex.Message);
+                                        }
                                     }
 
-                                    if (!ex.Message.Contains("--> [ADMIN]: Assuming transport switched during the 'BOOST_TELEMETRY'"))
+                                    if (commandTransmitted)
                                     {
-                                        await App.Log($"--> [BOOST OVERRIDE FAILURE]: Transport failure on attempt {currentAttemptCounter}/{maximumRetryAttempts}! Message: {ex.Message}");
+                                        await App.Log("--> [BOOST OVERRIDE SUCCESS]: Remote override command offloaded natively! Arduino tracking locked to 10s intervals.");
                                     }
                                     else
                                     {
-                                        await App.Log(ex.Message);
+                                        await App.Log($"--> [BOOST OVERRIDE FAILURE]: Command transmission rejected on attempt {currentAttemptCounter}/{maximumRetryAttempts}.");
+
+                                        if (currentAttemptCounter < maximumRetryAttempts)
+                                        {
+                                            await Task.Delay(3000);
+                                        }
                                     }
                                 }
 
-                                if (commandTransmitted)
-                                {
-                                    await App.Log("--> [BOOST OVERRIDE SUCCESS]: Remote override command offloaded natively! Arduino tracking locked to 10s intervals.");
-                                }
-                                else
-                                {
-                                    await App.Log($"--> [BOOST OVERRIDE FAILURE]: Command transmission rejected on attempt {currentAttemptCounter}/{maximumRetryAttempts}.");
-
-                                    if (currentAttemptCounter < maximumRetryAttempts)
-                                    {
-                                        await Task.Delay(3000);
-                                    }
-                                }
+                                await App.Log("--> [TELEMETRY ENGINE]: Entering 30-minute background resting buffer interval window...");
+                                await Task.Delay(1800000, _wanTelemetryFastTrackCancellation.Token);
                             }
-
-                            await App.Log("--> [TELEMETRY ENGINE]: Entering 30-minute background resting buffer interval window...");
-                            await Task.Delay(1800000, _wanTelemetryFastTrackCancellation.Token);
                         }
-                    }
-                }, _wanTelemetryFastTrackCancellation.Token);
+                    }, _wanTelemetryFastTrackCancellation.Token);
+                }
 
-            }
-        }
-        else if (IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode)
-        {
-            IsConnecting = false;
-            return true;
-        }
-
-        if (IsAuthorized && IsUsingCloudWanMode && !IsWifiTelemetryDead)
-        {
-            await App.Log($"--> [AUTOCONNECT WAN]: Starting WAN telemetry poll....");
-
-            _ = Task.Run(async () =>
-            {
+                await App.Log($"--> [AUTOCONNECT WAN]: Starting WAN telemetry poll....");
                 await ManageCloudFlareTelemetryPollingLifecycle();
-            });
 
-            IsConnecting = false;
-            return true;
+                return true;
+            }
+
+            _passwordVerificationCts?.Cancel();
+
+            IsUsingWifiTransportMode = false;
+            IsUsingLocalApMode = false;
+            IsUsingCloudWanMode = false;
+            IsWANReportedOnline = false;
+            IsWifiTelemetryDead = false;
+
+            OnConnectionStateChanged?.Invoke(false);
+
+            return false;
         }
-
-        _passwordVerificationCts?.Cancel();
-
-        IsUsingWifiTransportMode = false;
-        IsUsingLocalApMode = false;
-        IsUsingCloudWanMode = false;
-        IsWANReportedOnline = false;
-        IsWifiTelemetryDead = false;
-
-        IsConnecting = false;
-        OnConnectionStateChanged?.Invoke(false);
-
-        return false;
+        finally
+        {
+            IsConnecting = false;
+        }
     }
 
     public void StartConnectionSupervisor()
@@ -575,63 +559,21 @@ public class NetworkHubService
         var token = _autoConnectLoopCts.Token;
 
         _ = Task.Run(async () =>
-        {            
+        {
+            await ManageConnection(token);
+
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
-            do
+            while (await timer.WaitForNextTickAsync(token) && !token.IsCancellationRequested)
             {
                 try
                 {
-                    if (!await AutoConnectAsync())
-                    {
-                        IsMonitorActive = false;
-
-                        _reconnectLoopCts = new();
-                        var reconnectToken = _reconnectLoopCts.Token;
-
-                        await Task.Run(async () =>
-                        {
-                            for (int i = 30; i >= 0; i--)
-                            {
-                                ReconnectCountdown = i;
-
-                                if (i > 0)
-                                {
-                                    await Task.Delay(1000);
-                                }
-
-                                if (reconnectToken.IsCancellationRequested || token.IsCancellationRequested)
-                                {
-                                    ReconnectCountdown = 0;
-                                    OnConnectionStateChanged?.Invoke(IsBluetoothConnected);
-
-                                    while (IsConnecting)
-                                    {
-                                        await Task.Delay(1000);
-                                    }
-
-                                    _reconnectLoopCts?.Dispose();
-                                    _reconnectLoopCts = null;
-                                    break;
-                                }
-                            }
-                        }, _reconnectLoopCts.Token);
-                    }
-                    else if (!IsAuthorized && (IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
-                    {
-                        if (IsWifiTelemetryDead && !IsBluetoothConnected)
-                        {
-                            continue;
-                        }
-
-                        await Task.Delay(1500);
-                        await VerifyPasswordAgainstHardwareAsync();
-                    }
+                    await ManageConnection(token);
                 }
                 catch (Exception ex)
                 {
                     await App.Log($"Supervisor error: {ex.Message}");
                 }
-            } while (!token.IsCancellationRequested && await timer.WaitForNextTickAsync(token));
+            }
         }, token);
     }
 
@@ -1364,7 +1306,6 @@ public class NetworkHubService
                 await App.Log("--> WAN telemetry reported dead. Disabling WAN connection.");
                 IsUsingCloudWanMode = false;
                 IsWANReportedOnline = false;
-                IsConnecting = false;
             }
         }
         catch (Exception ex)
@@ -1616,7 +1557,7 @@ public class NetworkHubService
 
             if (string.IsNullOrEmpty(cfHost))
             {
-                Debug.WriteLine("--> [WAN RADAR]: Missing Cloudflare client configuration. No route to WAN host.");
+                await App.Log("--> [WAN RADAR]: Missing Cloudflare client configuration. No route to WAN host.");
                 return false;
             }
 
@@ -1646,41 +1587,56 @@ public class NetworkHubService
         var activeProfiles = Connectivity.Current.ConnectionProfiles;
         bool hasPhysicalWifiInterface = activeProfiles.Contains(ConnectionProfile.WiFi);
 
-        if (!hasPhysicalWifiInterface || Connectivity.Current.NetworkAccess != NetworkAccess.Internet || Connectivity.Current.NetworkAccess != NetworkAccess.Local)
+        if (!hasPhysicalWifiInterface || Connectivity.Current.NetworkAccess == NetworkAccess.Unknown || Connectivity.Current.NetworkAccess == NetworkAccess.None)
             return false;
 
-        if (!await _wifiRadarLockoutMutedGate.WaitAsync(0)) return false;
+        if (!await _wifiRadarLockoutMutedGate.WaitAsync(0)) 
+            throw new Exception("Already running verification...");
 
-        try
+        var retryAttempt = 0;
+        var timespanSinceLastCheck = DateTime.UtcNow - _lastWifiHandshakeTimestamp;
+        if (timespanSinceLastCheck.TotalMilliseconds < DEBOUNCE_COOLDOWN_MILLISECONDS)
         {
-            var timespanSinceLastCheck = DateTime.UtcNow - _lastWifiHandshakeTimestamp;
-            if (timespanSinceLastCheck.TotalMilliseconds < DEBOUNCE_COOLDOWN_MILLISECONDS)
+            return true;
+        }
+
+        _lastWifiHandshakeTimestamp = DateTime.UtcNow;
+
+        do
+        {
+            try
             {
-                return true;
+                using var pingRadarClient = new HttpClient();
+                pingRadarClient.Timeout = TimeSpan.FromMilliseconds(1500);
+
+                var apiResponse = await pingRadarClient.GetAsync($"http://{lastKnownIp}/api/status");
+
+                if (apiResponse.IsSuccessStatusCode)
+                {
+                    await App.Log($"--> [LAN RADAR SUCCESS]: True Wi-Fi Route verified active to: {lastKnownIp}");
+
+                    _wifiRadarLockoutMutedGate.Release();
+                    return true;
+                }
+                else
+                {
+                    break;
+                }
             }
-
-            _lastWifiHandshakeTimestamp = DateTime.UtcNow;
-
-            using var pingRadarClient = new HttpClient();
-            pingRadarClient.Timeout = TimeSpan.FromMilliseconds(1500);
-
-            var apiResponse = await pingRadarClient.GetAsync($"http://{lastKnownIp}/api/status");
-
-            if (apiResponse.IsSuccessStatusCode)
+            catch (Exception ex)
             {
-                await App.Log($"--> [LAN RADAR SUCCESS]: True Wi-Fi Route verified active to: {lastKnownIp}");
-                IsUsingCloudWanMode = false;
-                return true;
+                retryAttempt++;
+
+                if (retryAttempt == 5)
+                {
+                    await App.Log($"--> [LAN RADAR FAIL]: Wi-Fi route dropping out or unreachable: {ex.Message}");
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            await App.Log($"--> [LAN RADAR FAIL]: Wi-Fi route dropping out or unreachable: {ex.Message}");
-        }
-        finally
-        {
-            _wifiRadarLockoutMutedGate.Release();
-        }
+            
+            await Task.Delay(5000);
+        } while (retryAttempt <= 5);
+
+        _wifiRadarLockoutMutedGate.Release();
 
         return false;
     }
@@ -1817,7 +1773,65 @@ public class NetworkHubService
         ActiveRssi = -100;
     }
 
-    private static string GetCurrentWifiSubnetBase()
+    private async Task ManageConnection(CancellationToken cancellationToken)
+    {
+        if (!await AutoConnectAsync())
+        {
+            IsMonitorActive = false;
+
+            _reconnectLoopCts = new();
+            var reconnectToken = _reconnectLoopCts.Token;
+
+            await Task.Run(async () =>
+            {
+                for (int i = 30; i >= 0; i--)
+                {
+                    ReconnectCountdown = i;
+
+                    if (i > 0)
+                    {
+                        await Task.Delay(1000);
+                    }
+
+                    if (reconnectToken.IsCancellationRequested || cancellationToken.IsCancellationRequested)
+                    {
+                        ReconnectCountdown = 0;
+                        OnConnectionStateChanged?.Invoke(IsBluetoothConnected);
+
+                        while (IsConnecting)
+                        {
+                            await Task.Delay(1000);
+                        }
+
+                        _reconnectLoopCts?.Dispose();
+                        _reconnectLoopCts = null;
+                        break;
+                    }
+                }
+            }, _reconnectLoopCts.Token);
+        }
+        
+        if (!IsAuthorized && (IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode) && !MainPage.CurrentInstance.LayoutPasswordInitVisible)
+        {
+            if (IsWifiTelemetryDead && !IsBluetoothConnected)
+            {
+                return;
+            }
+
+            await Task.Delay(1500);
+            await VerifyPasswordAgainstHardwareAsync();
+
+            if (IsAuthorized)
+            {
+                if (IsUsingWifiTransportMode || IsUsingLocalApMode)
+                    await ManageWifiTelemetryPollingLifecycle(true);
+                else if (IsUsingCloudWanMode)
+                    await ManageCloudFlareTelemetryPollingLifecycle();
+            }
+        }
+    }
+
+    private static async Task<string> GetCurrentWifiSubnetBase()
     {
 #if ANDROID
         try
@@ -1843,7 +1857,7 @@ public class NetworkHubService
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"--> [SUBNET DETECTOR ERROR]: {ex.Message}");
+            await App.Log($"--> [SUBNET DETECTOR ERROR]: {ex.Message}");
         }
 #endif
 
@@ -1932,11 +1946,17 @@ public class NetworkHubService
         bool hasPhysicalWifiInterface = e.ConnectionProfiles.Contains(ConnectionProfile.WiFi);
 
         if (hasPhysicalWifiInterface)
+        {
+            LastTransportSwitchTimestamp = DateTime.MinValue;
             IsWifiTelemetryDead = false;
+        }
+        else
+        {
+            IsUsingWifiTransportMode = false;
+            IsUsingLocalApMode = false;
+        }
 
-        LastTransportSwitchTimestamp = DateTime.MinValue;
-
-        OnConnectionStateChanged?.Invoke(IsBluetoothConnected);
+        StartConnectionSupervisor();
     }
 
     private async void NativeCharacteristic_ValueUpdated(object? sender, Plugin.BLE.Abstractions.EventArgs.CharacteristicUpdatedEventArgs args)
@@ -1973,7 +1993,7 @@ public class NetworkHubService
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"Graceful disconnect bypassed: {ex.Message}");
+            await App.Log($"Graceful disconnect bypassed: {ex.Message}");
         }
         finally
         {

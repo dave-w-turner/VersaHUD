@@ -1561,9 +1561,9 @@ void handleCrossCharging() {
             }
     } 
     else {
-        if (backIsCharging && (globalFrontVolts >= 14.3 && globalBackVolts >= 14.3)) {
+        if (backIsCharging && (globalFrontVolts >= 14.1 && globalBackVolts >= 14.1)) {
             crossChargeProtectionActiveFlag = false;
-            writeLog("--> [CHARGER SAFETY]: Back is charging and both batteries over 14.3 volts. Breaking link.");
+            writeLog("--> [CHARGER SAFETY]: Back is charging and both batteries over 14.1 volts. Breaking link.");
         }
         else if (!backIsCharging && frontBatteryPercent <= 5) { 
             crossChargeProtectionActiveFlag = false;

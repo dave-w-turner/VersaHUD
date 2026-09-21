@@ -149,7 +149,7 @@ public class NetworkHubService
     public async Task<bool> AutoConnectAsync(bool connectOverride = false)
     {
         if (IsConnecting && !connectOverride)
-            return false;
+            return true;
 
         try
         {

@@ -1824,14 +1824,14 @@ public class NetworkHubService
                 }
             }, _reconnectLoopCts.Token);
         }
-        
+
+        if (IsWifiTelemetryDead && !IsBluetoothConnected)
+        {
+            return;
+        }
+
         if (!IsAuthorized && (IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode) && !MainPage.CurrentInstance.LayoutPasswordInitVisible)
         {
-            if (IsWifiTelemetryDead && !IsBluetoothConnected)
-            {
-                return;
-            }
-
             await Task.Delay(1500);
             await VerifyPasswordAgainstHardwareAsync();
 

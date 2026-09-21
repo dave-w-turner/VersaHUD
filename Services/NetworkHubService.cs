@@ -142,6 +142,11 @@ public class NetworkHubService
 
     private async void BootReceiver_OnBLEStateChange(bool bleOn)
     {
+        if (!bleOn)
+            _bLECommunicationProvisioned = false;
+
+        LastTransportSwitchTimestamp = DateTime.MinValue;
+
         OnConnectionStateChanged?.Invoke(bleOn);
         await AutoConnectAsync(bleOn);
     }
@@ -363,6 +368,7 @@ public class NetworkHubService
                             _bLECommunicationProvisioned = false;
 
                             IsUsingCloudWanMode = false;
+                            IsRebootingWatchdogActive = false;
                             WaitingForAuthorization = false;
 
                             LastTransportSwitchTimestamp = DateTime.UtcNow;
@@ -422,7 +428,7 @@ public class NetworkHubService
                 IsWifiTelemetryDead = false;
             }
 
-            if (IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode)
+            if (IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsRebootingWatchdogActive)
                 return true;
 
             var minutesSinceWANStatusReported = (DateTime.UtcNow - LastReportedWANLinkState).TotalMinutes;
@@ -534,6 +540,8 @@ public class NetworkHubService
             }
 
             _passwordVerificationCts?.Cancel();
+
+            _bLECommunicationProvisioned = false;
 
             IsUsingWifiTransportMode = false;
             IsUsingLocalApMode = false;
@@ -1025,7 +1033,6 @@ public class NetworkHubService
             await App.Log("--> [WIFI WATCHDOG FAULT]: Wi-Fi recovery degraded or exhausted. Dropping link to base BLE...");
         }
 
-        currentAttempt = 0;
         string targetedMacAddress = Preferences.Default.Get("LastConnectedDeviceMac", string.Empty);
         await App.Log($"--> [BLE WATCHDOG START]: Initializing fallback radio link to address: {targetedMacAddress}...");
 
@@ -1057,7 +1064,6 @@ public class NetworkHubService
         //    }
         //}
 
-        IsRebootingWatchdogActive = false;
         await App.Log("--> [WATCHDOG CRITICAL FAILURE]: Both communication channels are exhausted.");
     }
 
@@ -1666,6 +1672,7 @@ public class NetworkHubService
         catch (OperationCanceledException)
         {
             await App.Log("--> [TRANSPORT WARN]: MTU handshake response timed out. Falling back to OS auto-negotiated limits.");
+            await RecycleBluetoothAdapterStateAsync();
             return;
         }
         catch (Exception ex)
@@ -1734,6 +1741,7 @@ public class NetworkHubService
                 await App.Log("--> [GATT SUCCESS]: Primary service bridge successfully discovered!");
                 await App.Log($"--> [TRANSPORT SUCCESS]: Obtained target service with UUID {ServiceUuid}.");
 
+                IsRebootingWatchdogActive = false;
                 OnConnectionStateChanged?.Invoke(true);
             }
             return;
@@ -1826,7 +1834,7 @@ public class NetworkHubService
             return;
         }
 
-        if (!IsAuthorized && (IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode) && !MainPage.CurrentInstance.LayoutPasswordInitVisible)
+        if (!IsAuthorized && (IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode) && !MainPage.CurrentInstance.LayoutPasswordInitVisible && !IsRebootingWatchdogActive)
         {
             await Task.Delay(1500);
             await VerifyPasswordAgainstHardwareAsync();
@@ -1966,6 +1974,8 @@ public class NetworkHubService
             IsUsingWifiTransportMode = false;
             IsUsingLocalApMode = false;
         }
+
+        LastTransportSwitchTimestamp = DateTime.MinValue;
 
         OnConnectionStateChanged?.Invoke(IsBluetoothConnected);
         await AutoConnectAsync(true);

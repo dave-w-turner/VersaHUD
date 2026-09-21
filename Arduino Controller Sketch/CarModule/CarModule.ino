@@ -102,11 +102,11 @@ float globalBackVolts = 0;
 int frontBatteryPercent = 100;
 int backBatteryPercent = 100;
 
-float backChargingVolts = 13.80;
+float backChargingVolts = 13.30;
 float frontChargingVolts = 14.10;
 
 float frontMaxFullChargeVolts = 12.50;
-float backMaxFullChargeVolts = 13.40;
+float backMaxFullChargeVolts = 13.20;
 
 bool frontIsCharging = false;
 bool backIsCharging = false;
@@ -118,6 +118,9 @@ const unsigned long adminSyncInterval = 1800000;
 unsigned long activeCloudPacingInterval = 30000;
 static unsigned long lastCloudUploadTimestamp = 0;
 static unsigned long rapidResponseWindowExpiration = 0;
+
+double BACK_VOLTS_CRITICAL_EMPTY = backMaxFullChargeVolts - 1.30;
+double FRONT_VOLTS_CRITICAL_EMPTY = frontMaxFullChargeVolts - 1.30;
 
 bool crossChargeProtectionActiveFlag = false; 
 
@@ -527,6 +530,7 @@ void setupWiFiAPI() {
         systemIsCurrentlyInFallbackApMode = false;
 
         setCurrentTime();
+        flushTelemetryToCloud(millis());
     }
     webServer.begin();
 }
@@ -1622,14 +1626,25 @@ void handleTelemetry(bool radioSenseIsActive, int currentMillis) {
 
     int rawFrontCalculatedPercent = 0;
     
-    if (globalFrontVolts >= frontMaxFullChargeVolts) rawFrontCalculatedPercent = 100;
-    else if (globalFrontVolts >= (frontMaxFullChargeVolts - 0.30)) rawFrontCalculatedPercent = 85 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 0.30)) / 0.30 * 15.0);
-    else if (globalFrontVolts >= (frontMaxFullChargeVolts - 0.50)) rawFrontCalculatedPercent = 70 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 0.50)) / 0.20 * 15.0);
-    else if (globalFrontVolts >= (frontMaxFullChargeVolts - 0.70)) rawFrontCalculatedPercent = 50 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 0.70)) / 0.20 * 20.0);
-    else if (globalFrontVolts >= (frontMaxFullChargeVolts - 0.90)) rawFrontCalculatedPercent = 30 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 0.90)) / 0.20 * 20.0);
-    else if (globalFrontVolts >= (frontMaxFullChargeVolts - 1.20)) rawFrontCalculatedPercent = 10 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 1.20)) / 0.30 * 20.0);
-    else if (globalFrontVolts >= (frontMaxFullChargeVolts - 1.30)) rawFrontCalculatedPercent = 0 + (int)((globalFrontVolts - (frontMaxFullChargeVolts - 1.30)) / 0.10 * 10.0);
-    else rawFrontCalculatedPercent = 0;
+    if (globalFrontVolts >= frontMaxFullChargeVolts) 
+    {
+        rawFrontCalculatedPercent = 100;
+    }
+    else if (globalFrontVolts <= FRONT_VOLTS_CRITICAL_EMPTY) 
+    {
+        rawFrontCalculatedPercent = 0;
+    }
+    else 
+    {
+        double standardizedVoltageOffset = (globalFrontVolts - FRONT_VOLTS_CRITICAL_EMPTY) / (frontMaxFullChargeVolts - FRONT_VOLTS_CRITICAL_EMPTY);
+        double smoothLogarithmicCurve = log(1.0 + (9.0 * standardizedVoltageOffset)) / log(10.0);
+        int calculatedInteger = (int)((smoothLogarithmicCurve * 100.0) + 0.5);
+        
+        if (calculatedInteger > 100) calculatedInteger = 100;
+        if (calculatedInteger < 0)   calculatedInteger = 0;
+        
+        rawFrontCalculatedPercent = calculatedInteger;
+    }
 
     if (abs(rawFrontCalculatedPercent - frontBatteryPercent) >= 3 || rawFrontCalculatedPercent == 100 || rawFrontCalculatedPercent == 0) {
         frontBatteryPercent = rawFrontCalculatedPercent;
@@ -1637,14 +1652,25 @@ void handleTelemetry(bool radioSenseIsActive, int currentMillis) {
 
     int rawBackCalculatedPercent = 0;
 
-    if (globalBackVolts >= backMaxFullChargeVolts) rawBackCalculatedPercent = 100;
-    else if (globalBackVolts >= (backMaxFullChargeVolts - 0.30)) rawBackCalculatedPercent = 85 + (int)((globalBackVolts - (backMaxFullChargeVolts - 0.30)) / 0.30 * 15.0);
-    else if (globalBackVolts >= (backMaxFullChargeVolts - 0.50)) rawBackCalculatedPercent = 70 + (int)((globalBackVolts - (backMaxFullChargeVolts - 0.50)) / 0.20 * 15.0);
-    else if (globalBackVolts >= (backMaxFullChargeVolts - 0.70)) rawBackCalculatedPercent = 50 + (int)((globalBackVolts - (backMaxFullChargeVolts - 0.70)) / 0.20 * 20.0);
-    else if (globalBackVolts >= (backMaxFullChargeVolts - 0.90)) rawBackCalculatedPercent = 30 + (int)((globalBackVolts - (backMaxFullChargeVolts - 0.90)) / 0.20 * 20.0);
-    else if (globalBackVolts >= (backMaxFullChargeVolts - 1.20)) rawBackCalculatedPercent = 10 + (int)((globalBackVolts - (backMaxFullChargeVolts - 1.20)) / 0.30 * 20.0);
-    else if (globalBackVolts >= (backMaxFullChargeVolts - 1.30)) rawBackCalculatedPercent = 0 + (int)((globalBackVolts - (backMaxFullChargeVolts - 1.30)) / 0.10 * 10.0);
-    else rawBackCalculatedPercent = 0;
+    if (globalBackVolts >= backMaxFullChargeVolts) 
+    {
+        rawBackCalculatedPercent = 100;
+    }
+    else if (globalBackVolts <= BACK_VOLTS_CRITICAL_EMPTY) 
+    {
+        rawBackCalculatedPercent = 0;
+    }
+    else 
+    {
+        double standardizedVoltageOffset = (globalBackVolts - BACK_VOLTS_CRITICAL_EMPTY) / (backMaxFullChargeVolts - BACK_VOLTS_CRITICAL_EMPTY);
+        double smoothLogarithmicCurve = log(1.0 + (9.0 * standardizedVoltageOffset)) / log(10.0);
+        int calculatedInteger = (int)((smoothLogarithmicCurve * 100.0) + 0.5);
+        
+        if (calculatedInteger > 100) calculatedInteger = 100;
+        if (calculatedInteger < 0)   calculatedInteger = 0;
+        
+        rawBackCalculatedPercent = calculatedInteger;
+    }
 
     if (abs(rawBackCalculatedPercent - backBatteryPercent) >= 3 || rawBackCalculatedPercent == 100 || rawBackCalculatedPercent == 0) {
          backBatteryPercent = rawBackCalculatedPercent;

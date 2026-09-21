@@ -39,15 +39,8 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         if (rawPacket.Contains("Rebooting"))
         {
-            await MainThread.InvokeOnMainThreadAsync(async () =>
-            {
-                RebootLockoutShellVisible = true;
-                if (!App.NetworkService.IsRebootingWatchdogActive)
-                {
-                    await Task.Delay(1200);
-                    await App.NetworkService.ForceProactiveRebootRecoveryAsync();
-                }
-            });
+            _ = DisplayRebootOverlay();
+            return;
         }
 
         if (rawPacket.Contains("ROUTER_ERROR"))
@@ -198,7 +191,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         {
             if (RebootLockoutShellVisible && !App.NetworkService.IsRebootingWatchdogActive)
             {
-                await UpdateAdminData();
+                await GetAdminData();
                 RebootLockoutShellVisible = false;
             }
         });
@@ -223,9 +216,8 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         if (!doubleCheck) return;
 
         var rotationCompletedSource = new TaskCompletionSource<bool>();
-        Action<string> telemetryVerificationHandler = null;
 
-        telemetryVerificationHandler = async (incomingStreamMessage) =>
+        async void telemetryVerificationHandler(string incomingStreamMessage)
         {
             await App.Log($"--> [ADMIN ROTATION INSPECTOR]: {incomingStreamMessage}");
             if (incomingStreamMessage.Contains("Master Cryptographic Token Rotated"))
@@ -233,7 +225,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                 App.NetworkService.OnTelemetryReceived -= telemetryVerificationHandler;
                 rotationCompletedSource.TrySetResult(true);
             }
-        };
+        }
 
         App.NetworkService.OnTelemetryReceived += telemetryVerificationHandler;
 
@@ -280,6 +272,9 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 #endif
                 MasterPasswordEntryText = string.Empty;
                 await DisplayAlertAsync("ROTATION SUCCESSFUL", "The vehicle module registers and your mobile app preferences have been successfully synchronized under your new master key!", "OK");
+
+                if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode)
+                    _ = DisplayRebootOverlay();
             }
             else
             {
@@ -318,6 +313,9 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         if (commandTransmitted)
         {
             await DisplayAlertAsync("IDENTITY ROTATED", "The parameter update was delivered successfully. System reboot initiated.", "OK");
+
+            if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode)
+                _ = DisplayRebootOverlay();
         }
         else
         {
@@ -349,6 +347,9 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         if (commandTransmitted)
         {
             await DisplayAlertAsync("IDENTITY ROTATED", "The parameter update was delivered successfully. System reboot initiated.", "OK");
+
+            if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode)
+                _ = DisplayRebootOverlay();
         }
         else
         {
@@ -377,6 +378,9 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         if (commandTransmitted)
         {
             await DisplayAlertAsync("Wi-Fi SETTINGS SAVED", "The parameter update was delivered successfully. System reboot initiated.", "OK");
+
+            if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode)
+                _ = DisplayRebootOverlay();
         }
         else
         {
@@ -487,6 +491,9 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             LayoutConfiguredRouterVisible = false;
 
             await DisplayAlertAsync("WIPE COMMAND FIRED", "The vehicle module is erasing credentials and performing a clean reboot now.", "OK");
+
+            if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode)
+                _ = DisplayRebootOverlay();
         }
         else
         {
@@ -522,6 +529,9 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             LayoutConfiguredRouterVisible = false;
 
             await DisplayAlertAsync("WIPE COMMAND FIRED", "The vehicle module is erasing credentials and performing a clean reboot now.", "OK");
+
+            if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode)
+                _ = DisplayRebootOverlay();
         }
         else
         {
@@ -624,7 +634,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         return isOk;
     }
 
-    private async Task UpdateAdminData()
+    private async Task GetAdminData()
     {
         if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode)
         {
@@ -705,6 +715,19 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         }
     }
 
+    private async Task DisplayRebootOverlay()
+    {
+        await MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            RebootLockoutShellVisible = true;
+            if (!App.NetworkService.IsRebootingWatchdogActive)
+            {
+                await Task.Delay(1200);
+                await App.NetworkService.ForceProactiveRebootRecoveryAsync();
+            }
+        });
+    }
+
     protected override async void OnAppearing()
     {
         base.OnAppearing();
@@ -721,7 +744,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
         if (App.NetworkService != null && !App.NetworkService.IsRebootingWatchdogActive)
         {
-            await UpdateAdminData();
+            await GetAdminData();
         }
     }
 

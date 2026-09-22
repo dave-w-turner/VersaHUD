@@ -147,6 +147,10 @@ public class NetworkHubService
 
         LastTransportSwitchTimestamp = DateTime.MinValue;
 
+        _rssiLoopCts?.Cancel();
+        _passwordVerificationCts?.Cancel();
+        await RecycleBluetoothAdapterStateAsync();
+
         OnConnectionStateChanged?.Invoke(bleOn);
         _reconnectLoopCts?.Cancel();
     }
@@ -262,8 +266,6 @@ public class NetworkHubService
 
                         IsUsingCloudWanMode = false;
                     }
-
-                    _passwordVerificationCts?.Cancel();
                 }
                 else
                 {

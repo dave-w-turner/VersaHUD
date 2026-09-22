@@ -1,4 +1,5 @@
-﻿const FALLBACK_DEFAULT_JSON = "{\"front_v\":0.00,\"front_p\":0,\"background_v\":0.00,\"back_p\":0,\"charging_f\":false,\"charging_b\":false,\"cross_charging\":false,\"system_logs\":[]}";
+﻿const FALLBACK_DEFAULT_JSON =
+"{\"front_v\":0.00,\"front_p\":0,\"background_v\":0.00,\"back_p\":0,\"charging_f\":false,\"charging_b\":false,\"cross_charging\":false,\"system_logs\":[]}";
 
 export default {
   async fetch(request, env, ctx) {
@@ -9,23 +10,64 @@ export default {
       if (method === "POST") {
         try {
           const bodyText = (await request.text()).trim();
-
           let activeLiveStateJson = await env.VERSAHUB_KV.get("LATEST_VEHICLE_STATE");
 
           if (bodyText.startsWith("{")) {
             await env.VERSAHUB_KV.put("LATEST_VEHICLE_STATE", bodyText);
-          } 
-          else {
+
+            try {
+              const parsedData = JSON.parse(bodyText);
+              
+              if (parsedData.system_logs && Array.isArray(parsedData.system_logs)) {
+                
+                let historicalLogStream = await env.VERSAHUB_KV.get("HISTORICAL_SYSTEM_LOGS");
+                let logCollectionArray = historicalLogStream ? JSON.parse(historicalLogStream) : [];
+
+                for (const individualLogLine of parsedData.system_logs) {
+                  if (individualLogLine.trim().length > 0) {
+                    logCollectionArray.push({
+                      server_time: new Date().toISOString(),
+                      voltage_f: parsedData.front_v || 0.0,
+                      ram_bytes: parsedData.free_RAM_bytes || 0,
+                      log_text: individualLogLine.trim()
+                    });
+                  }
+                }
+
+                if (logCollectionArray.length > 100) {
+                  logCollectionArray = logCollectionArray.slice(logCollectionArray.length - 100);
+                }
+
+                await env.VERSAHUB_KV.put("HISTORICAL_SYSTEM_LOGS", JSON.stringify(logCollectionArray));
+              }
+            } catch (jsonErr) {
+            }
+            
+            activeLiveStateJson = bodyText;
+          } else {
             if (!activeLiveStateJson) activeLiveStateJson = FALLBACK_DEFAULT_JSON;
           }
-		  
+
           return new Response(activeLiveStateJson, {
             status: 200,
             headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
-          });		  
-        } 
+          });
+        }
         catch (err) {
           return new Response("EDGE_TELEMETRY_EXCEPTION: " + err.message, { status: 500 });
+        }
+      }
+      
+      if (method === "GET") {
+        try {
+          let historicalLogs = await env.VERSAHUB_KV.get("HISTORICAL_SYSTEM_LOGS");
+          if (!historicalLogs) historicalLogs = "[]";
+          return new Response(historicalLogs, {
+            status: 200,
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+          });
+        } catch (err) {
+          return new Response("EDGE_LOG_READ_EXCEPTION: " + err.message, { status: 500 });
         }
       }
     }
@@ -41,12 +83,12 @@ export default {
 
           await env.VERSAHUB_KV.put("PENDING_COMMAND", commandPayloadBody);
           await env.VERSAHUB_KV.put("LAST_EXECUTED_COMMAND", `${new Date().toISOString()} | ${commandPayloadBody}`);
-          
+
           return new Response(JSON.stringify({ status: "Success" }), {
             status: 200,
             headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
           });
-        } 
+        }
         catch (err) {
           return new Response("EDGE_COMMAND_WRITE_EXCEPTION: " + err.message, { status: 500 });
         }
@@ -64,13 +106,13 @@ export default {
           const finalizedPayload = pendingCommand + "\n";
           const payloadLength = finalizedPayload.length;
 
-          return new Response(finalizedPayload, { 
+          return new Response(finalizedPayload, {
             status: 200,
-            headers: { 
-              "Content-Type": "text/plain", 
+            headers: {
+              "Content-Type": "text/plain",
               "Content-Length": payloadLength.toString(),
-              "Access-Control-Allow-Origin": "*" 
-            } 
+              "Access-Control-Allow-Origin": "*"
+            }
           });
         }
         catch (err) {
@@ -86,37 +128,37 @@ export default {
           const parsedConfigData = JSON.parse(rawConfigJsonText.trim());
 
           if (parsedConfigData.router_ssid) await env.VERSAHUB_KV.put("ROUTER_BRIDGE_SSID", parsedConfigData.router_ssid.trim());
-          if (parsedConfigData.wifi_ap)    await env.VERSAHUB_KV.put("WIFI_AP_NAME", parsedConfigData.wifi_ap.trim());
-		      if (parsedConfigData.wifi_ap_pw) await env.VERSAHUB_KV.put("WIFI_AP_PASSWORD", parsedConfigData.wifi_ap_pw.trim());
-          if (parsedConfigData.ble_name)   await env.VERSAHUB_KV.put("BLE_BROADCAST_NAME", parsedConfigData.ble_name.trim());
-          if (parsedConfigData.master_pw_hash)   await env.VERSAHUB_KV.put("MASTER_PW_HASH", parsedConfigData.master_pw_hash.trim());
+          if (parsedConfigData.wifi_ap) await env.VERSAHUB_KV.put("WIFI_AP_NAME", parsedConfigData.wifi_ap.trim());
+          if (parsedConfigData.wifi_ap_pw) await env.VERSAHUB_KV.put("WIFI_AP_PASSWORD", parsedConfigData.wifi_ap_pw.trim());
+          if (parsedConfigData.ble_name) await env.VERSAHUB_KV.put("BLE_BROADCAST_NAME", parsedConfigData.ble_name.trim());
+          if (parsedConfigData.master_pw_hash) await env.VERSAHUB_KV.put("MASTER_PW_HASH", parsedConfigData.master_pw_hash.trim());
           return new Response("TELEMETRY_VAULTS_HYDRATED_SUCCESSFULLY", { status: 200 });
-        } 
+        }
         catch (err) {
           return new Response("EDGE_ADMIN_WRITE_EXCEPTION: " + err.message, { status: 500 });
         }
       }
-      
+
       if (method === "GET") {
         try {
           const activeHost = env?.CF_ALLOWED_HOST || url.hostname || "silent-bird-d9c0.taigon1984.workers.dev";
-          const activeId   = env?.CF_ALLOWED_ID   || "9b28e96698ee489c6a80c96c4e211317.access";
+          const activeId = env?.CF_ALLOWED_ID || "9b28e96698ee489c6a80c96c4e211317.access";
 
           let activeRouterSsid = await env.VERSAHUB_KV.get("ROUTER_BRIDGE_SSID");
-          if (!activeRouterSsid) activeRouterSsid = "NONE"; 
+          if (!activeRouterSsid) activeRouterSsid = "NONE";
 
           let activeWifiAp = await env.VERSAHUB_KV.get("WIFI_AP_NAME");
           if (!activeWifiAp) activeWifiAp = "NONE";
-		  
-		  let activeWifiApPw = await env.VERSAHUB_KV.get("WIFI_AP_PASSWORD");
-		  if (!activeWifiApPw) activeWifiAp = "NONE";
+
+          let activeWifiApPw = await env.VERSAHUB_KV.get("WIFI_AP_PASSWORD");
+          if (!activeWifiApPw) activeWifiApPw = "NONE";
 
           let activeBleName = await env.VERSAHUB_KV.get("BLE_BROADCAST_NAME");
           if (!activeBleName) activeBleName = "NONE";
 
           const jsonAdminProfile = { wifi_ap: activeWifiAp, wifi_ap_pw: activeWifiApPw, ble_name: activeBleName, router_ssid: activeRouterSsid, cf_host: activeHost, cf_id: activeId };
           return new Response(JSON.stringify(jsonAdminProfile), { status: 200, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
-        } 
+        }
         catch (err) {
           return new Response("EDGE_ADMIN_READ_EXCEPTION: " + err.message, { status: 500 });
         }
@@ -126,31 +168,31 @@ export default {
     if (url.pathname === "/api/status") {
       return new Response(JSON.stringify({ status: "Ready" }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
-	
+
     if (url.pathname === "/api/auth") {
       if (method === "POST") {
-      try {
-        const incomingHashFromPhone = (await request.text()).trim();
-        const authorizedMasterHash = await env.VERSAHUB_KV.get("MASTER_PW_HASH");
+        try {
+          const incomingHashFromPhone = (await request.text()).trim();
+          const authorizedMasterHash = await env.VERSAHUB_KV.get("MASTER_PW_HASH");
 
-        if (authorizedMasterHash && incomingHashFromPhone === authorizedMasterHash.trim()) {
-        return new Response(JSON.stringify({ status: "Authorized" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
-        });
-        } else {
-        return new Response(JSON.stringify({ status: "Denied" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
-        });
+          if (authorizedMasterHash && incomingHashFromPhone === authorizedMasterHash.trim()) {
+            return new Response(JSON.stringify({ status: "Authorized" }), {
+              status: 200,
+              headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+            });
+          } else {
+            return new Response(JSON.stringify({ status: "Denied" }), {
+              status: 401,
+              headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+            });
+          }
         }
-      } 
-      catch (err) {
-        return new Response("EDGE_AUTH_EXCEPTION: " + err.message, { status: 500 });
-      }
+        catch (err) {
+          return new Response("EDGE_AUTH_EXCEPTION: " + err.message, { status: 500 });
+        }
       }
     }
 
-      return new Response("VersaHUD Cloud telemetry edge proxy engine live.", { status: 200 });
-    }
+    return new Response("VersaHUD Cloud telemetry edge proxy engine live.", { status: 200 });
+  }
 };

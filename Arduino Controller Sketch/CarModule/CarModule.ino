@@ -90,7 +90,7 @@ const int EEPROM_CF_HOST_ADDR      = 250;
 const int EEPROM_CF_CLIENT_ID_ADDR = 350;
 const int EEPROM_CF_SECRET_ADDR    = 450;
 
-const int MAX_SYSTEM_LOGS = 2;
+const int MAX_SYSTEM_LOGS = 10;
 String systemLogBufferArray[MAX_SYSTEM_LOGS];
 int currentLogWritePointerIndex = 0;
 
@@ -1223,7 +1223,7 @@ void transmitSecureHTTPTelemetry(String jsonPayload) {
 void checkCloudCommandMailbox() {
     if (BLE.connected()) return;
         
-    if (millis() - lastCommandCheckMillis < 1500) return;
+    if (millis() - lastCommandCheckMillis < 5000) return;
     lastCommandCheckMillis = millis();
 
     if (WiFi.status() != WL_CONNECTED || systemIsCurrentlyInFallbackApMode) return;
@@ -1446,7 +1446,7 @@ void flushTelemetryToCloud() {
                 }                
 
                 String jsonOutput = "";
-                jsonOutput.reserve(1200);
+                jsonOutput.reserve(1024);
 
                 int freeBytes = getFreeRam();
                 if (freeBytes < 0) freeBytes = 0;

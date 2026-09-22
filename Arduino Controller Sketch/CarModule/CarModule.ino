@@ -1223,7 +1223,7 @@ void transmitSecureHTTPTelemetry(String jsonPayload) {
 void checkCloudCommandMailbox() {
     if (BLE.connected()) return;
         
-    if (millis() - lastCommandCheckMillis < 5000) return;
+    if (millis() - lastCommandCheckMillis < 1500) return;
     lastCommandCheckMillis = millis();
 
     if (WiFi.status() != WL_CONNECTED || systemIsCurrentlyInFallbackApMode) return;

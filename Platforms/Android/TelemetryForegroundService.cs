@@ -205,7 +205,7 @@ public class TelemetryForegroundService : Service
                 var root = doc.RootElement;
                 _frontVolts = root.TryGetProperty("front_v", out var fv) ? (float)fv.GetDouble() : 0f;
                 _frontPercent = root.TryGetProperty("front_p", out var fp) ? fp.GetInt32() : 0;
-                _backVolts = root.TryGetProperty("background_v", out var bv) ? (float)bv.GetDouble() : 0f;
+                _backVolts = root.TryGetProperty("back_v", out var bv) ? (float)bv.GetDouble() : 0f;
                 _backPercent = root.TryGetProperty("back_p", out var bp) ? bp.GetInt32() : 0;
 
                 _isFrontCharging = root.TryGetProperty("charging_f", out var cf) && cf.GetBoolean();

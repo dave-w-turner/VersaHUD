@@ -158,25 +158,24 @@ void setup() {
 }
 
 void loop() {
-    unsigned long currentMillis = millis();
     bool radioSenseIsActive = (digitalRead(RADIO_SENSOR) == HIGH); 
 
     BLE.poll();
     
     handleVotages();
     handleCrossCharging();
-    handleRadioSense(radioSenseIsActive, currentMillis);
+    handleRadioSense(radioSenseIsActive);
     
-    maintainNetworkHealth(currentMillis);
-    handlePendingReboot(currentMillis);
+    maintainNetworkHealth();
+    handlePendingReboot();
     
     handleWiFiAPI();
     handleBLERead();
     handleSerialRead();
 
-    handleTelemetry(radioSenseIsActive, currentMillis);
-    checkCloudCommandMailbox(currentMillis); 
-    flushTelemetryToCloud(currentMillis);
+    handleTelemetry(radioSenseIsActive);
+    checkCloudCommandMailbox(); 
+    flushTelemetryToCloud();
 }
 
 bool processSecureCommand(String rawPacket, String source) {
@@ -530,7 +529,7 @@ void setupWiFiAPI() {
         systemIsCurrentlyInFallbackApMode = false;
 
         setCurrentTime();
-        flushTelemetryToCloud(millis());
+        delay(3000);
     }
     webServer.begin();
 }
@@ -540,7 +539,6 @@ void setCurrentTime() {
 
     static unsigned long lastNtpSyncTimestamp = 0;
     static bool hasSyncedToday = false;
-    unsigned long currentMillis = millis();
 
     RTCTime currentSystemClockTime;
     bool isClockCurrentlySet = RTC.getTime(currentSystemClockTime);
@@ -551,7 +549,7 @@ void setCurrentTime() {
 
     bool isClockZeroBaseline = (!isClockCurrentlySet || (hr == 0 && min == 0 && sec == 0));
     bool isMidnightSyncWindow = (hr == 0 && min == 0 && sec >= 2 && sec <= 12 && !hasSyncedToday);
-    bool driftWindowExpired = (lastNtpSyncTimestamp == 0 || (currentMillis - lastNtpSyncTimestamp >= 1800000));
+    bool driftWindowExpired = (lastNtpSyncTimestamp == 0 || (millis() - lastNtpSyncTimestamp >= 1800000));
 
     if (!isClockZeroBaseline && !isMidnightSyncWindow && !driftWindowExpired) {
         return;
@@ -565,7 +563,7 @@ void setCurrentTime() {
         RTCTime activeTimeConvert(globalEpochTime);
         
         if (RTC.setTime(activeTimeConvert)) {
-            lastNtpSyncTimestamp = currentMillis;
+            lastNtpSyncTimestamp = millis();
             hasSyncedToday = true;
             writeLog("[SYS] Core RTC Clock successfully re-aligned to network atomic time.");
         }
@@ -579,9 +577,9 @@ void setCurrentTime() {
     }
 }
 
-void maintainNetworkHealth(int currentMillis) {
-    if (currentMillis - lastNetworkWatchdogCheckMillis >= networkWatchdogInterval) {
-        lastNetworkWatchdogCheckMillis = currentMillis;
+void maintainNetworkHealth() {
+    if (millis() - lastNetworkWatchdogCheckMillis >= networkWatchdogInterval) {
+        lastNetworkWatchdogCheckMillis = millis();
         uint8_t currentStatus = WiFi.status();
 
         if (currentStatus == WL_CONNECTED && !systemIsCurrentlyInFallbackApMode) {
@@ -683,7 +681,7 @@ void handleWiFiAPI() {
 
                         json += "{\"front_v\":";        json += String(globalFrontVolts, 2);
                         json += ",\"front_p\":";        json += String(frontBatteryPercent);
-                        json += ",\"background_v\":";   json += String(globalBackVolts, 2); 
+                        json += ",\"back_v\":";         json += String(globalBackVolts, 2); 
                         json += ",\"back_p\":";         json += String(backBatteryPercent); 
                         json += ",\"charging_f\":";     json += (frontIsCharging || crossChargeProtectionActiveFlag ? "true" : "false");
                         json += ",\"charging_b\":";     json += (backIsCharging || crossChargeProtectionActiveFlag ? "true" : "false");
@@ -1222,11 +1220,11 @@ void transmitSecureHTTPTelemetry(String jsonPayload) {
     }
 }
 
-void checkCloudCommandMailbox(int currentMillis) {
+void checkCloudCommandMailbox() {
     if (BLE.connected()) return;
         
-    if (currentMillis - lastCommandCheckMillis < 1500) return;
-    lastCommandCheckMillis = currentMillis;
+    if (millis() - lastCommandCheckMillis < 1500) return;
+    lastCommandCheckMillis = millis();
 
     if (WiFi.status() != WL_CONNECTED || systemIsCurrentlyInFallbackApMode) return;
         
@@ -1356,14 +1354,13 @@ bool flushAdminConfigurationToCloud() {
   return false;
 }
 
-void flushTelemetryToCloud(int currentMillis) {
-    if (currentMillis - previousTelemetryMillis >= telemetryInterval) {
-        previousTelemetryMillis = currentMillis;
+void flushTelemetryToCloud() {
+    if (millis() - previousTelemetryMillis >= telemetryInterval) {
+        previousTelemetryMillis = millis();
 
         setCurrentTime();
-        unsigned long currentMillis = millis();
         if (!(systemIsCurrentlyInFallbackApMode && BLE.connected()) || triggerCloudUploadOnStart) {
-            if (currentMillis - lastAdminSyncMillis >= adminSyncInterval) {
+            if (millis() - lastAdminSyncMillis >= adminSyncInterval) {
                 adminNeedsCloudSync = true;
             }
 
@@ -1372,13 +1369,13 @@ void flushTelemetryToCloud(int currentMillis) {
                     
                 if (flushAdminConfigurationToCloud()) {
                     adminNeedsCloudSync = false; 
-                    lastAdminSyncMillis = currentMillis;
-                    lastCloudUploadTimestamp = currentMillis; 
+                    lastAdminSyncMillis = millis();
+                    lastCloudUploadTimestamp = millis(); 
                 } 
                 else {
                     writeLog("--> [WAN REFRESH]: Sync failed. Applying a 5-minute back-off delay penalty threshold...");
                     
-                    lastAdminSyncMillis = currentMillis - 1500000; 
+                    lastAdminSyncMillis = millis() - 1500000; 
                     adminNeedsCloudSync = false;
                 }
             }
@@ -1395,7 +1392,7 @@ void flushTelemetryToCloud(int currentMillis) {
             }  
             
             if (!isTelemetryBoostModeActive) {
-                if (currentMillis < rapidResponseWindowExpiration) { 
+                if (millis() < rapidResponseWindowExpiration) { 
                     activeCloudPacingInterval = 5000;
                 } 
                 else if (digitalRead(RADIO_SENSOR) == LOW) { 
@@ -1403,9 +1400,9 @@ void flushTelemetryToCloud(int currentMillis) {
                 }
             }
                       
-            if (triggerCloudUploadOnStart || (currentMillis - lastCloudUploadTimestamp >= activeCloudPacingInterval)) { 
+            if (triggerCloudUploadOnStart || (millis() - lastCloudUploadTimestamp >= activeCloudPacingInterval)) { 
                 triggerCloudUploadOnStart = false;
-                lastCloudUploadTimestamp = currentMillis;
+                lastCloudUploadTimestamp = millis();
 
                 String jsonLogArrayPayload = "["; 
                 int logsCompiledCount = 0; 
@@ -1457,7 +1454,7 @@ void flushTelemetryToCloud(int currentMillis) {
 
                 jsonOutput += "{\"front_v\":";          jsonOutput += String(globalFrontVolts, 2);
                 jsonOutput += ",\"front_p\":";          jsonOutput += String(frontBatteryPercent);
-                jsonOutput += ",\"background_v\":";     jsonOutput += String(globalBackVolts, 2); 
+                jsonOutput += ",\"back_v\":";           jsonOutput += String(globalBackVolts, 2); 
                 jsonOutput += ",\"back_p\":";           jsonOutput += String(backBatteryPercent); 
                 jsonOutput += ",\"charging_f\":";       jsonOutput += (frontIsCharging || crossChargeProtectionActiveFlag ? "true" : "false");
                 jsonOutput += ",\"charging_b\":";       jsonOutput += (backIsCharging || crossChargeProtectionActiveFlag ? "true" : "false");
@@ -1599,9 +1596,9 @@ void handleCrossCharging() {
     digitalWrite(RELAY_SOLENOID, crossChargeProtectionActiveFlag ? LOW : HIGH);    
 }
 
-void handleRadioSense(bool radioSenseIsActive, int currentMillis) {       
-    if (currentMillis - lastSensorReadMillis >= 2000) {
-        lastSensorReadMillis = currentMillis;
+void handleRadioSense(bool radioSenseIsActive) {       
+    if (millis() - lastSensorReadMillis >= 2000) {
+        lastSensorReadMillis = millis();
         
         if (backBatteryPercent >= 5) { 
             if (radioSenseIsActive && digitalRead(RELAY_AMP_REM) == HIGH) { 
@@ -1620,9 +1617,9 @@ void handleRadioSense(bool radioSenseIsActive, int currentMillis) {
     }
 }
 
-void handleTelemetry(bool radioSenseIsActive, int currentMillis) {
-    if (currentMillis - lastTelemetryOutput < 2000) return;
-    lastTelemetryOutput = currentMillis;
+void handleTelemetry(bool radioSenseIsActive) {
+    if (millis() - lastTelemetryOutput < 2000) return;
+    lastTelemetryOutput = millis();
 
     int rawFrontCalculatedPercent = 0;
     
@@ -1694,7 +1691,7 @@ void handleTelemetry(bool radioSenseIsActive, int currentMillis) {
             else { 
                 telemetryString += "Front: "; 
                 if ((frontIsCharging && !backIsCharging) || crossChargeProtectionActiveFlag) telemetryString += "[🔋 CHARGING] "; 
-                telemetryString += String(globalFrontVolts, 1) + "V (" + String(frontBatteryPercent) + "%)"; 
+                telemetryString += String(globalFrontVolts, 2) + "V (" + String(frontBatteryPercent) + "%)"; 
             } 
 
             telemetryString += " | "; 
@@ -1703,7 +1700,7 @@ void handleTelemetry(bool radioSenseIsActive, int currentMillis) {
             else { 
                 telemetryString += "Back: "; 
                 if ((backIsCharging && !frontIsCharging) || crossChargeProtectionActiveFlag) telemetryString += "[🔋 CHARGING] "; 
-                telemetryString += String(globalBackVolts, 1) + "V (" + String(backBatteryPercent) + "%)"; 
+                telemetryString += String(globalBackVolts, 2) + "V (" + String(backBatteryPercent) + "%)"; 
             } 
     } 
 
@@ -1796,8 +1793,8 @@ void setupPins() {
     pinMode(RADIO_SENSOR, INPUT);
 }
 
-void handlePendingReboot(int currentMillis) {
-    if (pendingSystemHardwareRebootFlag && (currentMillis - hardwareRebootTimestampCount >= 2500)) {
+void handlePendingReboot() {
+    if (pendingSystemHardwareRebootFlag && (millis() - hardwareRebootTimestampCount >= 2500)) {
         writeLog("--> [WATCHDOG]: Drainage pad completed. Resetting registers...");
         delay(2500);
         NVIC_SystemReset();

@@ -148,12 +148,12 @@ public class NetworkHubService
         LastTransportSwitchTimestamp = DateTime.MinValue;
 
         OnConnectionStateChanged?.Invoke(bleOn);
-        await AutoConnectAsync(bleOn);
+        _reconnectLoopCts?.Cancel();
     }
 
-    public async Task<bool> AutoConnectAsync(bool connectOverride = false)
+    public async Task<bool> AutoConnectAsync()
     {
-        if (IsConnecting && !connectOverride)
+        if (IsConnecting)
             return true;
 
         try
@@ -224,15 +224,23 @@ public class NetworkHubService
                     await App.Log($"--> [CACHE HIT]: Reconnecting straight to historical device: {cachedId}");
                     Guid deviceGuid = Guid.Parse(cachedId);
 
-                    await Task.Delay(2500);
+                    int connectRetry = 0;
 
-                    try
+                    while (connectRetry < 3)
                     {
-                        _targetDevice = await _adapter.ConnectToKnownDeviceAsync(deviceGuid);
-                    }
-                    catch (Exception ex)
-                    {
-                        await App.Log($"--> [AUTOCONNECT BLE FAILURE]: Unable to connect to historic device. {ex.Message}");
+                        try
+                        {
+                            _targetDevice = await _adapter.ConnectToKnownDeviceAsync(deviceGuid);
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            await App.Log($"--> [AUTOCONNECT BLE FAILURE]: Unable to connect to historic device. {ex.Message}");
+                            await RecycleBluetoothAdapterStateAsync();
+                            await Task.Delay(2500);
+                        }
+
+                        connectRetry++;
                     }
 
                     if (IsBluetoothConnected)
@@ -304,6 +312,11 @@ public class NetworkHubService
                         LastTransportSwitchTimestamp = DateTime.UtcNow;
                     }
                 }
+
+                if (!IsAuthorized)
+                {
+                    return true;
+                }
             }
 
             if (hasPhysicalWifiInterface && ((IsBluetoothConnected && ActiveRssi <= MIN_PASS_RSSI_VALUE) || !IsBluetoothConnected))
@@ -331,8 +344,7 @@ public class NetworkHubService
                 if (!string.IsNullOrEmpty(lastKnownIp) && !lastKnownIp.Equals("0.0.0.0") && !lastKnownIp.Equals("STA_HOTSPOT") && !IsWifiTelemetryDead)
                 {
                     await App.Log($"--> [AUTOCONNECT WIFI]: Checking health of Wifi endpoint.");
-
-
+                    
                     bool isWifiServerActive = false;
 
                     try
@@ -428,6 +440,11 @@ public class NetworkHubService
                 IsWifiTelemetryDead = false;
             }
 
+            if (!IsUsingCloudWanMode && _telemetryBoostActive)
+            {
+                _wanTelemetryFastTrackCancellation?.Cancel();
+            }
+
             if (IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsRebootingWatchdogActive)
                 return true;
 
@@ -454,8 +471,6 @@ public class NetworkHubService
                     IsUsingWifiTransportMode = false;
                     IsUsingLocalApMode = false;
                     IsUsingCloudWanMode = true;
-
-                    _telemetryBoostActive = false;
 
                     App.NetworkService.LastReportedWANLinkState = DateTime.UtcNow;
 
@@ -498,17 +513,10 @@ public class NetworkHubService
                                         if (!ex.Message.Contains("--> [ADMIN]: Unable to send command.") ||
                                             !ex.Message.Contains("--> [ADMIN]: Assuming transport switched during the 'BOOST_TELEMETRY'"))
                                         {
-                                            throw;
+                                            await App.Log($"--> [WAN AUTOCONNECT FAILURE]: {ex.Message}");
                                         }
 
-                                        if (!ex.Message.Contains("--> [ADMIN]: Assuming transport switched during the 'BOOST_TELEMETRY'"))
-                                        {
-                                            await App.Log($"--> [BOOST OVERRIDE FAILURE]: Transport failure on attempt {currentAttemptCounter}/{maximumRetryAttempts}! Message: {ex.Message}");
-                                        }
-                                        else
-                                        {
-                                            await App.Log(ex.Message);
-                                        }
+                                        await App.Log($"--> [BOOST OVERRIDE FAILURE]: Transport failure on attempt {currentAttemptCounter}/{maximumRetryAttempts}!");
                                     }
 
                                     if (commandTransmitted)
@@ -530,7 +538,9 @@ public class NetworkHubService
                                 await Task.Delay(1800000, _wanTelemetryFastTrackCancellation.Token);
                             }
                         }
-                    }, _wanTelemetryFastTrackCancellation.Token);
+
+                        _telemetryBoostActive = false;
+                    }, _wanTelemetryFastTrackCancellation.Token);                   
                 }
 
                 await App.Log($"--> [AUTOCONNECT WAN]: Starting WAN telemetry poll....");
@@ -539,6 +549,7 @@ public class NetworkHubService
                 return true;
             }
 
+            _wanTelemetryFastTrackCancellation?.Cancel();
             _passwordVerificationCts?.Cancel();
 
             _bLECommunicationProvisioned = false;
@@ -1233,7 +1244,7 @@ public class NetworkHubService
         _isAppInForeground = isForeground;
         await App.Log($"--> [WAN WATCHDOG]: Foreground layout state changed: {_isAppInForeground}");
 
-        if (isForeground)
+        if (!isForeground)
         {
             _wanTelemetryFastTrackCancellation?.Cancel();
         }
@@ -1978,7 +1989,7 @@ public class NetworkHubService
         LastTransportSwitchTimestamp = DateTime.MinValue;
 
         OnConnectionStateChanged?.Invoke(IsBluetoothConnected);
-        await AutoConnectAsync(true);
+        _reconnectLoopCts?.Cancel();
     }
 
     private async void NativeCharacteristic_ValueUpdated(object? sender, Plugin.BLE.Abstractions.EventArgs.CharacteristicUpdatedEventArgs args)

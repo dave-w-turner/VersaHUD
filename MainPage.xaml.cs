@@ -103,7 +103,7 @@ public partial class MainPage : ContentPage
 
                 float frontVolts = root.TryGetProperty("front_v", out JsonElement fv) ? (float)fv.GetDouble() : 0f;
                 int frontPercent = root.TryGetProperty("front_p", out JsonElement fp) ? fp.GetInt32() : 0;
-                float backVolts = root.TryGetProperty("background_v", out JsonElement bv) ? (float)bv.GetDouble() : 0f;
+                float backVolts = root.TryGetProperty("back_v", out JsonElement bv) ? (float)bv.GetDouble() : 0f;
                 int backPercent = root.TryGetProperty("back_p", out JsonElement bp) ? bp.GetInt32() : 0;
 
                 bool frontIsCharging = root.TryGetProperty("charging_f", out JsonElement c) && c.GetBoolean();
@@ -128,6 +128,9 @@ public partial class MainPage : ContentPage
                                 await App.Log("--> [DASHBOARD PARSER]: No telemetry being returned from WAN endpoint. Setting flag to default to next transport type.");
                                 App.NetworkService.IsWifiTelemetryDead = true;
                                 App.NetworkService.IsWANReportedOnline = false;
+
+                                UpdateBluetoothStatusBadge(App.NetworkService.IsBluetoothConnected);
+                                return;
                             }
                         }
                     }
@@ -433,7 +436,7 @@ public partial class MainPage : ContentPage
         {
             await App.Log("--> [DASHBOARD COCKPIT DETACH]: All transport networks are completely OFFLINE. Initializing absolute zero-out reset passes...");
 
-            await MainThread.InvokeOnMainThreadAsync(() =>
+            await MainThread.InvokeOnMainThreadAsync(async () =>
             {
                 BorderNetworkStatusVisible = false;
                 CrossChargeStatusLayoutVisible = false;
@@ -492,20 +495,14 @@ public partial class MainPage : ContentPage
                 BackIconTextLabel = "❌";
 
                 MemoryIndicator.CurrentInstance?.Hide();
-            });
 
-            _ = Task.Run(async () =>
-            {
-                await MainThread.InvokeOnMainThreadAsync(async () =>
+                LayoutReconnectingVisible = true;
+                while (App.NetworkService.ReconnectCountdown > 0)
                 {
-                    LayoutReconnectingVisible = true;
-                    while (App.NetworkService.ReconnectCountdown > 0)
-                    {
-                        ReconnectingTextLabel = $"Reconnecting in {App.NetworkService.ReconnectCountdown} seconds.";
-                        await Task.Delay(500);
-                    }
-                    LayoutReconnectingVisible = false;
-                });
+                    ReconnectingTextLabel = $"Reconnecting in {App.NetworkService.ReconnectCountdown} seconds.";
+                    await Task.Delay(500);
+                }
+                LayoutReconnectingVisible = false;
             });
         }
         else
@@ -805,14 +802,9 @@ public partial class MainPage : ContentPage
                         }
                         catch (Exception ex)
                         {
-                            if (!ex.Message.Contains("--> [ADMIN]: Unable to send command.") ||
-                            !ex.Message.Contains("--> [ADMIN]: Assuming transport switched during the 'GETCFKEYS'"))
-                                throw;
-
-                            if (!ex.Message.Contains("--> [ADMIN]: Assuming transport switched during the 'GETCFKEYS'"))
-                                await App.Log($"--> [BOOT LINK FAILURE]: Failed to process Secure BLE key-pull verification request on boot pass! Message: {ex.Message}");
-                            else
-                                await App.Log(ex.Message);
+                            if (!(ex.Message.Contains("--> [ADMIN]: Unable to send command.") ||
+                                ex.Message.Contains("--> [ADMIN]: Assuming transport switched during the 'GETCFKEYS'")))
+                                    await App.Log($"--> [BOOT LINK FAILURE]: Failed to process Secure BLE key-pull verification request on boot pass! Message: {ex.Message}");
                         }
 
                         if (commandTransmitted)

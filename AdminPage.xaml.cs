@@ -51,9 +51,9 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
                 RouterPasswordText = string.Empty;
 
-                RouterPasswordEnabled = true;
-                RouterSSIDEnabled = true;
-                ButtonLinkToRouterEnabled = true;
+                RouterPasswordEntryTextEnabled = App.NetworkService.IsAuthorized;
+                RouterSSIDEntryTextEnabled = App.NetworkService.IsAuthorized;
+                ButtonLinkToRouterEnabled = App.NetworkService.IsAuthorized;
                 entryRouterPass.Focus();
                 await Application.Current.MainPage.DisplayAlertAsync("ROUTER LINK FAILED", "The vehicle module could not establish an active wireless handshake with your home station. Verify your network credentials and try again.", "OK");
             });
@@ -65,9 +65,9 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
                 RouterPasswordText = string.Empty;
-                RouterPasswordEnabled = true;
-                RouterSSIDEnabled = true;
-                ButtonLinkToRouterEnabled = true;
+                RouterPasswordEntryTextEnabled = App.NetworkService.IsAuthorized;
+                RouterSSIDEntryTextEnabled = App.NetworkService.IsAuthorized;
+                ButtonLinkToRouterEnabled = App.NetworkService.IsAuthorized;
                 App.NetworkService.IsRebootingWatchdogActive = false;
                 await Application.Current.MainPage.DisplayAlertAsync("ROUTER LINK SUCCESSFUL", "The vehicle module has successfully established a secure wireless handshake with your home station.", "OK");
             });
@@ -106,6 +106,13 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                 await MainThread.InvokeOnMainThreadAsync(async () =>
                 {
                     layoutAdminPage.IsEnabled = true;
+                    MasterPasswordEntryTextEnabled = App.NetworkService.IsAuthorized;
+                    WifiAPEntryTextEnabled = App.NetworkService.IsAuthorized;
+                    BluetoothNameTextEnabled = App.NetworkService.IsAuthorized;
+                    CloudflareHostEntryTextEnabled = App.NetworkService.IsAuthorized;
+                    CloudflareClientIDEntryTextEnabled = App.NetworkService.IsAuthorized;
+                    CloudflareClientSecretEntryTextEnabled = App.NetworkService.IsAuthorized;
+                    ButtonForgetRouterEnabled = App.NetworkService.IsAuthorized;
                 });
             }
 
@@ -387,8 +394,8 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             await DisplayAlertAsync("LINK FAULT", "Could not deliver the parameters update packet. Verify your active communication transport channels are clear and try again.", "OK");
         }
 
-        RouterPasswordEnabled = false;
-        RouterSSIDEnabled = false;
+        RouterPasswordEntryTextEnabled = false;
+        RouterSSIDEntryTextEnabled = false;
         ButtonLinkToRouterEnabled = false;
     }
 
@@ -636,6 +643,12 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
     private async Task GetAdminData()
     {
+        if (!App.NetworkService.IsAuthorized)
+        {
+            layoutAdminPage.IsEnabled = true;
+            return;
+        }
+
         if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode)
         {
             await App.Log("--> [ADMIN CONTROL HUB]: Fetching clean configuration matrices straight from API...");
@@ -644,6 +657,13 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             {
                 await MainThread.InvokeOnMainThreadAsync(async () =>
                 {
+                    MasterPasswordEntryTextEnabled = App.NetworkService.IsAuthorized;
+                    WifiAPEntryTextEnabled = App.NetworkService.IsAuthorized;
+                    BluetoothNameTextEnabled = App.NetworkService.IsAuthorized;
+                    CloudflareHostEntryTextEnabled = App.NetworkService.IsAuthorized;
+                    CloudflareClientIDEntryTextEnabled = App.NetworkService.IsAuthorized;
+                    CloudflareClientSecretEntryTextEnabled = App.NetworkService.IsAuthorized;
+                    ButtonForgetRouterEnabled = App.NetworkService.IsAuthorized;
                     layoutAdminPage.IsEnabled = true;
                 });
             }
@@ -758,7 +778,32 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         App.NetworkService.OnConnectionStateChanged -= OnVehicleLinkStateChanged;
         MainPage.CurrentInstance?.OnTelemetryParsed -= LogIncomingStreamToTerminal;
 
-        await Navigation.PushAsync(new MainPage());
+        await Shell.Current.GoToAsync("..");
+    }
+
+    private async void OnExportTerminalLogClicked(object sender, EventArgs e)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(DebugTerminalTextLabel))
+            {
+                await DisplayAlertAsync("Export Cancelled", "The terminal buffer is currently empty.", "OK");
+                return;
+            }
+
+            string cleanFileName = $"VersaHUD_SysLog_{DateTime.Now:yyyyMMdd_HHmmss}.txt";
+            string localDocumentsDirectoryPath = FileSystem.Current.AppDataDirectory;
+            string fullTargetStorageFilePath = Path.Combine(localDocumentsDirectoryPath, cleanFileName);
+
+            await File.WriteAllTextAsync(fullTargetStorageFilePath, DebugTerminalTextLabel, System.Text.Encoding.UTF8);
+            await DisplayAlertAsync("💾 LOG EXPORT SUCCESS",
+                $"System log stream archived successfully!\n\nFile Name: {cleanFileName}\n\nPath: App Storage Directory",
+                "DISMISS");
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync("🚨 EXPORT FAULT", $"Unable to serialize log buffer to local storage: {ex.Message}", "OK");
+        }
     }
 
     ~AdminPage()

@@ -24,8 +24,8 @@
                     <VerticalStackLayout Padding="15" Spacing="12">
                         <Label Text="ROTATE SECURITY MASTER KEY" TextColor="#EF4444" FontSize="12" FontAttributes="Bold" CharacterSpacing="0.5"/>
                         <Label Text="This updates your 16-bit fletcher hash variables inside your vehicle's EEPROM and your phone cache simultaneously." TextColor="#8E8E93" FontSize="11"/>
-                        <Entry Placeholder="Enter New Master Passcode" PlaceholderColor="#555555" Text="{Binding MasterPasswordEntryText}" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" IsPassword="True" HeightRequest="45"/>
-                        <Button Text="🔄 ROTATE MASTER CODES" BackgroundColor="#EF4444" TextColor="#FFFFFF" FontAttributes="Bold" Clicked="OnRotateMasterPassClicked" HeightRequest="45" CornerRadius="6"/>
+                        <Entry Placeholder="Enter New Master Passcode" PlaceholderColor="#555555" Text="{Binding MasterPasswordEntryText}" IsEnabled="{Binding MasterPasswordEntryTextEnabled}" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" IsPassword="True" HeightRequest="45"/>
+                        <Button Text="🔄 ROTATE MASTER CODES" IsEnabled="{Binding MasterPasswordEntryTextEnabled}" BackgroundColor="#EF4444" TextColor="#FFFFFF" FontAttributes="Bold" Clicked="OnRotateMasterPassClicked" HeightRequest="45" CornerRadius="6"/>
                     </VerticalStackLayout>
                 </Border>
 
@@ -37,13 +37,13 @@
                         <VerticalStackLayout Spacing="5">
                             <Label Text="{Binding APPasswordTextLabel}" TextColor="CadetBlue" FontSize="15" FontAttributes="Bold"/>
                             <Label Text="LOCAL WI-FI AP NAME SSID" TextColor="#8E8E93" FontSize="11" FontAttributes="Bold"/>
-                            <Entry Text="{Binding WifiAPEntryText}" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
-                            <Button Text="UPDATE AP SSID" BackgroundColor="#3B82F6" TextColor="#FFFFFF" Clicked="OnUpdateWifiAPClicked" HeightRequest="40"/>
+                            <Entry Text="{Binding WifiAPEntryText}" IsEnabled="{Binding WifiAPEntryTextEnabled}" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
+                            <Button Text="UPDATE AP SSID" IsEnabled="{Binding WifiAPEntryTextEnabled}" BackgroundColor="#3B82F6" TextColor="#FFFFFF" Clicked="OnUpdateWifiAPClicked" HeightRequest="40"/>
                         </VerticalStackLayout>
                         <VerticalStackLayout Spacing="5">
                             <Label Text="BLUETOOTH BROADCAST IDENTITY" TextColor="#8E8E93" FontSize="11" FontAttributes="Bold"/>
-                            <Entry Text="{Binding BluetoothNameText}" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
-                            <Button Text="UPDATE BLE NAME" BackgroundColor="#3B82F6" TextColor="#FFFFFF" Clicked="OnUpdateBleNameClicked" HeightRequest="40"/>
+                            <Entry Text="{Binding BluetoothNameText}" IsEnabled="{Binding BluetoothNameTextEnabled}" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
+                            <Button Text="UPDATE BLE NAME" IsEnabled="{Binding BluetoothNameTextEnabled}" BackgroundColor="#3B82F6" TextColor="#FFFFFF" Clicked="OnUpdateBleNameClicked" HeightRequest="40"/>
                         </VerticalStackLayout>
                     </VerticalStackLayout>
                 </Border>
@@ -57,10 +57,10 @@
                         <VerticalStackLayout IsVisible="{Binding LayoutUnconfiguredRouterVisible}" Spacing="12">
                             <Label Text="No active router link set. Scan for an available network infrastructure channel to link your vehicle module to your home station." TextColor="#8E8E93" FontSize="11" HorizontalTextAlignment="Center"/>
                             <Grid ColumnDefinitions="*, Auto" ColumnSpacing="10">
-                                <Entry Grid.Column="0" Text="{Binding RouterSSIDEntryText}" IsEnabled="{Binding RouterSSIDEnabled}" Placeholder="Target Router Name (SSID)" PlaceholderColor="#555555" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
+                                <Entry Grid.Column="0" Text="{Binding RouterSSIDEntryText}" IsEnabled="{Binding RouterSSIDEntryTextEnabled}" Placeholder="Target Router Name (SSID)" PlaceholderColor="#555555" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
                                 <Button Grid.Column="1" Text="🔍 SCAN" BackgroundColor="#2D2D2D" BorderColor="#3D3D3D" BorderWidth="1" TextColor="#3B82F6" FontAttributes="Bold" Clicked="OnScanWifiNetworksClicked" HeightRequest="45" Padding="15,0"/>
                             </Grid>
-                            <Entry x:Name="entryRouterPass" Placeholder="Target Router Password" Text="{Binding RouterPasswordText}" IsEnabled="{Binding RouterPasswordEnabledProperty}" PlaceholderColor="#555555" IsPassword="True" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
+                            <Entry x:Name="entryRouterPass" Placeholder="Target Router Password" Text="{Binding RouterPasswordText}" IsEnabled="{Binding RouterPasswordEntryTextEnabled}" PlaceholderColor="#555555" IsPassword="True" TextColor="#FFFFFF" BackgroundColor="#2D2D2D" HeightRequest="45"/>
                             <Button IsEnabled="{Binding ButtonLinkToRouterEnabled}" Text="🔒 LINK ROUTER TO VEHICLE" BackgroundColor="#10B981" TextColor="#FFFFFF" Clicked="OnSaveRouterClicked" HeightRequest="45" FontAttributes="Bold"/>
                         </VerticalStackLayout>
                         <VerticalStackLayout IsVisible="{Binding LayoutConfiguredRouterVisible}" Spacing="12">
@@ -77,7 +77,7 @@
                                 <Label Text="Linked SSID Target:" TextColor="#8E8E93" FontSize="12"/>
                                 <Label Text="{Binding RouterSSIDTextLabel}" TextColor="#FFFFFF" FontSize="12" FontAttributes="Bold"/>
                             </HorizontalStackLayout>
-                            <Button Text="🔄 FORGET ROUTER / FORCE STANDALONE AP MODE" BackgroundColor="#EF4444" TextColor="#FFFFFF" Clicked="OnForgetRouterClicked" HeightRequest="45" FontAttributes="Bold" CornerRadius="6"/>
+                            <Button Text="🔄 FORGET ROUTER / FORCE STANDALONE AP MODE" BackgroundColor="#EF4444" IsEnabled="{Binding ButtonForgetRouterEnabled}" TextColor="#FFFFFF" Clicked="OnForgetRouterClicked" HeightRequest="45" FontAttributes="Bold" CornerRadius="6"/>
                         </VerticalStackLayout>
                     </VerticalStackLayout>
                 </Border>
@@ -101,6 +101,7 @@
                             <Entry Placeholder="e.g. silent-bird-d9c0.taigon1984.workers.dev" 
                                    PlaceholderColor="#555555" 
                                    Text="{Binding CloudflareHostEntryText}"
+                                   IsEnabled="{Binding CloudflareHostEntryTextEnabled}"
                                    TextColor="#FFFFFF" 
                                    BackgroundColor="#2D2D2D" 
                                    HeightRequest="45"/>
@@ -110,6 +111,7 @@
                             <Label Text="ZERO-TRUST SERVICE CLIENT ID" TextColor="#8E8E93" FontSize="10" FontAttributes="Bold"/>
                             <Entry Placeholder="Enter CF-Access-Client-Id" 
                                    Text="{Binding CloudflareClientIDEntryText}"
+                                   IsEnabled="{Binding CloudflareClientIDEntryTextEnabled}"                                   
                                    PlaceholderColor="#555555" 
                                    TextColor="#FFFFFF" 
                                    BackgroundColor="#2D2D2D" 
@@ -122,6 +124,7 @@
                                    PlaceholderColor="#555555" 
                                    IsPassword="True"
                                    Text="{Binding CloudflareClientSecretEntryText}"
+                                   IsEnabled="{Binding CloudflareClientSecretEntryTextEnabled}"
                                    TextColor="#FFFFFF" 
                                    BackgroundColor="#2D2D2D" 
                                    HeightRequest="45"/>
@@ -132,6 +135,7 @@
                                 TextColor="#000000" 
                                 FontAttributes="Bold"
                                 HeightRequest="45"
+                                IsEnabled="{Binding CloudflareHostEntryTextEnabled}"
                                 Clicked="OnUpdateCloudflareCredentialsClicked"/>
                     </VerticalStackLayout>
                 </Border>
@@ -141,6 +145,12 @@
                         <RoundRectangle CornerRadius="8"/>
                     </Border.StrokeShape>
                     <VerticalStackLayout Padding="15" Spacing="10">
+                        <Button x:Name="ExportTerminalLogButton" 
+                            Text="💾 SAVE LOG OUTPUT TO FILE" 
+                            Clicked="OnExportTerminalLogClicked" 
+                            BackgroundColor="#252525" 
+                            TextColor="White"/>
+                        
                         <Grid RowDefinitions="Auto, Auto" RowSpacing="10" VerticalOptions="Center">
                             <Grid Grid.Row="0" ColumnDefinitions="*, Auto, Auto" ColumnSpacing="12" VerticalOptions="Center">
                                 <HorizontalStackLayout Grid.Column="0" Spacing="8" VerticalOptions="Center">

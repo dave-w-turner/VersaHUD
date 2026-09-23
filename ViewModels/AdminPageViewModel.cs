@@ -17,6 +17,20 @@ public partial class AdminPage : ContentPage
         set => SetValue(MasterPasswordEntryTextProperty, value);
     }
 
+    public static readonly BindableProperty MasterPasswordEntryTextEnabledProperty =
+    BindableProperty.Create(
+        nameof(MasterPasswordEntryTextEnabled),
+        typeof(bool),
+        typeof(MainPage),
+        defaultValue: false,
+        defaultBindingMode: BindingMode.TwoWay);
+
+    public bool MasterPasswordEntryTextEnabled
+    {
+        get => (bool)GetValue(MasterPasswordEntryTextEnabledProperty);
+        set => SetValue(MasterPasswordEntryTextEnabledProperty, value);
+    }
+
     public static readonly BindableProperty APPasswordTextLabelProperty =
     BindableProperty.Create(
         nameof(APPasswordTextLabel),
@@ -39,6 +53,20 @@ public partial class AdminPage : ContentPage
          defaultValue: "Loading...",
          defaultBindingMode: BindingMode.TwoWay);
 
+    public static readonly BindableProperty WifiAPEntryTextEnabledProperty =
+    BindableProperty.Create(
+        nameof(WifiAPEntryTextEnabled),
+        typeof(bool),
+        typeof(MainPage),
+        defaultValue: false,
+        defaultBindingMode: BindingMode.TwoWay);
+
+    public bool WifiAPEntryTextEnabled
+    {
+        get => (bool)GetValue(WifiAPEntryTextEnabledProperty);
+        set => SetValue(WifiAPEntryTextEnabledProperty, value);
+    }
+
     public string WifiAPEntryText
     {
         get => (string)GetValue(WifiAPEntryTextProperty);
@@ -59,6 +87,20 @@ public partial class AdminPage : ContentPage
         set => SetValue(BluetoothNameTextProperty, value);
     }
 
+    public static readonly BindableProperty BluetoothNameTextEnabledProperty =
+    BindableProperty.Create(
+        nameof(BluetoothNameTextEnabled),
+        typeof(bool),
+        typeof(MainPage),
+        defaultValue: false,
+        defaultBindingMode: BindingMode.TwoWay);
+
+    public bool BluetoothNameTextEnabled
+    {
+        get => (bool)GetValue(BluetoothNameTextEnabledProperty);
+        set => SetValue(BluetoothNameTextEnabledProperty, value);
+    }
+
     public static readonly BindableProperty RouterPasswordTextProperty =
     BindableProperty.Create(
          nameof(RouterPasswordText),
@@ -73,18 +115,18 @@ public partial class AdminPage : ContentPage
         set => SetValue(RouterPasswordTextProperty, value);
     }
 
-    public static readonly BindableProperty RouterPasswordEnabledProperty =
+    public static readonly BindableProperty RouterPasswordEntryTextEnabledProperty =
     BindableProperty.Create(
-        nameof(RouterPasswordEnabled),
+        nameof(RouterPasswordEntryTextEnabled),
         typeof(bool),
         typeof(AdminPage),
         defaultValue: false,
         defaultBindingMode: BindingMode.TwoWay);
 
-    public bool RouterPasswordEnabled
+    public bool RouterPasswordEntryTextEnabled
     {
-        get => (bool)GetValue(RouterPasswordEnabledProperty);
-        set => SetValue(RouterPasswordEnabledProperty, value);
+        get => (bool)GetValue(RouterPasswordEntryTextEnabledProperty);
+        set => SetValue(RouterPasswordEntryTextEnabledProperty, value);
     }
 
     public static readonly BindableProperty LayoutUnconfiguredRouterVisibleProperty =
@@ -143,18 +185,18 @@ public partial class AdminPage : ContentPage
         set => SetValue(RouterSSIDEntryTextProperty, value);
     }
 
-    public static readonly BindableProperty RouterSSIDEnabledProperty =
+    public static readonly BindableProperty RouterSSIDEntryTextEnabledProperty =
     BindableProperty.Create(
-        nameof(RouterPasswordEnabledProperty),
+        nameof(RouterSSIDEntryTextEnabled),
         typeof(bool),
         typeof(AdminPage),
         defaultValue: false,
         defaultBindingMode: BindingMode.TwoWay);
 
-    public bool RouterSSIDEnabled
+    public bool RouterSSIDEntryTextEnabled
     {
-        get => (bool)GetValue(RouterSSIDEnabledProperty);
-        set => SetValue(RouterSSIDEnabledProperty, value);
+        get => (bool)GetValue(RouterSSIDEntryTextEnabledProperty);
+        set => SetValue(RouterSSIDEntryTextEnabledProperty, value);
     }
 
     public static readonly BindableProperty CloudflareHostEntryTextProperty =
@@ -170,6 +212,20 @@ public partial class AdminPage : ContentPage
         set => SetValue(CloudflareHostEntryTextProperty, value);
     }
 
+    public static readonly BindableProperty CloudflareHostEntryTextEnabledProperty =
+    BindableProperty.Create(
+        nameof(CloudflareHostEntryTextEnabled),
+        typeof(bool),
+        typeof(AdminPage),
+        defaultValue: false,
+        defaultBindingMode: BindingMode.TwoWay);
+
+    public bool CloudflareHostEntryTextEnabled
+    {
+        get => (bool)GetValue(CloudflareHostEntryTextEnabledProperty);
+        set => SetValue(CloudflareHostEntryTextEnabledProperty, value);
+    }
+
     public static readonly BindableProperty CloudflareClientIDEntryTextProperty =
     BindableProperty.Create(
          nameof(CloudflareClientIDEntryText),
@@ -183,6 +239,20 @@ public partial class AdminPage : ContentPage
         set => SetValue(CloudflareClientIDEntryTextProperty, value);
     }
 
+    public static readonly BindableProperty CloudflareClientIDEntryTextEnabledProperty =
+    BindableProperty.Create(
+        nameof(CloudflareClientIDEntryTextEnabled),
+        typeof(bool),
+        typeof(AdminPage),
+        defaultValue: false,
+        defaultBindingMode: BindingMode.TwoWay);
+
+    public bool CloudflareClientIDEntryTextEnabled
+    {
+        get => (bool)GetValue(CloudflareClientIDEntryTextEnabledProperty);
+        set => SetValue(CloudflareClientIDEntryTextEnabledProperty, value);
+    }
+
     public static readonly BindableProperty CloudflareClientSecretEntryTextProperty =
     BindableProperty.Create(
          nameof(CloudflareClientSecretEntryText),
@@ -194,6 +264,20 @@ public partial class AdminPage : ContentPage
     {
         get => (string)GetValue(CloudflareClientSecretEntryTextProperty);
         set => SetValue(CloudflareClientSecretEntryTextProperty, value);
+    }
+
+    public static readonly BindableProperty CloudflareClientSecretEntryTextEnabledProperty =
+    BindableProperty.Create(
+        nameof(CloudflareClientSecretEntryTextEnabled),
+        typeof(bool),
+        typeof(AdminPage),
+        defaultValue: false,
+        defaultBindingMode: BindingMode.TwoWay);
+
+    public bool CloudflareClientSecretEntryTextEnabled
+    {
+        get => (bool)GetValue(CloudflareClientSecretEntryTextEnabledProperty);
+        set => SetValue(CloudflareClientSecretEntryTextEnabledProperty, value);
     }
 
     public static readonly BindableProperty DebugTerminalTextLabelProperty =
@@ -278,5 +362,19 @@ public partial class AdminPage : ContentPage
     {
         get => (bool)GetValue(ButtonLinkToRouterEnabledProperty);
         set => SetValue(ButtonLinkToRouterEnabledProperty, value);
+    }
+
+    public static readonly BindableProperty ButtonForgetRouterEnabledProperty =
+    BindableProperty.Create(
+        nameof(ButtonForgetRouterEnabled),
+        typeof(bool),
+        typeof(AdminPage),
+        defaultValue: false,
+        defaultBindingMode: BindingMode.TwoWay);
+
+    public bool ButtonForgetRouterEnabled
+    {
+        get => (bool)GetValue(ButtonForgetRouterEnabledProperty);
+        set => SetValue(ButtonForgetRouterEnabledProperty, value);
     }
 }

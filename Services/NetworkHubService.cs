@@ -160,6 +160,18 @@ public class NetworkHubService
         if (IsConnecting)
             return true;
 
+        if (IsBluetoothConnected && ActiveRssi == -100)
+        {
+            await App.Log("--> [WATCHDOG ALERT]: Stale zombie link detected (RSSI -100). Forcing hard hardware cleanup...");
+
+            IsUsingCloudWanMode = false;
+            IsUsingWifiTransportMode = false;
+            IsUsingLocalApMode = false;
+            _bLECommunicationProvisioned = false;
+
+            await RecycleBluetoothAdapterStateAsync();
+        }
+
         try
         {
             IsConnecting = true;

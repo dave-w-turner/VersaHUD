@@ -474,20 +474,6 @@ public partial class MainPage : ContentPage
         set => SetValue(ManualScanButtonVisibleProperty, value);
     }
 
-    public static readonly BindableProperty AdminNavigationButtonEnabledProperty =
-    BindableProperty.Create(
-        nameof(AdminNavigationButtonEnabled),
-        typeof(bool),
-        typeof(MainPage),
-        defaultValue: false,
-        defaultBindingMode: BindingMode.TwoWay);
-
-    public bool AdminNavigationButtonEnabled
-    {
-        get => (bool)GetValue(AdminNavigationButtonEnabledProperty);
-        set => SetValue(AdminNavigationButtonEnabledProperty, value);
-    }
-
     public static readonly BindableProperty LockButtonEnabledProperty =
     BindableProperty.Create(
         nameof(LockButtonEnabled),

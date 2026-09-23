@@ -426,8 +426,7 @@ public partial class MainPage : ContentPage
                 BluetoothStatusTextLabelColor = Color.Parse("#FFBF00");
                 BluetoothSignalTextLabel = string.Empty;
                 BorderNetworkStatusVisible = false;
-                ManualScanButtonVisible = true;
-                AdminNavigationButtonEnabled = false;
+                ManualScanButtonVisible = true;                
                 UnLockButtonEnabled = false;
                 LockButtonEnabled = false;
             });
@@ -477,7 +476,6 @@ public partial class MainPage : ContentPage
                 }
 
                 ManualScanButtonVisible = true;
-                AdminNavigationButtonEnabled = false;
 
                 LockButtonEnabled = false;
                 UnLockButtonEnabled = false;
@@ -549,7 +547,6 @@ public partial class MainPage : ContentPage
                 {
                     LockButtonEnabled = true;
                     UnLockButtonEnabled = true;
-                    AdminNavigationButtonEnabled = true;
                 }
             });
         }
@@ -676,13 +673,11 @@ public partial class MainPage : ContentPage
             {
                 LockButtonEnabled = true;
                 UnLockButtonEnabled = true;
-                AdminNavigationButtonEnabled = true;
             }
             else
             {
                 LockButtonEnabled = false;
                 UnLockButtonEnabled = false;
-                AdminNavigationButtonEnabled = false;
             }
 
             BorderNetworkStatusVisible = true;
@@ -713,13 +708,11 @@ public partial class MainPage : ContentPage
             {
                 LockButtonEnabled = true;
                 UnLockButtonEnabled = true;
-                AdminNavigationButtonEnabled = true;
             }
             else
             {
                 LockButtonEnabled = false;
                 UnLockButtonEnabled = false;
-                AdminNavigationButtonEnabled = false;
             }
 
             BorderNetworkStatusVisible = true;
@@ -902,7 +895,6 @@ public partial class MainPage : ContentPage
                 BluetoothDevicePickerVisible = true;
                 LockButtonEnabled = false;
                 UnLockButtonEnabled = false;
-                AdminNavigationButtonEnabled = false;
 
                 if (BTDevicePicker.CurrentInstance != null)
                 {
@@ -929,7 +921,6 @@ public partial class MainPage : ContentPage
                     await App.Log("--> [HARDWARE MONITOR]: Forcing active device list reset sweep over radio waves...");
                     LockButtonEnabled = false;
                     UnLockButtonEnabled = false;
-                    AdminNavigationButtonEnabled = false;
                     await BTDevicePicker.CurrentInstance.InitializePickerLifecycleAsync();
                 }
             });
@@ -1005,7 +996,6 @@ public partial class MainPage : ContentPage
                     await App.Log("--> [HARDWARE MONITOR]: Forcing active device list reset sweep over radio waves...");
                     LockButtonEnabled = false;
                     UnLockButtonEnabled = false;
-                    AdminNavigationButtonEnabled = false;
                     await BTDevicePicker.CurrentInstance.InitializePickerLifecycleAsync();
                 }
             }

@@ -90,7 +90,7 @@ const int EEPROM_CF_HOST_ADDR      = 250;
 const int EEPROM_CF_CLIENT_ID_ADDR = 350;
 const int EEPROM_CF_SECRET_ADDR    = 450;
 
-const int MAX_SYSTEM_LOGS = 10;
+const int MAX_SYSTEM_LOGS = 2;
 String systemLogBufferArray[MAX_SYSTEM_LOGS];
 int currentLogWritePointerIndex = 0;
 
@@ -101,12 +101,6 @@ float globalFrontVolts = 0;
 float globalBackVolts = 0;
 int frontBatteryPercent = 100;
 int backBatteryPercent = 100;
-
-float backChargingVolts = 13.30;
-float frontChargingVolts = 14.10;
-
-float frontMaxFullChargeVolts = 12.50;
-float backMaxFullChargeVolts = 13.20;
 
 bool frontIsCharging = false;
 bool backIsCharging = false;
@@ -119,8 +113,11 @@ unsigned long activeCloudPacingInterval = 30000;
 static unsigned long lastCloudUploadTimestamp = 0;
 static unsigned long rapidResponseWindowExpiration = 0;
 
-double BACK_VOLTS_CRITICAL_EMPTY = backMaxFullChargeVolts - 1.30;
+float frontMaxFullChargeVolts = 12.80;
+float backMaxFullChargeVolts = 13.41;
+
 double FRONT_VOLTS_CRITICAL_EMPTY = frontMaxFullChargeVolts - 1.30;
+double BACK_VOLTS_CRITICAL_EMPTY = backMaxFullChargeVolts - 1.30;
 
 bool crossChargeProtectionActiveFlag = false; 
 
@@ -1223,7 +1220,7 @@ void transmitSecureHTTPTelemetry(String jsonPayload) {
 void checkCloudCommandMailbox() {
     if (BLE.connected()) return;
         
-    if (millis() - lastCommandCheckMillis < 1500) return;
+    if (millis() - lastCommandCheckMillis < 10000) return;
     lastCommandCheckMillis = millis();
 
     if (WiFi.status() != WL_CONNECTED || systemIsCurrentlyInFallbackApMode) return;
@@ -1833,16 +1830,18 @@ void handleVotages() {
     globalFrontVolts = ((rawFront * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_FRONT;
     globalBackVolts = ((rawBack * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_BACK;
 
-    if (!frontIsCharging && !backIsCharging && globalFrontVolts >= frontChargingVolts) {
-        frontIsCharging = true;
+    if (!(frontIsCharging && backIsCharging)) {
+        if (globalFrontVolts > frontMaxFullChargeVolts) {
+            frontIsCharging = true;
+        }
+        else if (globalBackVolts > backMaxFullChargeVolts) {
+            backIsCharging = true;
+        }
     }
-    else if (!backIsCharging && !frontIsCharging && globalBackVolts >= backChargingVolts) {
-        backIsCharging = true;
-    }
-    else if (frontIsCharging && globalFrontVolts < frontChargingVolts) {
+    else if (frontIsCharging && globalFrontVolts <= frontMaxFullChargeVolts) {
         frontIsCharging = false;
     }
-    else if (backIsCharging && globalBackVolts < backChargingVolts) {
+    else if (backIsCharging && globalBackVolts <= backMaxFullChargeVolts) {
         backIsCharging = false;
     }
 }
@@ -1850,4 +1849,4 @@ void handleVotages() {
 int getFreeRam() {
     struct mallinfo mi = mallinfo();
     return mi.fordblks;
-}       
+}

@@ -27,7 +27,6 @@
                        Aspect="AspectFit"/>
 
                     <Button
-                        IsEnabled="{Binding AdminNavigationButtonEnabled}"
                         Text="SETUP"
                         Clicked="OnAdminNavigationClicked"
                         AbsoluteLayout.LayoutBounds="1.05, -0.05, 75, 36"

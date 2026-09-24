@@ -1548,30 +1548,31 @@ void handleCrossCharging() {
 
         if ((frontBatteryPercent <= CRITICAL_BATTERY_LOW && backBatteryPercent >= SAFE_BATTERY_CEILING) || 
             (backBatteryPercent <= CRITICAL_BATTERY_LOW && frontBatteryPercent >= SAFE_BATTERY_CEILING)) { 
-                crossChargeProtectionActiveFlag = true; 
-                writeLog("--> [BATTERY CRITICAL]: Threshold protection tripped! Bridging cells."); 
-            }
+            crossChargeProtectionActiveFlag = true; 
+            writeLog("--> [BATTERY CRITICAL]: Threshold protection tripped! Bridging cells."); 
+        }
         else if ((backIsCharging && backBatteryPercent == 100 && frontBatteryPercent <= 80) ||
-            (frontIsCharging && frontBatteryPercent == 100 && backBatteryPercent <= 80)) {
-                crossChargeProtectionActiveFlag = true;
-                isTopUpChargeActive = true;
-                writeLog("--> [BATTERY MAINTENANCE]: Charging active. Bridging cells for topup.");
-            }
+                 (frontIsCharging && frontBatteryPercent == 100 && backBatteryPercent <= 80)) 
+        {
+            crossChargeProtectionActiveFlag = true;
+            isTopUpChargeActive = true;
+            writeLog("--> [BATTERY MAINTENANCE]: Charging active. Bridging cells for topup.");
+        }
     } 
     else {
-        if (backIsCharging && (globalFrontVolts >= 14.1 && globalBackVolts >= 14.1)) {
+        if (frontBatteryPercent <= 5) { 
+            crossChargeProtectionActiveFlag = false;
+            emergencyDisconnectLockoutFlag = true;
+            writeLog("--> [BATTERY EMERGENCY]: Front battery critically low (<=5%). Breaking link."); 
+        }
+        else if (backBatteryPercent <= 5) { 
+            crossChargeProtectionActiveFlag = false;
+            emergencyDisconnectLockoutFlag = true;
+            writeLog("--> [BATTERY EMERGENCY]: Back battery critically low (<=5%). Breaking link."); 
+        }
+        else if (backIsCharging && (globalFrontVolts >= 14.1 && globalBackVolts >= 14.1)) {
             crossChargeProtectionActiveFlag = false;
             writeLog("--> [CHARGER SAFETY]: Back is charging and both batteries over 14.1 volts. Breaking link.");
-        }
-        else if (!backIsCharging && frontBatteryPercent <= 5) { 
-            crossChargeProtectionActiveFlag = false;
-            emergencyDisconnectLockoutFlag = true;
-            writeLog("--> [BATTERY EMERGENCY]: Front battery dead and back is not charging. Breaking link."); 
-        }
-        else if (!frontIsCharging && backBatteryPercent <= 5) { 
-            crossChargeProtectionActiveFlag = false;
-            emergencyDisconnectLockoutFlag = true;
-            writeLog("--> [BATTERY EMERGENCY]: Back battery dead and front is not charging. Breaking link."); 
         }
         else if (!backIsCharging && backBatteryPercent < SAFE_BATTERY_CEILING && frontBatteryPercent < backBatteryPercent) {
             crossChargeProtectionActiveFlag = false;
@@ -1590,7 +1591,7 @@ void handleCrossCharging() {
         }
     }
 
-    digitalWrite(RELAY_SOLENOID, crossChargeProtectionActiveFlag ? LOW : HIGH);    
+    digitalWrite(RELAY_SOLENOID, crossChargeProtectionActiveFlag ? LOW : HIGH); 
 }
 
 void handleRadioSense(bool radioSenseIsActive) {       
@@ -1802,26 +1803,14 @@ void handleVotages() {
     long accumulatedRawFront = 0;
     long accumulatedRawBack = 0;
 
+    analogReadResolution(14); 
+    delayMicroseconds(10);
+
     for (int i = 0; i < 8; i++) {
-        long frontVolts = analogRead(VOLTAGE_FRONT); 
-        if (frontVolts <= 6.5) {
-            analogReadResolution(14); 
-            delay(5);
-            analogReadResolution(12);
-        }
-
+        accumulatedRawFront += analogRead(VOLTAGE_FRONT); 
         delayMicroseconds(50);
-        accumulatedRawFront += analogRead(VOLTAGE_FRONT);
-
-        long backVolts = analogRead(VOLTAGE_BACK); 
-        if (backVolts <= 6.5) {
-            analogReadResolution(14); 
-            delay(5);
-            analogReadResolution(12);
-        } 
-        
+        accumulatedRawBack += analogRead(VOLTAGE_BACK); 
         delayMicroseconds(50);
-        accumulatedRawBack += analogRead(VOLTAGE_BACK);
     }
 
     int rawFront = accumulatedRawFront / 8;
@@ -1830,20 +1819,8 @@ void handleVotages() {
     globalFrontVolts = ((rawFront * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_FRONT;
     globalBackVolts = ((rawBack * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_BACK;
 
-    if (!(frontIsCharging && backIsCharging)) {
-        if (globalFrontVolts > frontMaxFullChargeVolts) {
-            frontIsCharging = true;
-        }
-        else if (globalBackVolts > backMaxFullChargeVolts) {
-            backIsCharging = true;
-        }
-    }
-    else if (frontIsCharging && globalFrontVolts <= frontMaxFullChargeVolts) {
-        frontIsCharging = false;
-    }
-    else if (backIsCharging && globalBackVolts <= backMaxFullChargeVolts) {
-        backIsCharging = false;
-    }
+    frontIsCharging = (globalFrontVolts > frontMaxFullChargeVolts);
+    backIsCharging = (globalBackVolts > backMaxFullChargeVolts);
 }
 
 int getFreeRam() {

@@ -439,7 +439,7 @@ public class NetworkHubService
                     {
                         if (ex.Message == "Already running verification...")
                         {
-                            await App.Log($"--> [AUTOCONNECT WIFI]: A previous call to check the status of the server state was invoked.")
+                            await App.Log($"--> [AUTOCONNECT WIFI]: A previous call to check the status of the server state was invoked.");
                             return true;
                         }
 

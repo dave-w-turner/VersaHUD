@@ -327,7 +327,7 @@ public class NetworkHubService
                     }
                 }
 
-                if (!IsAuthorized)
+                if (IsBluetoothConnected && !IsAuthorized)
                 {
                     return true;
                 }
@@ -364,80 +364,86 @@ public class NetworkHubService
                     try
                     {
                         isWifiServerActive = await VerifyWifiHealthWithDebounceAsync(lastKnownIp);
-                    }
-                    catch
-                    {
-                        return true;
-                    }
 
-                    if (isWifiServerActive)
-                    {
-                        await App.Log($"--> [AUTOCONNECT WIFI]: Server live!");
-
-                        if (!(IsUsingWifiTransportMode || IsUsingLocalApMode) && (secondsSinceLastTransportSwitch >= TRANSPORT_FLAPPING_COOLDOWN_SECONDS || !IsBluetoothConnected))
+                        if (isWifiServerActive)
                         {
-                            if (!IsBluetoothConnected)
+                            await App.Log($"--> [AUTOCONNECT WIFI]: Server live!");
+
+                            if (!(IsUsingWifiTransportMode || IsUsingLocalApMode) && (secondsSinceLastTransportSwitch >= TRANSPORT_FLAPPING_COOLDOWN_SECONDS || !IsBluetoothConnected))
                             {
-                                await App.Log($"--> [AUTOCONNECT]: Bluetooth connection severed. Switching to WiFi transport.");
-                            }
-                            else
-                            {
-                                await App.Log($"--> [AUTOCONNECT]: Bluetooth signal below acceptable levels. Switching to WiFi transport.");
-                            }
+                                if (!IsBluetoothConnected)
+                                {
+                                    await App.Log($"--> [AUTOCONNECT]: Bluetooth connection severed. Switching to WiFi transport.");
+                                }
+                                else
+                                {
+                                    await App.Log($"--> [AUTOCONNECT]: Bluetooth signal below acceptable levels. Switching to WiFi transport.");
+                                }
 
-                            if (IsUsingLocalApMode)
-                                IsUsingWifiTransportMode = false;
-                            else
-                                IsUsingWifiTransportMode = true;
+                                if (IsUsingLocalApMode)
+                                    IsUsingWifiTransportMode = false;
+                                else
+                                    IsUsingWifiTransportMode = true;
 
-                            _txCharacteristic?.ValueUpdated -= NativeCharacteristic_ValueUpdated;
-                            _bLECommunicationProvisioned = false;
-
-                            IsUsingCloudWanMode = false;
-                            IsRebootingWatchdogActive = false;
-                            WaitingForAuthorization = false;
-
-                            LastTransportSwitchTimestamp = DateTime.UtcNow;
-
-                            await App.Log("--> [FAILOVER SUCCESS]: Vehicle node discovered live over Wi-Fi Subnet. Engaging Wi-Fi transport channels!");
-
-                            if (IsAuthorized)
-                            {
-                                await App.Log($"--> [AUTOCONNECT WIFI]: Starting WIFI telemetry!");
-                                _ = Task.Run(async () => await ManageWifiTelemetryPollingLifecycle(true));
-                            }
-                            else
-                            {
-                                WaitingForAuthorization = false;
-                                await App.Log($"--> [AUTOCONNECT WIFI FAILURE]: User unauthorized, initializing fallback routine!");
-                            }
-                        }
-                        else if (IsAuthorized)
-                        {
-                            if (_bLECommunicationProvisioned)
-                            {
                                 _txCharacteristic?.ValueUpdated -= NativeCharacteristic_ValueUpdated;
                                 _bLECommunicationProvisioned = false;
+
+                                IsUsingCloudWanMode = false;
+                                IsRebootingWatchdogActive = false;
+                                WaitingForAuthorization = false;
+
+                                LastTransportSwitchTimestamp = DateTime.UtcNow;
+
+                                await App.Log("--> [FAILOVER SUCCESS]: Vehicle node discovered live over Wi-Fi Subnet. Engaging Wi-Fi transport channels!");
+
+                                if (IsAuthorized)
+                                {
+                                    await App.Log($"--> [AUTOCONNECT WIFI]: Starting WIFI telemetry!");
+                                    _ = Task.Run(async () => await ManageWifiTelemetryPollingLifecycle(true));
+                                }
+                                else
+                                {
+                                    WaitingForAuthorization = false;
+                                    await App.Log($"--> [AUTOCONNECT WIFI FAILURE]: User unauthorized, initializing fallback routine!");
+                                }
+                            }
+                            else if (IsAuthorized)
+                            {
+                                if (_bLECommunicationProvisioned)
+                                {
+                                    _txCharacteristic?.ValueUpdated -= NativeCharacteristic_ValueUpdated;
+                                    _bLECommunicationProvisioned = false;
+                                }
+
+                                _ = Task.Run(async () => await ManageWifiTelemetryPollingLifecycle(true));
+                            }
+                            else if (!IsAuthorized && !MainPage.CurrentInstance.LayoutPasswordInitVisible)
+                            {
+                                await ManageWifiTelemetryPollingLifecycle(false);
+                                IsUsingWifiTransportMode = false;
+                                IsUsingLocalApMode = false;
+                                return false;
                             }
 
-                            _ = Task.Run(async () => await ManageWifiTelemetryPollingLifecycle(true));
+                            return true;
                         }
-                        else if (!IsAuthorized && !MainPage.CurrentInstance.LayoutPasswordInitVisible)
+                        else
                         {
-                            await ManageWifiTelemetryPollingLifecycle(false);
+                            await App.Log($"--> [AUTOCONNECT WIFI FAILURE]: WiFi server not active, disabling WiFi transport and terminating telemtry!");
                             IsUsingWifiTransportMode = false;
                             IsUsingLocalApMode = false;
-                            return false;
+                            await ManageWifiTelemetryPollingLifecycle(false);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        if (ex.Message == "Already running verification...")
+                        {
+                            await App.Log($"--> [AUTOCONNECT WIFI]: A previous call to check the status of the server state was invoked.")
+                            return true;
                         }
 
-                        return true;
-                    }
-                    else
-                    {
-                        await App.Log($"--> [AUTOCONNECT WIFI FAILURE]: WiFi server not active, disabling WiFi transport and terminating telemtry!");
-                        IsUsingWifiTransportMode = false;
-                        IsUsingLocalApMode = false;
-                        await ManageWifiTelemetryPollingLifecycle(false);
+                        await App.Log($"--> [AUTOCONNECT WIFI]: Server unavailable!");
                     }
                 }
             }
@@ -1073,27 +1079,6 @@ public class NetworkHubService
         {
             await Task.Delay(1000);
         }
-
-        //while (currentAttempt < maxReconnectionAttempts && IsRebootingWatchdogActive)
-        //{
-        //    currentAttempt++;
-        //    await App.Log($"--> [BLE WATCHDOG]: Attempting hardware re-link #{currentAttempt} of {maxReconnectionAttempts} to: {targetedMacAddress}");
-        //    try
-        //    {
-        //        if (await AutoConnectAsync(false))
-        //        {
-        //            IsRebootingWatchdogActive = false;
-        //            await App.Log("--> [BLE WATCHDOG SUCCESS]: Radio pipeline synchronized cleanly!");
-        //            return;
-        //        }
-        //        else throw new Exception("Connection attempt failed. Device still booting or unreachable.");
-        //    }
-        //    catch (Exception ex)
-        //    {
-        //        await App.Log($"--> [BLE WATCHDOG RETRY PASS]: Module still power-cycling: {ex.Message}");
-        //        await Task.Delay(800);
-        //    }
-        //}
 
         await App.Log("--> [WATCHDOG CRITICAL FAILURE]: Both communication channels are exhausted.");
     }

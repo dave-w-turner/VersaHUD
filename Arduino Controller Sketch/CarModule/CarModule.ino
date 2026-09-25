@@ -1598,7 +1598,7 @@ void handleCrossCharging() {
     }
 
     if (isTopUpChargeActive && (backIsCharging && globalFrontVolts >= 14.15 && globalBackVolts >= 14.2) ||
-    (frontIsCharging && globalFrontVolts > 14.3 && globalBackVolts >= 14.2)) {
+    (frontIsCharging && globalFrontVolts > 14.3 && globalBackVolts >= 14.2) || (!backIsCharging && frontBatteryPercent == 100 || !frontIsCharging && backBatteryPercent == 100)) {
         isTopUpChargeActive = false;
     }
 

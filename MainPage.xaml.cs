@@ -1027,10 +1027,24 @@ public partial class MainPage : ContentPage
             }
             else
             {
-                await MainThread.InvokeOnMainThreadAsync(async () =>
+                bool isPermissionApproved = false;
+
+                do
                 {
-                    App.NetworkService.StartConnectionSupervisor();
-                });
+                    isPermissionApproved = await BTDevicePicker.GetBTPermissions();
+
+                    if (isPermissionApproved)
+                    {
+                        await MainThread.InvokeOnMainThreadAsync(async () =>
+                        {
+                            App.NetworkService?.StartConnectionSupervisor();
+                        });
+                    }
+                    else
+                    {
+                        await DisplayAlertAsync("Bluetooth Permissions", "Bluetooth permissions are required!", "OK");
+                    }
+                } while (!isPermissionApproved);
             }
         }
         catch (Exception ex)

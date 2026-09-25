@@ -142,7 +142,7 @@ public partial class BTDevicePicker : ContentView
         });
     }
 
-    private static async Task<bool> GetBTPermissions()
+    public static async Task<bool> GetBTPermissions()
     {
         try
         {

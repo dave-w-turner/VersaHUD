@@ -414,6 +414,12 @@ public class NetworkHubService
                         }
                         else if (IsAuthorized)
                         {
+                            if (_bLECommunicationProvisioned)
+                            {
+                                _txCharacteristic?.ValueUpdated -= NativeCharacteristic_ValueUpdated;
+                                _bLECommunicationProvisioned = false;
+                            }
+
                             _ = Task.Run(async () => await ManageWifiTelemetryPollingLifecycle(true));
                         }
                         else if (!IsAuthorized && !MainPage.CurrentInstance.LayoutPasswordInitVisible)

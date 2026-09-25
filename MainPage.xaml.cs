@@ -862,7 +862,7 @@ public partial class MainPage : ContentPage
             await DisplayAlertAsync("COMMAND FAILURE", "Unable to deliver the LOCK command! Please check your connection.", "OK");
         }
 
-        await Task.Delay(1500);
+        await Task.Delay(1000);
         await MainThread.InvokeOnMainThreadAsync(async () =>
         {
             LockButtonEnabled = true;
@@ -890,7 +890,7 @@ public partial class MainPage : ContentPage
             await DisplayAlertAsync("COMMAND FAILURE", "Unable to deliver the UNLOCK command! Please check your connection.", "OK");
         }
 
-        await Task.Delay(1500);
+        await Task.Delay(1000);
         await MainThread.InvokeOnMainThreadAsync(async () =>
         {
             UnLockButtonEnabled = true;

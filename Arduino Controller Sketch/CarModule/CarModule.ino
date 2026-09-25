@@ -113,13 +113,16 @@ unsigned long activeCloudPacingInterval = 30000;
 static unsigned long lastCloudUploadTimestamp = 0;
 static unsigned long rapidResponseWindowExpiration = 0;
 
-float frontMaxFullChargeVolts = 12.80;
+float frontMaxFullChargeVolts = 12.7;
 float backMaxFullChargeVolts = 13.41;
 
 double FRONT_VOLTS_CRITICAL_EMPTY = frontMaxFullChargeVolts - 1.30;
 double BACK_VOLTS_CRITICAL_EMPTY = backMaxFullChargeVolts - 1.30;
 
 bool crossChargeProtectionActiveFlag = false; 
+
+unsigned long lastHomeWifiProbeMillis = 0;
+int consecutiveProbeFailuresCount = 0;
 
 String currentBroadcastAP = "";
 String currentBroadcastBLE = "";
@@ -581,13 +584,67 @@ void maintainNetworkHealth() {
 
         if (currentStatus == WL_CONNECTED && !systemIsCurrentlyInFallbackApMode) {
             continuousDisconnectAnchorMillis = millis();
+            consecutiveProbeFailuresCount = 0;
             return;
         }
 
-        if (millis() - continuousDisconnectAnchorMillis > maxDowntimeBeforeHardReset) {
+        if (!frontIsCharging && (millis() - continuousDisconnectAnchorMillis > maxDowntimeBeforeHardReset)) {
             writeLog("[CRITICAL WATCHDOG]: Network stack lockup detected. Resetting Core MCU...");
             Serial.flush();
             NVIC_SystemReset();
+        }
+
+        if (systemIsCurrentlyInFallbackApMode) {
+            unsigned long currentDynamicProbeInterval = 60000;
+
+            if (frontIsCharging) {
+                currentDynamicProbeInterval = 7200000;
+            } 
+            else if (consecutiveProbeFailuresCount >= 3) {
+                currentDynamicProbeInterval = 900000;
+            }
+
+            if (millis() - lastHomeWifiProbeMillis >= currentDynamicProbeInterval) {
+                lastHomeWifiProbeMillis = millis();
+                
+                writeLog("--> [WAN RECOVERY]: Probing environment for home station router reconnect...");
+                
+                String savedSSID = readSecureStringFromEEPROM(EEPROM_WIFI_SSID_ADDR);
+                String savedPASS = readSecureStringFromEEPROM(EEPROM_WIFI_PASS_ADDR);
+
+                if (savedSSID.length() > 0) {
+                    WiFi.disconnect();
+                    delay(200);
+
+                    WiFi.begin(savedSSID.c_str(), savedPASS.c_str());
+
+                    int probeTimer = 0;
+                    while (WiFi.status() != WL_CONNECTED && probeTimer < 10) {
+                        delay(500);
+                        probeTimer++;
+                    }
+
+                    if (WiFi.status() == WL_CONNECTED) {
+                        writeLog("--> [WAN RECOVERY SUCCESS]: Home Station re-established! Tearing down fallback AP...");
+                        
+                        systemIsCurrentlyInFallbackApMode = false;
+                        consecutiveProbeFailuresCount = 0;
+                        continuousDisconnectAnchorMillis = millis(); 
+                        
+                        webServer.begin(); 
+                        return; 
+                    }
+                    else {
+                        consecutiveProbeFailuresCount++;
+                        writeLog("--> [WAN RECOVERY]: Station unreachable. Miss count: " + String(consecutiveProbeFailuresCount));
+                        
+                        WiFi.disconnect();
+                        delay(100);
+                        WiFi.beginAP(currentBroadcastAP.c_str(), currentAPPassword.c_str());
+                        webServer.begin();
+                    }
+                }
+            }
         }
 
         if (!systemIsCurrentlyInFallbackApMode) {
@@ -596,6 +653,9 @@ void maintainNetworkHealth() {
             delay(100);
             WiFi.beginAP(currentBroadcastAP.c_str(), currentAPPassword.c_str());
             systemIsCurrentlyInFallbackApMode = true;
+            
+            lastHomeWifiProbeMillis = millis(); 
+            consecutiveProbeFailuresCount = 0;
         }
     }
 }
@@ -1537,7 +1597,8 @@ void handleCrossCharging() {
         }
     }
 
-    if (isTopUpChargeActive && backBatteryPercent == 100 && frontBatteryPercent == 100) {
+    if (isTopUpChargeActive && (backIsCharging && globalFrontVolts >= 14.15 && globalBackVolts >= 14.2) ||
+    (frontIsCharging && globalFrontVolts > 14.3 && globalBackVolts >= 14.2)) {
         isTopUpChargeActive = false;
     }
 
@@ -1570,7 +1631,7 @@ void handleCrossCharging() {
             emergencyDisconnectLockoutFlag = true;
             writeLog("--> [BATTERY EMERGENCY]: Back battery critically low (<=5%). Breaking link."); 
         }
-        else if (backIsCharging && (globalFrontVolts >= 14.1 && globalBackVolts >= 14.1)) {
+        else if (backIsCharging && (globalFrontVolts >= 14.2 && globalBackVolts >= 14.2)) {
             crossChargeProtectionActiveFlag = false;
             writeLog("--> [CHARGER SAFETY]: Back is charging and both batteries over 14.1 volts. Breaking link.");
         }

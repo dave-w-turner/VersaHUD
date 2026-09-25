@@ -844,6 +844,12 @@ public partial class MainPage : ContentPage
 
     private async void OnLockClicked(object sender, EventArgs e)
     {
+        await MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            LockButtonEnabled = false;
+            UnLockButtonEnabled = false;
+        });
+
         try
         {
             string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
@@ -855,10 +861,23 @@ public partial class MainPage : ContentPage
             await App.Log($"--> [LOCK UI CHOKE]: {ex.Message}");
             await DisplayAlertAsync("COMMAND FAILURE", "Unable to deliver the LOCK command! Please check your connection.", "OK");
         }
+
+        await Task.Delay(1500);
+        await MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            LockButtonEnabled = true;
+            UnLockButtonEnabled = true;
+        });
     }
 
     private async void OnUnlockClicked(object sender, EventArgs e)
     {
+        await MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            UnLockButtonEnabled = false;
+            LockButtonEnabled = false;
+        });
+
         try
         {
             string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
@@ -870,6 +889,13 @@ public partial class MainPage : ContentPage
             await App.Log($"--> [UNLOCK UI CHOKE]: {ex.Message}");
             await DisplayAlertAsync("COMMAND FAILURE", "Unable to deliver the UNLOCK command! Please check your connection.", "OK");
         }
+
+        await Task.Delay(1500);
+        await MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            UnLockButtonEnabled = true;
+            LockButtonEnabled = true;
+        });
     }
 
     private async void OnAdminNavigationClicked(object sender, EventArgs e)

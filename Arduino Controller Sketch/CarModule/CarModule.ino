@@ -163,7 +163,8 @@ void loop() {
     BLE.poll();
     
     handleVotages();
-    handleCrossCharging();
+    CrossChargingTemp(radioSenseIsActive);
+    //handleCrossCharging();
     handleRadioSense(radioSenseIsActive);
     
     maintainNetworkHealth();
@@ -1588,6 +1589,17 @@ void writeLog(String txt) {
     systemLogBufferArray[currentLogWritePointerIndex] = finalOutput;
     currentLogWritePointerIndex = (currentLogWritePointerIndex + 1) % MAX_SYSTEM_LOGS;
 }
+
+void CrossChargingTemp(bool radioSenseIsActive) {
+    if (radioSenseIsActive && frontBatteryPercent > CRITICAL_BATTERY_LOW && digitalRead(RELAY_AMP_REM) == HIGH) {
+        digitalWrite(RELAY_SOLENOID, LOW);
+        crossChargeProtectionActiveFlag = true;
+    }
+    else if (!radioSenseIsActive) {
+        digitalWrite(RELAY_SOLENOID, HIGH);
+        crossChargeProtectionActiveFlag = false;
+    }
+} 
 
 void handleCrossCharging() {
     if ((frontIsCharging && backBatteryPercent < 80) || (backIsCharging && frontBatteryPercent < 80)) {

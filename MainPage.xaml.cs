@@ -112,6 +112,16 @@ public partial class MainPage : ContentPage
 
                 bool isArduinoCloudTunnelConnected = root.TryGetProperty("wan_link", out JsonElement wanNode) && wanNode.ValueKind != JsonValueKind.Null && wanNode.GetBoolean();
 
+                if (frontVolts < 4)
+                {
+                    frontVolts = 0;
+                }
+
+                if (backVolts < 4)
+                {
+                    backVolts = 0;
+                }
+
                 if (App.NetworkService.IsUsingCloudWanMode)
                 {
                     if (root.TryGetProperty("last_sync", out JsonElement ls))

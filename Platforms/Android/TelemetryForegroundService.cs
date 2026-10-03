@@ -88,11 +88,11 @@ public class TelemetryForegroundService : Service
             string fProgressIndicator = GenerateVisualProgressIndicatorMeter(_frontPercent);
             string bProgressIndicator = GenerateVisualProgressIndicatorMeter(_backPercent);
 
-            string fChargingFlag = _isFrontCharging ? "⚡ [ CHARGING ]" : "🔋 [ IDLE ] ";
-            string bSystemFlag = _isTrunkCharging ? "⚡ [ CHARGING ]" : "🔋 [ IDLE ] ";
+            string fChargingFlag = _isFrontCharging ? "⚡ [ CHARGING ]" : _frontVolts < 4 ? "❌ [ SEVERED ] " : "🔋 [ IDLE ] ";
+            string bSystemFlag = _isTrunkCharging ? "⚡ [ CHARGING ]" : _backVolts < 4 ? "❌ [ SEVERED ] " : "🔋 [ IDLE ] ";
 
-            float fDisplayVolts = _frontVolts;
-            float bDisplayVolts = _backVolts;
+            float fDisplayVolts = _frontVolts < 4 ? 0.0f : _frontVolts;
+            float bDisplayVolts = _backVolts < 4 ? 0.0f : _backVolts;
             int fDisplayPercent = _frontPercent;
             int bDisplayPercent = _backPercent;
 

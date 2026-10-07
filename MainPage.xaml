@@ -29,6 +29,7 @@
                     <Button
                         Text="SETUP"
                         Clicked="OnAdminNavigationClicked"
+                        IsEnabled="{Binding AdminButtonEnabled}"
                         AbsoluteLayout.LayoutBounds="1.05, -0.05, 75, 36"
                         AbsoluteLayout.LayoutFlags="PositionProportional"
                         FontSize="11"

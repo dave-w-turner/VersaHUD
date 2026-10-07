@@ -34,26 +34,54 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
     {
         if (string.IsNullOrEmpty(rawPacket) || ((App.NetworkService.IsUsingCloudWanMode || App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode)
             && rawPacket.StartsWith('{')))
+        {
+            if (App.NetworkService.IsRebootingWatchdogActive)
+            {
+                await MainThread.InvokeOnMainThreadAsync(async () =>
+                {
+                    RebootLockoutShellVisible = false;
+                    RouterPasswordEntryTextEnabled = App.NetworkService.IsAuthorized;
+                    RouterSSIDEntryTextEnabled = App.NetworkService.IsAuthorized;
+                    ButtonLinkToRouterEnabled = App.NetworkService.IsAuthorized;
+                    App.NetworkService.IsRebootingWatchdogActive = false;
+                });
+
+                await GetAdminData();
+            }
+
             return;
+        }
 
-
-        if (rawPacket.Contains("Rebooting"))
+        if (rawPacket.Contains("Rebooting") || rawPacket.Contains("Resetting controller"))
         {
             _ = DisplayRebootOverlay();
             return;
         }
 
+        if (!rawPacket.StartsWith("[DEBUG] -->"))
+        {
+            if (App.NetworkService.IsRebootingWatchdogActive)
+            {
+                await MainThread.InvokeOnMainThreadAsync(async () =>
+                {
+                    RebootLockoutShellVisible = false;
+                    RouterPasswordEntryTextEnabled = App.NetworkService.IsAuthorized;
+                    RouterSSIDEntryTextEnabled = App.NetworkService.IsAuthorized;
+                    ButtonLinkToRouterEnabled = App.NetworkService.IsAuthorized;
+                    App.NetworkService.IsRebootingWatchdogActive = false;
+                });
+
+                await GetAdminData();
+                return;
+            }
+        }
+
         if (rawPacket.Contains("ROUTER_ERROR"))
         {
             await MainThread.InvokeOnMainThreadAsync(async () =>
-            {
-                RebootLockoutShellVisible = false;
-
+            {               
                 RouterPasswordText = string.Empty;
-
-                RouterPasswordEntryTextEnabled = App.NetworkService.IsAuthorized;
-                RouterSSIDEntryTextEnabled = App.NetworkService.IsAuthorized;
-                ButtonLinkToRouterEnabled = App.NetworkService.IsAuthorized;
+               
                 entryRouterPass.Focus();
                 await Application.Current.MainPage.DisplayAlertAsync("ROUTER LINK FAILED", "The vehicle module could not establish an active wireless handshake with your home station. Verify your network credentials and try again.", "OK");
             });
@@ -65,15 +93,60 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
                 RouterPasswordText = string.Empty;
-                RouterPasswordEntryTextEnabled = App.NetworkService.IsAuthorized;
-                RouterSSIDEntryTextEnabled = App.NetworkService.IsAuthorized;
-                ButtonLinkToRouterEnabled = App.NetworkService.IsAuthorized;
-                App.NetworkService.IsRebootingWatchdogActive = false;
+                
                 await Application.Current.MainPage.DisplayAlertAsync("ROUTER LINK SUCCESSFUL", "The vehicle module has successfully established a secure wireless handshake with your home station.", "OK");
             });
         }
 
-        if (WifiAPEntryText == "Loading..." || BluetoothNameText == "Loading..." || RouterSSIDEntryText == "Loading..." || rawPacket.Contains("CF_KEYS:"))
+        int apIndex = rawPacket.IndexOf("AP_NAME:");
+        int apPwIndex = rawPacket.IndexOf("AP_PASSWORD:");
+        int bleIndex = rawPacket.IndexOf("BLE_NAME:");
+        int routerIndex = rawPacket.IndexOf("ROUTER_SSID:");
+
+        if (apIndex != -1 || apPwIndex != -1 || bleIndex != -1 || routerIndex != -1)
+        {
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                if (apIndex != -1)
+                {
+                    WifiAPEntryText = rawPacket[(apIndex + 8)..].Trim();
+                }
+
+                if (apPwIndex != -1)
+                {
+                    APPasswordTextLabel = $"CURRENT AP PASSWORD: {rawPacket[(apPwIndex + 12)..].Trim()}";
+                }
+
+                if (bleIndex != -1)
+                {
+                    BluetoothNameText = rawPacket[(bleIndex + 9)..].Trim();
+                }
+
+                if (routerIndex != -1)
+                {
+                    string ssidResult = rawPacket[(routerIndex + 12)..].Trim();
+
+                    if (ssidResult.Contains("[❌ NONE SAVED]") || ssidResult.Contains("[X NONE SAVED]") || string.IsNullOrEmpty(ssidResult) || ssidResult.Contains("NONE"))
+                    {
+                        RouterSSIDEntryTextEnabled = true;
+                        RouterPasswordEntryTextEnabled = true;
+                        RouterSSIDEntryText = string.Empty;
+                        RouterPasswordText = string.Empty;
+                        LayoutUnconfiguredRouterVisible = true;
+                        LayoutConfiguredRouterVisible = false;
+                        ButtonLinkToRouterEnabled = true;
+                    }
+                    else
+                    {
+                        RouterSSIDTextLabel = ssidResult;
+                        LayoutUnconfiguredRouterVisible = false;
+                        LayoutConfiguredRouterVisible = true;
+                    }
+                }
+            });
+        }
+
+        if (!rawPacket.Contains("[SYS]") && !rawPacket.StartsWith("[DEBUG]"))
         {
             if (rawPacket.Contains("CF_KEYS:") && !rawPacket.Contains("ERR_EMPTY_VAULTS"))
             {
@@ -103,73 +176,29 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                     await App.Log($"--> [ADMIN CRYPTO EXCEPTION]: Failure unpacking over-the-air parameters: {ex.Message}");
                 }
 
-                await MainThread.InvokeOnMainThreadAsync(async () =>
+                if (WifiAPEntryText == "Loading..." || BluetoothNameText == "Loading..." || (RouterSSIDTextLabel == "Loading..." && RouterSSIDEntryText == "Loading..."))
                 {
-                    layoutAdminPage.IsEnabled = true;
-                    MasterPasswordEntryTextEnabled = App.NetworkService.IsAuthorized;
-                    WifiAPEntryTextEnabled = App.NetworkService.IsAuthorized;
-                    BluetoothNameTextEnabled = App.NetworkService.IsAuthorized;
-                    CloudflareHostEntryTextEnabled = App.NetworkService.IsAuthorized;
-                    CloudflareClientIDEntryTextEnabled = App.NetworkService.IsAuthorized;
-                    CloudflareClientSecretEntryTextEnabled = App.NetworkService.IsAuthorized;
-                    ButtonForgetRouterEnabled = App.NetworkService.IsAuthorized;
-                });
-            }
-
-            int apIndex = rawPacket.IndexOf("AP_NAME:");
-            int apPwIndex = rawPacket.IndexOf("AP_PASSWORD:");
-            int bleIndex = rawPacket.IndexOf("BLE_NAME:");
-            int routerIndex = rawPacket.IndexOf("ROUTER_SSID:");
-
-            if (apIndex != -1 || apPwIndex != -1 || bleIndex != -1 || routerIndex != -1)
-            {
-                await MainThread.InvokeOnMainThreadAsync(() =>
-                {
-                    if (apIndex != -1)
-                    {
-                        WifiAPEntryText = rawPacket.Substring(apIndex + 8).Trim();
-                    }
-
-                    if (apPwIndex != -1)
-                    {
-                        APPasswordTextLabel = $"CURRENT AP PASSWORD: {rawPacket.Substring(apPwIndex + 12).Trim()}";
-                    }
-
-                    if (bleIndex != -1)
-                    {
-                        BluetoothNameText = rawPacket.Substring(bleIndex + 9).Trim();
-                    }
-
-                    if (routerIndex != -1)
-                    {
-                        string ssidResult = rawPacket.Substring(routerIndex + 12).Trim();
-
-                        if (ssidResult.Contains("[❌ NONE SAVED]") || ssidResult.Contains("[X NONE SAVED]") || string.IsNullOrEmpty(ssidResult) || ssidResult.Contains("NONE"))
-                        {
-                            RouterSSIDEntryText = string.Empty;
-                            LayoutUnconfiguredRouterVisible = true;
-                            LayoutConfiguredRouterVisible = false;
-                        }
-                        else
-                        {
-                            RouterSSIDTextLabel = ssidResult;
-                            LayoutUnconfiguredRouterVisible = false;
-                            LayoutConfiguredRouterVisible = true;
-                        }
-                    }
-                });
+                    await Task.Delay(1000);
+                    _ = GetAdminData();
+                    return;
+                }
             }
         }
 
-        if (RebootLockoutShellVisible)
+
+        if (WifiAPEntryText != "Loading..." && BluetoothNameText != "Loading..." && (RouterSSIDTextLabel != "Loading..." || RouterSSIDEntryText != "Loading..."))
         {
-            if (rawPacket.Contains("[SYS]") || rawPacket.Contains("AP_NAME:") || rawPacket.Contains("BLE_NAME:") || rawPacket.Contains("ROUTER_SSID:"))
+            await MainThread.InvokeOnMainThreadAsync(async () =>
             {
-                await MainThread.InvokeOnMainThreadAsync(() =>
-                {
-                    RebootLockoutShellVisible = false;
-                });
-            }
+                layoutAdminPage.IsEnabled = true;
+                MasterPasswordEntryTextEnabled = App.NetworkService.IsAuthorized;
+                WifiAPEntryTextEnabled = App.NetworkService.IsAuthorized;
+                BluetoothNameTextEnabled = App.NetworkService.IsAuthorized;
+                CloudflareHostEntryTextEnabled = App.NetworkService.IsAuthorized;
+                CloudflareClientIDEntryTextEnabled = App.NetworkService.IsAuthorized;
+                CloudflareClientSecretEntryTextEnabled = App.NetworkService.IsAuthorized;
+                ButtonForgetRouterEnabled = App.NetworkService.IsAuthorized;
+            });
         }
 
         if ((!SwitchDebugLogsToggled && rawPacket.StartsWith("[DEBUG] -->")) || (!SwitchRemoteTelemetryToggled && !SwitchDebugLogsToggled) ||
@@ -234,6 +263,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             }
         }
 
+        App.NetworkService.OnTelemetryReceived -= telemetryVerificationHandler;
         App.NetworkService.OnTelemetryReceived += telemetryVerificationHandler;
 
         string currentActiveKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
@@ -388,15 +418,15 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
             if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode)
                 _ = DisplayRebootOverlay();
+
+            RouterPasswordEntryTextEnabled = false;
+            RouterSSIDEntryTextEnabled = false;
+            ButtonLinkToRouterEnabled = false;
         }
         else
         {
             await DisplayAlertAsync("LINK FAULT", "Could not deliver the parameters update packet. Verify your active communication transport channels are clear and try again.", "OK");
         }
-
-        RouterPasswordEntryTextEnabled = false;
-        RouterSSIDEntryTextEnabled = false;
-        ButtonLinkToRouterEnabled = false;
     }
 
     private async void OnScanWifiNetworksClicked(object sender, EventArgs e)
@@ -673,17 +703,19 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             await App.Log("--> [ADMIN CONTROL HUB]: Fetching parameters over-the-air via serial text scraping...");
             string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
 
+            await Task.Delay(750);
+
             try
             {
                 await App.NetworkService.SendSecureCommandAsync(activeKey, "GETWIFINAME");
             }
             catch (Exception)
             {
-                await DisplayAlertAsync("Unable to send command to obtain local AP name over bluetooth communication!", "Error", "OK");
+                await DisplayAlertAsync("Error", "Unable to send command to obtain local AP name over bluetooth communication!", "OK");
                 return;
             }
 
-            await Task.Delay(500);
+            await Task.Delay(750);
 
             try
             {
@@ -691,11 +723,11 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             }
             catch (Exception)
             {
-                await DisplayAlertAsync("Unable to send command to obtain local AP password over bluetooth communication!", "Error", "OK");
+                await DisplayAlertAsync("Error", "Unable to send command to obtain local AP password over bluetooth communication!", "OK");
                 return;
             }
 
-            await Task.Delay(500);
+            await Task.Delay(750);
 
             try
             {
@@ -703,11 +735,11 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             }
             catch (Exception)
             {
-                await DisplayAlertAsync("Unable to send command to obtain the bluetooth name over bluetooth communication!", "Error", "OK");
+                await DisplayAlertAsync("Error", "Unable to send command to obtain the bluetooth name over bluetooth communication!", "OK");
                 return;
             }
 
-            await Task.Delay(500);
+            await Task.Delay(750);
 
             try
             {
@@ -715,11 +747,11 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             }
             catch (Exception)
             {
-                await DisplayAlertAsync("Unable to send command to obtain Wifi name over bluetooth communication!", "Error", "OK");
+                await DisplayAlertAsync("Error", "Unable to send command to obtain Wifi name over bluetooth communication!", "OK");
                 return;
             }
 
-            await Task.Delay(500);
+            await Task.Delay(750);
 
             try
             {
@@ -727,11 +759,16 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             }
             catch (Exception)
             {
-                await DisplayAlertAsync("Unable to send command to obtain Cloudflare keys over bluetooth communication!", "Error", "OK");
+                await DisplayAlertAsync("Error", "Unable to send command to obtain Cloudflare keys over bluetooth communication!", "OK");
                 return;
             }
 
-            await Task.Delay(500);
+            await Task.Delay(750);
+        }
+        else
+        {
+            await DisplayAlertAsync("Connection Failure", "There are no active connections. Please try again once you have established connectivity.", "Ok");
+            await Shell.Current.GoToAsync("..");
         }
     }
 

@@ -502,5 +502,19 @@ public partial class MainPage : ContentPage
         set => SetValue(UnLockButtonEnabledProperty, value);
     }
 
+    public static readonly BindableProperty AdminButtonEnabledProperty =
+    BindableProperty.Create(
+        nameof(AdminButtonEnabled),
+        typeof(bool),
+        typeof(MainPage),
+        defaultValue: false,
+        defaultBindingMode: BindingMode.TwoWay);
+
+    public bool AdminButtonEnabled
+    {
+        get => (bool)GetValue(AdminButtonEnabledProperty);
+        set => SetValue(AdminButtonEnabledProperty, value);
+    }
+
     #endregion
 }

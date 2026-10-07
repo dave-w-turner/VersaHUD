@@ -1,5 +1,4 @@
 ﻿using Plugin.BLE;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -436,7 +435,8 @@ public partial class MainPage : ContentPage
                 BluetoothStatusTextLabelColor = Color.Parse("#FFBF00");
                 BluetoothSignalTextLabel = string.Empty;
                 BorderNetworkStatusVisible = false;
-                ManualScanButtonVisible = true;                
+                ManualScanButtonVisible = true;
+                AdminButtonEnabled = false;
                 UnLockButtonEnabled = false;
                 LockButtonEnabled = false;
             });
@@ -489,6 +489,7 @@ public partial class MainPage : ContentPage
 
                 LockButtonEnabled = false;
                 UnLockButtonEnabled = false;
+                AdminButtonEnabled = false;
 
                 FrontVoltsTextLabel = "0.00 V";
                 FrontPercentTextLabel = " 0%";
@@ -557,6 +558,7 @@ public partial class MainPage : ContentPage
                 {
                     LockButtonEnabled = true;
                     UnLockButtonEnabled = true;
+                    AdminButtonEnabled = true;
                 }
             });
         }
@@ -683,11 +685,13 @@ public partial class MainPage : ContentPage
             {
                 LockButtonEnabled = true;
                 UnLockButtonEnabled = true;
+                AdminButtonEnabled = true;  
             }
             else
             {
                 LockButtonEnabled = false;
                 UnLockButtonEnabled = false;
+                AdminButtonEnabled = false;
             }
 
             BorderNetworkStatusVisible = true;
@@ -718,11 +722,13 @@ public partial class MainPage : ContentPage
             {
                 LockButtonEnabled = true;
                 UnLockButtonEnabled = true;
+                AdminButtonEnabled = true;
             }
             else
             {
                 LockButtonEnabled = false;
                 UnLockButtonEnabled = false;
+                AdminButtonEnabled = false;
             }
 
             BorderNetworkStatusVisible = true;
@@ -931,6 +937,7 @@ public partial class MainPage : ContentPage
                 BluetoothDevicePickerVisible = true;
                 LockButtonEnabled = false;
                 UnLockButtonEnabled = false;
+                AdminButtonEnabled = false;
 
                 if (BTDevicePicker.CurrentInstance != null)
                 {

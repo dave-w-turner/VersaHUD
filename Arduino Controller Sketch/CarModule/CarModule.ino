@@ -114,7 +114,7 @@ static unsigned long lastCloudUploadTimestamp = 0;
 static unsigned long rapidResponseWindowExpiration = 0;
 
 float frontMaxFullChargeVolts = 12.7;
-float backMaxFullChargeVolts = 13.41;
+float backMaxFullChargeVolts = 12.7;
 
 double FRONT_VOLTS_CRITICAL_EMPTY = frontMaxFullChargeVolts - 1.30;
 double BACK_VOLTS_CRITICAL_EMPTY = backMaxFullChargeVolts - 1.30;
@@ -1591,11 +1591,11 @@ void writeLog(String txt) {
 }
 
 void CrossChargingTemp(bool radioSenseIsActive) {
-    if (radioSenseIsActive && frontBatteryPercent > CRITICAL_BATTERY_LOW && digitalRead(RELAY_AMP_REM) == HIGH) {
+    if (frontBatteryPercent > CRITICAL_BATTERY_LOW && digitalRead(RELAY_AMP_REM) == HIGH) {
         digitalWrite(RELAY_SOLENOID, LOW);
         crossChargeProtectionActiveFlag = true;
     }
-    else if (!radioSenseIsActive) {
+    else if (frontBatteryPercent <= CRITICAL_BATTERY_LOW && crossChargeProtectionActiveFlag) {
         digitalWrite(RELAY_SOLENOID, HIGH);
         crossChargeProtectionActiveFlag = false;
     }

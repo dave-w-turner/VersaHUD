@@ -819,7 +819,25 @@ public class NetworkHubService
         else
         {
             string savedPass = Preferences.Default.Get(InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-            await SendSecureCommandAsync(savedPass, "VERIFYPASS");
+            int retries = 0;
+
+            do
+            {
+                try
+                {
+                    await SendSecureCommandAsync(savedPass, "VERIFYPASS");
+                }
+                catch (Exception ex)
+                {
+                    if (retries == 2)
+                    {
+                        await MainPage.CurrentInstance.DisplayAlertAsync("Authorization Failure", "Unable to send command to verify password! Please try again after verifying your connection.", "Ok");
+                        await App.Log($"--> [AUTHORIZATION]: Unable to send command to verify password! Please try again after verifying your connection! Message: {ex.Message}");
+                    }
+
+                    retries++;
+                }
+            } while (retries < 3);
         }
     }
 
@@ -868,14 +886,25 @@ public class NetworkHubService
             {
                 await App.Log($"--> [ROUTING]: Commencing Bluetooth command action '{action}'...");
                 byte[] txPayloadBytes = Encoding.UTF8.GetBytes(encryptedBase64CommandString);
-                bool bleSuccess = !Convert.ToBoolean(await _rxCharacteristic.WriteAsync(txPayloadBytes));
+
+                bool bleSuccess = Convert.ToBoolean(await _rxCharacteristic.WriteAsync(txPayloadBytes));
 
                 if (bleSuccess) return true;
                 await App.Log("--> [FAILOVER]: BLE transmission failed. Falling over to network paths...");
             }
             catch (Exception bleEx)
             {
-                await App.Log($"--> [BLE COMMAND FAULT]: {bleEx.Message}. Cascading smoothly to network layers...");
+                string exType = bleEx.GetType().Name;
+                if (exType.Contains("Java") || exType.Contains("Runtime") || bleEx.InnerException?.GetType().Name.Contains("Java") == true)
+                {
+                    await App.Log($"--> [NATIVE BLE FAULT]: Android GATT layer disconnected mid-write ({exType}). Cascading smoothly...");
+                }
+                else
+                {
+                    await App.Log($"--> [BLE COMMAND FAULT]: {bleEx.Message}. Cascading smoothly to network layers...");
+                }
+
+                await RecycleBluetoothAdapterStateAsync();
             }
         }
 
@@ -1610,7 +1639,7 @@ public class NetworkHubService
         }
     }
 
-    private async Task<bool> VerifyWifiHealthWithDebounceAsync(string lastKnownIp)
+    private static async Task<bool> VerifyWifiHealthWithDebounceAsync(string lastKnownIp)
     {
         var activeProfiles = Connectivity.Current.ConnectionProfiles;
         bool hasPhysicalWifiInterface = activeProfiles.Contains(ConnectionProfile.WiFi);
@@ -1654,16 +1683,21 @@ public class NetworkHubService
                 }
                 catch (Exception ex)
                 {
+                    if (ex.Message.Contains("Socket closed"))
+                    {
+                        return false;
+                    }
+
                     retryAttempt++;
 
-                    if (retryAttempt == 10)
+                    if (retryAttempt == 2)
                     {
                         await App.Log($"--> [LAN RADAR FAIL]: Wi-Fi route dropping out or unreachable: {ex.Message}");
                     }
                 }
 
                 await Task.Delay(5000);
-            } while (retryAttempt <= 5);
+            } while (retryAttempt <= 2);
         }
         finally
         {

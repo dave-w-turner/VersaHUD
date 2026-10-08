@@ -5,10 +5,9 @@
              x:Class="VersaHUD.MainPage"
              x:Name="mainPage"
              BackgroundColor="#121212">
-
     <Grid RowDefinitions="*, Auto" Margin="0" Padding="0" BindingContext="{x:Reference mainPage}">
         <ScrollView Grid.Row="0" VerticalOptions="Fill">
-            <VerticalStackLayout Padding="20,10,20,10" Spacing="15" VerticalOptions="Start">
+            <VerticalStackLayout Padding="20,10,20,-5" Spacing="15" VerticalOptions="Start">
                 <HorizontalStackLayout Spacing="8" HorizontalOptions="Center" VerticalOptions="Center">
                     <Label Text="{Binding CloudWanTelemetryStatusTextLabel}"
                            FontAttributes="Bold"

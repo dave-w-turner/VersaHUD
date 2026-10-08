@@ -875,7 +875,11 @@ public partial class MainPage : ContentPage
         catch (Exception ex)
         {
             await App.Log($"--> [LOCK UI CHOKE]: {ex.Message}");
-            await DisplayAlertAsync("COMMAND FAILURE", "Unable to deliver the LOCK command! Please check your connection.", "OK");
+
+            await MainThread.InvokeOnMainThreadAsync(async () =>
+            {
+                await DisplayAlertAsync("COMMAND FAILURE", "Unable to deliver the LOCK command! Please check your connection.", "OK");
+            });
         }
 
         await Task.Delay(1000);
@@ -903,7 +907,11 @@ public partial class MainPage : ContentPage
         catch (Exception ex)
         {
             await App.Log($"--> [UNLOCK UI CHOKE]: {ex.Message}");
-            await DisplayAlertAsync("COMMAND FAILURE", "Unable to deliver the UNLOCK command! Please check your connection.", "OK");
+
+            await MainThread.InvokeOnMainThreadAsync(async () =>
+            {
+                await DisplayAlertAsync("COMMAND FAILURE", "Unable to deliver the UNLOCK command! Please check your connection.", "OK");
+            });
         }
 
         await Task.Delay(1000);
@@ -1059,7 +1067,10 @@ public partial class MainPage : ContentPage
                     }
                     else
                     {
-                        await DisplayAlertAsync("Bluetooth Permissions", "Bluetooth permissions are required!", "OK");
+                        await MainThread.InvokeOnMainThreadAsync(async () =>
+                        {
+                            await DisplayAlertAsync("Bluetooth Permissions", "Bluetooth permissions are required!", "OK");
+                        });
                     }
                 } while (!isPermissionApproved);
             }

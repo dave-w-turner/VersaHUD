@@ -79,9 +79,9 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         if (rawPacket.Contains("ROUTER_ERROR"))
         {
             await MainThread.InvokeOnMainThreadAsync(async () =>
-            {               
+            {
                 RouterPasswordText = string.Empty;
-               
+
                 entryRouterPass.Focus();
                 await Application.Current.MainPage.DisplayAlertAsync("ROUTER LINK FAILED", "The vehicle module could not establish an active wireless handshake with your home station. Verify your network credentials and try again.", "OK");
             });
@@ -93,7 +93,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
                 RouterPasswordText = string.Empty;
-                
+
                 await Application.Current.MainPage.DisplayAlertAsync("ROUTER LINK SUCCESSFUL", "The vehicle module has successfully established a secure wireless handshake with your home station.", "OK");
             });
         }
@@ -144,6 +144,15 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                     }
                 }
             });
+        }
+
+        if (rawPacket.Contains("[☁ WAN_OFFLINE]"))
+        {
+            ButtonConnectToCloudflareEnabled = true;
+        }    
+        else if (rawPacket.Contains("[☁ WAN_ONLINE]"))
+        {
+            ButtonConnectToCloudflareEnabled = false;
         }
 
         if (!rawPacket.Contains("[SYS]") && !rawPacket.StartsWith("[DEBUG]"))
@@ -565,8 +574,6 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             LayoutUnconfiguredRouterVisible = true;
             LayoutConfiguredRouterVisible = false;
 
-            await DisplayAlertAsync("WIPE COMMAND FIRED", "The vehicle module is erasing credentials and performing a clean reboot now.", "OK");
-
             if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode)
                 _ = DisplayRebootOverlay();
         }
@@ -638,6 +645,28 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
         }
     }
 
+    private async void OnConnectToCloudflareClicked(object sender, EventArgs e)
+    {
+        ButtonConnectToCloudflareEnabled = false;
+        string currentActiveKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
+        bool commandTransmitted = false;
+
+        try
+        {
+            commandTransmitted = await App.NetworkService.SendSecureCommandAsync(currentActiveKey, "CONNECTWAN");
+        }
+        catch (Exception ex)
+        {
+            if (!ex.Message.Contains("--> [ADMIN]: Unable to send command."))
+                throw;
+        }
+
+        if (!commandTransmitted)
+        {
+            await DisplayAlertAsync("LINK FAULT", "Could not deliver command to connect to the WAN. Verify your active communication transport channels are clear and try again.", "OK");
+        }
+    }
+
     private async Task<bool> HandleWifiAndCloudData()
     {
         var (wifiAp, wifiApPw, bleName, routerSsid, cfHost, cfId, cfSecret, isOk) = App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode ?
@@ -673,19 +702,19 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
 
     private async Task GetAdminData()
     {
-        if (!App.NetworkService.IsAuthorized)
+        await MainThread.InvokeOnMainThreadAsync(async () =>
         {
-            layoutAdminPage.IsEnabled = true;
-            return;
-        }
-
-        if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode)
-        {
-            await App.Log("--> [ADMIN CONTROL HUB]: Fetching clean configuration matrices straight from API...");
-
-            if (await HandleWifiAndCloudData())
+            if (!App.NetworkService.IsAuthorized)
             {
-                await MainThread.InvokeOnMainThreadAsync(async () =>
+                layoutAdminPage.IsEnabled = true;
+                return;
+            }
+
+            if (App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingCloudWanMode)
+            {
+                await App.Log("--> [ADMIN CONTROL HUB]: Fetching clean configuration matrices straight from API...");
+
+                if (await HandleWifiAndCloudData())
                 {
                     MasterPasswordEntryTextEnabled = App.NetworkService.IsAuthorized;
                     WifiAPEntryTextEnabled = App.NetworkService.IsAuthorized;
@@ -695,81 +724,82 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                     CloudflareClientSecretEntryTextEnabled = App.NetworkService.IsAuthorized;
                     ButtonForgetRouterEnabled = App.NetworkService.IsAuthorized;
                     layoutAdminPage.IsEnabled = true;
-                });
+                }
             }
-        }
-        else if (App.NetworkService.IsBluetoothConnected)
-        {
-            await App.Log("--> [ADMIN CONTROL HUB]: Fetching parameters over-the-air via serial text scraping...");
-            string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-
-            await Task.Delay(750);
-
-            try
+            else if (App.NetworkService.IsBluetoothConnected)
             {
-                await App.NetworkService.SendSecureCommandAsync(activeKey, "GETWIFINAME");
-            }
-            catch (Exception)
-            {
-                await DisplayAlertAsync("Error", "Unable to send command to obtain local AP name over bluetooth communication!", "OK");
-                return;
-            }
+                await App.Log("--> [ADMIN CONTROL HUB]: Fetching parameters over-the-air via serial text scraping...");
+                string activeKey = Preferences.Default.Get(Controls.InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
 
-            await Task.Delay(750);
+                await Task.Delay(750);
 
-            try
-            {
-                await App.NetworkService.SendSecureCommandAsync(activeKey, "GETAPPASSWORD");
-            }
-            catch (Exception)
-            {
-                await DisplayAlertAsync("Error", "Unable to send command to obtain local AP password over bluetooth communication!", "OK");
-                return;
-            }
 
-            await Task.Delay(750);
+                try
+                {
+                    await App.NetworkService.SendSecureCommandAsync(activeKey, "GETWIFINAME");
+                }
+                catch (Exception)
+                {
+                    await DisplayAlertAsync("Error", "Unable to send command to obtain local AP name over bluetooth communication!", "OK");
+                    return;
+                }
 
-            try
-            {
-                await App.NetworkService.SendSecureCommandAsync(activeKey, "GETBLENAME");
-            }
-            catch (Exception)
-            {
-                await DisplayAlertAsync("Error", "Unable to send command to obtain the bluetooth name over bluetooth communication!", "OK");
-                return;
-            }
+                await Task.Delay(750);
 
-            await Task.Delay(750);
+                try
+                {
+                    await App.NetworkService.SendSecureCommandAsync(activeKey, "GETAPPASSWORD");
+                }
+                catch (Exception)
+                {
+                    await DisplayAlertAsync("Error", "Unable to send command to obtain local AP password over bluetooth communication!", "OK");
+                    return;
+                }
 
-            try
-            {
-                await App.NetworkService.SendSecureCommandAsync(activeKey, "GETROUTER");
-            }
-            catch (Exception)
-            {
-                await DisplayAlertAsync("Error", "Unable to send command to obtain Wifi name over bluetooth communication!", "OK");
-                return;
-            }
+                await Task.Delay(750);
 
-            await Task.Delay(750);
+                try
+                {
+                    await App.NetworkService.SendSecureCommandAsync(activeKey, "GETBLENAME");
+                }
+                catch (Exception)
+                {
+                    await DisplayAlertAsync("Error", "Unable to send command to obtain the bluetooth name over bluetooth communication!", "OK");
+                    return;
+                }
 
-            try
-            {
-                await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
-            }
-            catch (Exception)
-            {
-                await DisplayAlertAsync("Error", "Unable to send command to obtain Cloudflare keys over bluetooth communication!", "OK");
-                return;
-            }
+                await Task.Delay(750);
 
-            await Task.Delay(750);
-        }
-        else
-        {
-            await DisplayAlertAsync("Connection Failure", "There are no active connections. Please try again once you have established connectivity.", "Ok");
-            await Shell.Current.GoToAsync("..");
-        }
+                try
+                {
+                    await App.NetworkService.SendSecureCommandAsync(activeKey, "GETROUTER");
+                }
+                catch (Exception)
+                {
+                    await DisplayAlertAsync("Error", "Unable to send command to obtain Wifi name over bluetooth communication!", "OK");
+                    return;
+                }
+
+                await Task.Delay(750);
+
+                try
+                {
+                    await App.NetworkService.SendSecureCommandAsync(activeKey, "GETCFKEYS");
+                }
+                catch (Exception)
+                {
+                    await DisplayAlertAsync("Error", "Unable to send command to obtain Cloudflare keys over bluetooth communication!", "OK");
+                    return;
+                }
+
+                await Task.Delay(750);
+            }
+            else
+            {
+                await DisplayAlertAsync("Connection Failure", "There are no active connections. Please try again once you have established connectivity.", "Ok");
+                await Shell.Current.GoToAsync("..");
+            }
+        });
     }
 
     private async Task DisplayRebootOverlay()

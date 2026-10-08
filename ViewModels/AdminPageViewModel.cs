@@ -1,6 +1,4 @@
-﻿using VersaHUD.Controls;
-
-namespace VersaHUD;
+﻿namespace VersaHUD;
 
 public partial class AdminPage : ContentPage
 {
@@ -376,5 +374,19 @@ public partial class AdminPage : ContentPage
     {
         get => (bool)GetValue(ButtonForgetRouterEnabledProperty);
         set => SetValue(ButtonForgetRouterEnabledProperty, value);
+    }
+
+    public static readonly BindableProperty ButtonConnectToCloudflareEnabledProperty =
+    BindableProperty.Create(
+        nameof(ButtonConnectToCloudflareEnabled),
+        typeof(bool),
+        typeof(AdminPage),
+        defaultValue: false,
+        defaultBindingMode: BindingMode.TwoWay);
+
+    public bool ButtonConnectToCloudflareEnabled
+    {
+        get => (bool)GetValue(ButtonConnectToCloudflareEnabledProperty);
+        set => SetValue(ButtonConnectToCloudflareEnabledProperty, value);
     }
 }

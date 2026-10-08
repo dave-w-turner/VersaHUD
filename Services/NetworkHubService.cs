@@ -59,7 +59,7 @@ public class NetworkHubService
     public event Action<bool>? OnAuthorizationRequestComplete;
 
     public System.Collections.ObjectModel.ObservableCollection<IDevice> DiscoveredDevices { get; } = [];
-    public int ActiveRssi { get; set; } = -100;
+    public int ActiveRssi { get; set; } = -200;
     public bool IsRebootingWatchdogActive { get; set; } = false;
     public string CloudflareHost { get; set; } = Preferences.Default.Get("CloudflareHostKey", string.Empty);
     public string CloudflareClientId { get; set; } = Preferences.Default.Get("CloudflareClientIdKey", string.Empty);
@@ -724,8 +724,6 @@ public class NetworkHubService
                 OnAuthorizationRequestComplete?.Invoke(false);
                 return;
             }
-
-            throw;
         }
 
         if (cmdResult)
@@ -761,10 +759,10 @@ public class NetworkHubService
 
     public async void PasswordVerificationTelemetryHandler(string fullTelemetryMessage)
     {
-        if (string.IsNullOrEmpty(fullTelemetryMessage)) return;
+        if (string.IsNullOrEmpty(fullTelemetryMessage) || fullTelemetryMessage.Contains("[SYS]")) return;
         await App.Log($"--> [SINGLE-STREAM AUTH INTERCEPTOR]: {fullTelemetryMessage}");
 
-        if (fullTelemetryMessage.Contains("AUTH_SUCCESS"))
+        if (fullTelemetryMessage.Contains("AUTH_SUCCESS") || fullTelemetryMessage.Contains("[AUTH]: Master Passcode verified successfully"))
         {
             IsAuthorized = true;
 
@@ -816,29 +814,6 @@ public class NetworkHubService
                 }
             }
         }
-        else
-        {
-            string savedPass = Preferences.Default.Get(InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
-            int retries = 0;
-
-            do
-            {
-                try
-                {
-                    await SendSecureCommandAsync(savedPass, "VERIFYPASS");
-                }
-                catch (Exception ex)
-                {
-                    if (retries == 2)
-                    {
-                        await MainPage.CurrentInstance.DisplayAlertAsync("Authorization Failure", "Unable to send command to verify password! Please try again after verifying your connection.", "Ok");
-                        await App.Log($"--> [AUTHORIZATION]: Unable to send command to verify password! Please try again after verifying your connection! Message: {ex.Message}");
-                    }
-
-                    retries++;
-                }
-            } while (retries < 3);
-        }
     }
 
     public async Task StartDiscoveryScanAsync()
@@ -882,30 +857,36 @@ public class NetworkHubService
 
         if (IsBluetoothConnected && _rxCharacteristic != null && !(IsUsingWifiTransportMode || IsUsingLocalApMode))
         {
-            try
+            int btRetryCount = 0;
+            do
             {
-                await App.Log($"--> [ROUTING]: Commencing Bluetooth command action '{action}'...");
-                byte[] txPayloadBytes = Encoding.UTF8.GetBytes(encryptedBase64CommandString);
-
-                bool bleSuccess = Convert.ToBoolean(await _rxCharacteristic.WriteAsync(txPayloadBytes));
-
-                if (bleSuccess) return true;
-                await App.Log("--> [FAILOVER]: BLE transmission failed. Falling over to network paths...");
-            }
-            catch (Exception bleEx)
-            {
-                string exType = bleEx.GetType().Name;
-                if (exType.Contains("Java") || exType.Contains("Runtime") || bleEx.InnerException?.GetType().Name.Contains("Java") == true)
+                try
                 {
-                    await App.Log($"--> [NATIVE BLE FAULT]: Android GATT layer disconnected mid-write ({exType}). Cascading smoothly...");
+                    await App.Log($"--> [ROUTING]: Commencing Bluetooth command action '{action}'...");
+                    byte[] txPayloadBytes = Encoding.UTF8.GetBytes(encryptedBase64CommandString);
+
+                    bool bleSuccess = !Convert.ToBoolean(await _rxCharacteristic.WriteAsync(txPayloadBytes));
+
+                    if (bleSuccess) return true;
+                    await App.Log("--> [FAILOVER]: BLE transmission failed. Falling over to network paths...");
                 }
-                else
+                catch (Exception bleEx)
                 {
-                    await App.Log($"--> [BLE COMMAND FAULT]: {bleEx.Message}. Cascading smoothly to network layers...");
+                    string exType = bleEx.GetType().Name;
+                    if (exType.Contains("Java") || exType.Contains("Runtime") || bleEx.InnerException?.GetType().Name.Contains("Java") == true)
+                    {
+                        await App.Log($"--> [NATIVE BLE FAULT]: Android GATT layer disconnected mid-write ({exType}). Cascading smoothly...");
+                    }
+                    else
+                    {
+                        await App.Log($"--> [BLE COMMAND FAULT]: {bleEx.Message}. Cascading smoothly to network layers...");
+                    }
                 }
 
-                await RecycleBluetoothAdapterStateAsync();
-            }
+                btRetryCount++;
+                await App.Log("Retrying command...");
+                await Task.Delay(1000);
+            } while (btRetryCount < 5);
         }
 
         if (action == "GETCFKEYS" && (IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
@@ -1986,18 +1967,18 @@ public class NetworkHubService
 
                     if (success == false)
                     {
-                        ActiveRssi = -100;
+                        ActiveRssi = -200;
                     }
                 }
                 catch (Exception ex)
                 {
                     await App.Log($"RSSI Update failed: {ex.Message}");
-                    ActiveRssi = -100;
+                    ActiveRssi = -200;
                 }
 
                 OnRssiUpdated(ActiveRssi);
 
-                if (ActiveRssi == -100)
+                if (ActiveRssi == -200)
                 {
                     break;
                 }
@@ -2049,6 +2030,8 @@ public class NetworkHubService
 
     public async Task RecycleBluetoothAdapterStateAsync()
     {
+        if (WaitingForAuthorization) return;
+
         try
         {
             await App.Log("--> [BLE SUPERVISOR]: Critical timeout detected. Initiating adapter recycling sequence...");

@@ -130,13 +130,21 @@
                                    HeightRequest="45"/>
                         </VerticalStackLayout>
 
-                        <Button Text="⚡ SYNC SECURE CLOUD TUNNEL" 
+                        <Button Text="♻️ SYNC SECURE CLOUD TUNNEL" 
                                 BackgroundColor="#F59E0B" 
                                 TextColor="#000000" 
                                 FontAttributes="Bold"
                                 HeightRequest="45"
                                 IsEnabled="{Binding CloudflareHostEntryTextEnabled}"
                                 Clicked="OnUpdateCloudflareCredentialsClicked"/>
+
+                        <Button Text="⚡ CONNECT TO CLOUDFLARE" 
+                                BackgroundColor="Green" 
+                                TextColor="#000000" 
+                                FontAttributes="Bold"
+                                HeightRequest="45"
+                                IsEnabled="{Binding ButtonConnectToCloudflareEnabled}"
+                                Clicked="OnConnectToCloudflareClicked"/>
                     </VerticalStackLayout>
                 </Border>
 

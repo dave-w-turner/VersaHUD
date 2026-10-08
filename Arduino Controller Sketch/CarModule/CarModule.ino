@@ -219,6 +219,15 @@ bool processSecureCommand(String rawPacket, String source) {
         writeLog("[SYS] [🟢 AUTH_SUCCESS]");
         return true;
     }
+    else if (actionPayload == "CONNECTWAN") {
+        writeLog("--> [WATCHDOG]: Request to connect to WAN. Attempting connection...");
+        previousTelemetryMillis = millis() - telemetryInterval;
+        triggerCloudUploadOnStart = true;
+        adminNeedsCloudSync = true;
+        lastAdminSyncMillis = millis() - adminSyncInterval; 
+        flushTelemetryToCloud();
+        return true;
+    }
     else if (actionPayload == "LOCK" && isAuthorizedLock) {
         displayMatrixText(" LOCK ");
         digitalWrite(RELAY_LOCK, LOW);

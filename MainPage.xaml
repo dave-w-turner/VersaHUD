@@ -126,8 +126,17 @@
                     <Label Text="{Binding ReconnectingTextLabel}" FontSize="16" VerticalOptions="Center"/>
                 </VerticalStackLayout>
 
-                <VerticalStackLayout Spacing="10" HorizontalOptions="Center" Grid.ColumnSpan="2" IsVisible="{Binding CrossChargeStatusLayoutVisible}">
-                    <Label Text="{Binding CrossChargeStatusTextLabel}" TextColor="{Binding CrossChargeStatusTextLabelColorValue}" FontSize="16" VerticalOptions="Center"/>
+                <VerticalStackLayout Spacing="10" HorizontalOptions="Center" Grid.ColumnSpan="2">
+                    <Label Text="{Binding CrossChargeStatusTextLabel}" TextColor="{Binding CrossChargeStatusTextLabelColorValue}" FontSize="16" VerticalOptions="Center" IsVisible="{Binding CrossChargeStatusLayoutVisible}" />
+                    <Button Text="{Binding CrossChargeButtonText}" 
+                            BackgroundColor="#3B82F6" 
+                            TextColor="#FFFFFF" 
+                            FontSize="12" 
+                            FontAttributes="Bold" 
+                            HorizontalOptions="Center"
+                            IsEnabled="{Binding CrossChargeButtonEnabled}"
+                            IsVisible="{Binding CrossChargeButtonVisible}"
+                            Clicked="OnCrossChargeButtonClicked"/>
                 </VerticalStackLayout>
 
                 <Grid ColumnDefinitions="*, *" HorizontalOptions="Fill" Margin="0,0,0,0">

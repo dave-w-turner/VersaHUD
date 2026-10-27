@@ -405,8 +405,6 @@ public partial class MainPage : ContentPage
 
     private async void UpdateBluetoothStatusBadge(bool isConnected)
     {
-        bool phoneHasActiveWifiRadioLink = Connectivity.Current.ConnectionProfiles.Contains(ConnectionProfile.WiFi);
-
         if (App.NetworkService.WaitingForAuthorization)
         {
             await MainThread.InvokeOnMainThreadAsync(() =>
@@ -433,6 +431,8 @@ public partial class MainPage : ContentPage
                 DotTextLabel = "🔴";
                 BluetoothStatusTextLabel = "RECONNECTING TO VEHICLE CORES...";
                 BluetoothStatusTextLabelColor = Color.Parse("#FFBF00");
+                CrossChargeStatusLayoutVisible = false;
+                CrossChargeButtonVisible = false;
                 BluetoothSignalTextLabel = string.Empty;
                 BorderNetworkStatusVisible = false;
                 ManualScanButtonVisible = true;
@@ -449,6 +449,7 @@ public partial class MainPage : ContentPage
             {
                 BorderNetworkStatusVisible = false;
                 CrossChargeStatusLayoutVisible = false;
+                CrossChargeButtonVisible = false;
 
                 BorderBluetoothStatusBackgroundColor = Color.Parse("#2D1A1A");
                 BorderBluetoothStatusStrokeColor = Color.Parse("#EF4444");
@@ -460,31 +461,14 @@ public partial class MainPage : ContentPage
                 BluetoothStatusTextLabel = "OFFLINE - LINK LOST";
                 BluetoothStatusTextLabelColor = Color.Parse("#EF4444");
 
-                if (App.NetworkService.IsWANReportedOnline ?? false && !(Connectivity.Current.NetworkAccess == NetworkAccess.Internet) && !NetworkHubService.HasPhysicalWifiConnection && !CrossBluetoothLE.Current.IsOn && !App.NetworkService.IsWifiTelemetryDead)
+                if (Connectivity.Current.NetworkAccess != NetworkAccess.Internet && !NetworkHubService.HasPhysicalWifiConnection && !CrossBluetoothLE.Current.IsOn)
                 {
-                    CloudWanTelemetryStatusTextLabel = "☁️ CLOUD LINK: ONLINE";
-                    CloudWanTelemetryStatusTextColor = Color.Parse("#10B981");
+                    CloudWanTelemetryStatusTextLabel = "☁️ CLOUD LINK: OFFLINE";
+                    CloudWanTelemetryStatusTextColor = Color.Parse("#EF4444");
                     ActiveTransportChannelTextLabel = "TRANSPORT MODE: Disconnected (Enable Bluetooth, Wifi, or Mobile Data to connect).";
                 }
-                else if (App.NetworkService.IsWANReportedOnline ?? false && !(Connectivity.Current.NetworkAccess == NetworkAccess.Internet) && !NetworkHubService.HasPhysicalWifiConnection && !CrossBluetoothLE.Current.IsOn)
-                {
-                    CloudWanTelemetryStatusTextLabel = "☁️ CLOUD LINK: ONLINE";
-                    CloudWanTelemetryStatusTextColor = Color.Parse("#10B981");
-                    ActiveTransportChannelTextLabel = "TRANSPORT MODE: Disconnected (Enable Bluetooth or Mobile Data to connect).";
-                }
-                else if (!NetworkHubService.HasPhysicalWifiConnection && !CrossBluetoothLE.Current.IsOn && !App.NetworkService.IsWifiTelemetryDead)
-                {
-                    CloudWanTelemetryStatusTextLabel = "☁️ CLOUD LINK: OFFLINE";
-                    CloudWanTelemetryStatusTextColor = Color.Parse("#EF4444");
-                    ActiveTransportChannelTextLabel = "TRANSPORT MODE: Disconnected (Enable Bluetooth or Wifi to connect).";
-                }
-                else
-                {
-                    CloudWanTelemetryStatusTextLabel = "☁️ CLOUD LINK: OFFLINE";
-                    CloudWanTelemetryStatusTextColor = Color.Parse("#EF4444");
-                    ActiveTransportChannelTextLabel = "TRANSPORT MODE: Disconnected (Enable Bluetooth to connect).";
-                }
 
+                BluetoothSignalVisible = false;
                 ManualScanButtonVisible = true;
 
                 LockButtonEnabled = false;
@@ -548,10 +532,10 @@ public partial class MainPage : ContentPage
 
                 if (!BluetoothSignalVisible || BluetoothSignalTextLabel == " 📶 WAN LIVE")
                 {
-                    BluetoothSignalVisible = true;
                     BluetoothSignalTextLabelColor = Color.Parse("#EF4444");
                     BluetoothSignalTextLabel = "Waiting For RSSI Update";
                     BorderNetworkStatusVisible = false;
+                    BluetoothSignalVisible = true;
                 }
 
                 if (App.NetworkService.IsAuthorized)
@@ -559,6 +543,14 @@ public partial class MainPage : ContentPage
                     LockButtonEnabled = true;
                     UnLockButtonEnabled = true;
                     AdminButtonEnabled = true;
+                    CrossChargeButtonEnabled = true;
+                }
+                else
+                {
+                    LockButtonEnabled = false;
+                    UnLockButtonEnabled = false;
+                    AdminButtonEnabled = false;
+                    CrossChargeButtonEnabled = false;
                 }
             });
         }
@@ -655,11 +647,16 @@ public partial class MainPage : ContentPage
                 CrossChargeStatusTextLabel = "⚡ CROSS-CHARGING ACTIVE";
                 CrossChargeStatusTextLabelColorValue = Colors.Yellow;
                 CrossChargeStatusLayoutVisible = true;
+                CrossChargeButtonText = "❌ DISABLE CROSS-CHARGE";
             }
             else
             {
                 CrossChargeStatusLayoutVisible = false;
+                CrossChargeButtonText = "🔋 ENABLE CROSS-CHARGE";
             }
+
+            CrossChargeButtonVisible = true;
+            CrossChargeButtonEnabled = true;
         });
     }
 
@@ -670,7 +667,7 @@ public partial class MainPage : ContentPage
 
         await MainThread.InvokeOnMainThreadAsync(() =>
         {
-            if (App.NetworkService.IsBluetoothConnected)
+            if (App.NetworkService.IsBluetoothConnected && App.NetworkService.ActiveRssi >= -100)
             {
                 BluetoothSignalVisible = true;
             }
@@ -685,13 +682,15 @@ public partial class MainPage : ContentPage
             {
                 LockButtonEnabled = true;
                 UnLockButtonEnabled = true;
-                AdminButtonEnabled = true;  
+                AdminButtonEnabled = true;
+                CrossChargeButtonEnabled = true;
             }
             else
             {
                 LockButtonEnabled = false;
                 UnLockButtonEnabled = false;
                 AdminButtonEnabled = false;
+                CrossChargeButtonEnabled = false;
             }
 
             BorderNetworkStatusVisible = true;
@@ -715,7 +714,7 @@ public partial class MainPage : ContentPage
             BluetoothSignalTextLabel = " 📶 WAN LIVE";
             BluetoothSignalTextLabelColor = Color.Parse("#F59E0B");
 
-            BluetoothSignalVisible = true;
+            BluetoothSignalVisible = false;
             ManualScanButtonVisible = false;
 
             if (App.NetworkService.IsAuthorized)
@@ -723,12 +722,14 @@ public partial class MainPage : ContentPage
                 LockButtonEnabled = true;
                 UnLockButtonEnabled = true;
                 AdminButtonEnabled = true;
+                CrossChargeButtonEnabled = true;
             }
             else
             {
                 LockButtonEnabled = false;
                 UnLockButtonEnabled = false;
                 AdminButtonEnabled = false;
+                CrossChargeButtonEnabled = false;
             }
 
             BorderNetworkStatusVisible = true;
@@ -946,6 +947,7 @@ public partial class MainPage : ContentPage
                 LockButtonEnabled = false;
                 UnLockButtonEnabled = false;
                 AdminButtonEnabled = false;
+                CrossChargeButtonVisible = false;
 
                 if (BTDevicePicker.CurrentInstance != null)
                 {
@@ -979,6 +981,32 @@ public partial class MainPage : ContentPage
         catch (Exception ex)
         {
             await App.Log($"--> [MANUAL SCAN TRIGGER FAULT]: Dynamic security check failed: {ex.Message}");
+        }
+    }
+
+    private async void OnCrossChargeButtonClicked(object sender, EventArgs e)
+    {
+        await MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            CrossChargeButtonEnabled = false;
+        });
+
+        try
+        {
+            string activeKey = Preferences.Default.Get(InitMasterPassword.MasterPasswordKey, "VersaPasscode99");
+            await App.Log("--> [UI CONTROL]: Dispatching secure over-the-air cross charge token packet...");
+
+            var command = CrossChargeButtonText.Contains("ENABLE") ? "ENABLECROSSCHARGE" : "DISABLECROSSCHARGE";
+            await App.NetworkService.SendSecureCommandAsync(activeKey, command);
+        }
+        catch (Exception ex)
+        {
+            await App.Log($"--> [LOCK UI CHOKE]: {ex.Message}");
+
+            await MainThread.InvokeOnMainThreadAsync(async () =>
+            {
+                await DisplayAlertAsync("COMMAND FAILURE", "Unable to deliver the CROSS CHARGE command! Please check your connection.", "OK");
+            });
         }
     }
 

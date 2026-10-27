@@ -214,9 +214,52 @@ public partial class MainPage : ContentPage
         get => (bool)GetValue(CrossChargeStatusLayoutVisibleProperty);
         set => SetValue(CrossChargeStatusLayoutVisibleProperty, value);
     }
+
+    public static readonly BindableProperty CrossChargeButtonVisibleProperty =
+    BindableProperty.Create(
+        nameof(CrossChargeButtonVisible),
+        typeof(bool),
+        typeof(MainPage),
+        defaultValue: false,
+        defaultBindingMode: BindingMode.TwoWay);
+
+    public bool CrossChargeButtonVisible
+    {
+        get => (bool)GetValue(CrossChargeButtonVisibleProperty);
+        set => SetValue(CrossChargeButtonVisibleProperty, value);
+    }
+
+    public static readonly BindableProperty CrossChargeButtonEnabledProperty =
+    BindableProperty.Create(
+        nameof(CrossChargeButtonEnabled),
+        typeof(bool),
+        typeof(MainPage),
+        defaultValue: false,
+        defaultBindingMode: BindingMode.TwoWay);
+
+    public bool CrossChargeButtonEnabled
+    {
+        get => (bool)GetValue(CrossChargeButtonEnabledProperty);
+        set => SetValue(CrossChargeButtonEnabledProperty, value);
+    }
+
+    public static readonly BindableProperty CrossChargeButtonTextProperty =
+    BindableProperty.Create(
+        nameof(CrossChargeButtonText),
+        typeof(string),
+        typeof(MainPage),
+        defaultValue: "🔋 ENABLE CROSS-CHARGE",
+        defaultBindingMode: BindingMode.TwoWay);
+
+    public string CrossChargeButtonText
+    {
+        get => (string)GetValue(CrossChargeButtonTextProperty);
+        set => SetValue(CrossChargeButtonTextProperty, value);
+    }
     #endregion
 
     #region HeaderFields
+
     public static readonly BindableProperty CloudWanTelemetryStatusTextLabelProperty =
         BindableProperty.Create(
             nameof(CloudWanTelemetryStatusTextLabel),

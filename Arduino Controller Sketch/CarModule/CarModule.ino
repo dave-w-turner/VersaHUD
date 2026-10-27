@@ -1,5 +1,5 @@
 #include <EEPROM.h>
-#include <WiFi.h> 
+#include <WiFiS3.h> 
 #include <WiFiClient.h> 
 #include <ArduinoBLE.h> 
 #include "ArduinoGraphics.h"
@@ -101,6 +101,7 @@ float globalFrontVolts = 0;
 float globalBackVolts = 0;
 int frontBatteryPercent = 100;
 int backBatteryPercent = 100;
+bool forceCrossCharge = false;
 
 bool frontIsCharging = false;
 bool backIsCharging = false;
@@ -163,7 +164,7 @@ void loop() {
     BLE.poll();
     
     handleVotages();
-    CrossChargingTemp(radioSenseIsActive);
+    CrossChargingTemp(radioSenseIsActive || forceCrossCharge);
     //handleCrossCharging();
     handleRadioSense(radioSenseIsActive);
     
@@ -217,6 +218,14 @@ bool processSecureCommand(String rawPacket, String source) {
     else if (actionPayload == "VERIFYPASS") {
         writeLog("--> [AUTH]: Master Passcode verified successfully over " + source + ".");
         writeLog("[SYS] [🟢 AUTH_SUCCESS]");
+        return true;
+    }
+    else if (actionPayload == "ENABLECROSSCHARGE") {
+        forceCrossCharge = true;
+        return true;
+    }
+    else if (actionPayload == "DISABLECROSSCHARGE") {
+        forceCrossCharge = false;
         return true;
     }
     else if (actionPayload == "CONNECTWAN") {
@@ -316,7 +325,7 @@ bool processSecureCommand(String rawPacket, String source) {
                 IPAddress dnsServer(8, 8, 8, 8);
                 WiFi.setDNS(dnsServer);
 
-                WiFi.begin(routerSSID.c_str(), routerPASS.c_str());
+                WiFi.begin((char*)routerSSID.c_str(), routerPASS.c_str());
                 
                 int connectionCheckTimer = 0;
                 bool connectionIsVerifiedValid = false;
@@ -513,7 +522,7 @@ void setupWiFiAPI() {
 
         IPAddress dnsServer(8, 8, 8, 8);
         WiFi.setDNS(dnsServer);
-        WiFi.begin(savedSSID.c_str(), savedPASS.c_str());
+        WiFi.begin((char*)savedSSID.c_str(), savedPASS.c_str());
         
         int attempts = 0;
         while (WiFi.status() != WL_CONNECTED && attempts < 10) {
@@ -1599,12 +1608,12 @@ void writeLog(String txt) {
     currentLogWritePointerIndex = (currentLogWritePointerIndex + 1) % MAX_SYSTEM_LOGS;
 }
 
-void CrossChargingTemp(bool radioSenseIsActive) {
-    if (frontBatteryPercent > CRITICAL_BATTERY_LOW && digitalRead(RELAY_AMP_REM) == HIGH) {
+void CrossChargingTemp(bool enabled) {
+    if (frontBatteryPercent > CRITICAL_BATTERY_LOW && digitalRead(RELAY_AMP_REM) == HIGH && enabled) {
         digitalWrite(RELAY_SOLENOID, LOW);
         crossChargeProtectionActiveFlag = true;
     }
-    else if (frontBatteryPercent <= CRITICAL_BATTERY_LOW && crossChargeProtectionActiveFlag) {
+    else if ((frontBatteryPercent <= CRITICAL_BATTERY_LOW && crossChargeProtectionActiveFlag) || !enabled) {
         digitalWrite(RELAY_SOLENOID, HIGH);
         crossChargeProtectionActiveFlag = false;
     }

@@ -702,6 +702,7 @@ public class NetworkHubService
 
                 _passwordVerificationCts = null;
                 WaitingForAuthorization = false;
+                IsPromptingForMasterPassword = false;
                 OnConnectionStateChanged?.Invoke(true);
                 OnTelemetryReceived -= PasswordVerificationTelemetryHandler;
             });
@@ -719,6 +720,7 @@ public class NetworkHubService
             {
                 await App.Log("--> [ADMIN]: Failure verify master password over Wifi channels. Default to alternate communication routes.");
                 WaitingForAuthorization = false;
+                IsPromptingForMasterPassword = false;
                 IsAuthorized = false;
                 _passwordVerificationCts?.Cancel();
                 OnAuthorizationRequestComplete?.Invoke(false);
@@ -744,6 +746,7 @@ public class NetworkHubService
         {
             IsAuthorized = false;
             WaitingForAuthorization = false;
+            IsPromptingForMasterPassword = false;
             _passwordVerificationCts?.Cancel();
             
             OnConnectionStateChanged?.Invoke(false);
@@ -788,7 +791,8 @@ public class NetworkHubService
                 }
             }
         }
-        else if (fullTelemetryMessage.Contains("AUTH_FAILED") || fullTelemetryMessage.Contains("ROUTER_ERROR") || fullTelemetryMessage.Contains("401") || fullTelemetryMessage.Contains("Unauthorized"))
+        else if (fullTelemetryMessage.Contains("AUTH_FAILED") || fullTelemetryMessage.Contains("[DENIED]: Cryptographic failure (Bad Token)") ||
+            fullTelemetryMessage.Contains("ROUTER_ERROR") || fullTelemetryMessage.Contains("401") || fullTelemetryMessage.Contains("Unauthorized"))
         {
             IsAuthorized = false;
 

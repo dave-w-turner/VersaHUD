@@ -656,7 +656,11 @@ public partial class MainPage : ContentPage
             }
 
             CrossChargeButtonVisible = true;
-            CrossChargeButtonEnabled = true;
+
+            if (App.NetworkService.IsAuthorized)
+            {
+                CrossChargeButtonEnabled = true;
+            }
         });
     }
 

@@ -4,14 +4,18 @@ namespace VersaHUD.Controls;
 
 public partial class BTDevicePicker : ContentView
 {
-    public static BTDevicePicker CurrentInstance { get; private set; }
+    public static BTDevicePicker? CurrentInstance { get; private set; }
 
     public BTDevicePicker()
     {
         CurrentInstance = this;
 
         InitializeComponent();
-        BluetoothDeviceListItems = App.NetworkService?.DiscoveredDevices;
+
+        if (App.NetworkService.DiscoveredDevices != null)
+        {
+            BluetoothDeviceListItems = App.NetworkService.DiscoveredDevices;
+        }
     }
 
     private async Task ExecuteVisualRadarScanAsync()
@@ -71,7 +75,7 @@ public partial class BTDevicePicker : ContentView
                 {
                     await MainThread.InvokeOnMainThreadAsync(async () =>
                     {
-                        await Application.Current.MainPage.DisplayAlertAsync("CONNECTION FAULT", "Could not save device information.", "OK");
+                        await MainPage.CurrentInstance?.DisplayAlertAsync("CONNECTION FAULT", "Could not save device information.", "OK");
                         return;
                     });
                 }
@@ -111,7 +115,7 @@ public partial class BTDevicePicker : ContentView
             {
                 BluetoothDeviceListSelectedItem = null;
                 await App.Log("--> [PICKER CRITICAL FAULT]: Second connection pass failed. Restoring view radar states...");
-                await Application.Current.MainPage.DisplayAlertAsync("CONNECTION FAULT", "Cockpit connection timed out. Tap your device node to re-link.", "OK");
+                await MainPage.CurrentInstance?.DisplayAlertAsync("CONNECTION FAULT", "Cockpit connection timed out. Tap your device node to re-link.", "OK");
 
                 IsVisible = true;
                 await Task.Delay(100);

@@ -53,7 +53,7 @@ public class NetworkHubService
     private CancellationTokenSource? _autoConnectLoopCts;
     private CancellationTokenSource? _reconnectLoopCts = null;
 
-    public event Action<int> OnRssiUpdated;
+    public event Action<int>? OnRssiUpdated;
     public event Action<string>? OnTelemetryReceived;
     public event Action<bool>? OnConnectionStateChanged;
     public event Action<bool>? OnAuthorizationRequestComplete;
@@ -196,7 +196,7 @@ public class NetworkHubService
 
                     await MainThread.InvokeOnMainThreadAsync(async () =>
                     {
-                        await MainPage.CurrentInstance.DisplayAlertAsync(
+                        await MainPage.CurrentInstance?.DisplayAlertAsync(
                             "Network Error",
                             "No active network interfaces detected. Please enable Bluetooth, Wi-Fi, or Cellular data to continue.",
                             "OK");
@@ -417,7 +417,7 @@ public class NetworkHubService
 
                                 _ = Task.Run(async () => await ManageWifiTelemetryPollingLifecycle(true));
                             }
-                            else if (!IsAuthorized && !MainPage.CurrentInstance.LayoutPasswordInitVisible)
+                            else if (!IsAuthorized && !(MainPage.CurrentInstance?.LayoutPasswordInitVisible ?? false))
                             {
                                 await ManageWifiTelemetryPollingLifecycle(false);
                                 IsUsingWifiTransportMode = false;
@@ -625,6 +625,8 @@ public class NetworkHubService
                     await App.Log($"Supervisor error: {ex.Message}");
                 }
             }
+
+            IsMonitorActive = false;
         }, token);
     }
 
@@ -1155,9 +1157,9 @@ public class NetworkHubService
                     {
                         await App.Log($"--> [WIFI ADMIN FETCH ERROR]: Failed to retrieve administrative parameters from the vehicle node: {apiResponse.ReasonPhrase}");
 
-                        MainThread.InvokeOnMainThreadAsync(async () =>
+                        await MainThread.InvokeOnMainThreadAsync(async () =>
                         {
-                            await App.Current.MainPage.DisplayAlertAsync("Wi-Fi Admin Fetch Error", $"Failed to retrieve administrative parameters from the vehicle node: {apiResponse.ReasonPhrase}", "OK");
+                            await MainPage.CurrentInstance?.DisplayAlertAsync("Wi-Fi Admin Fetch Error", $"Failed to retrieve administrative parameters from the vehicle node: {apiResponse.ReasonPhrase}", "OK");
                         });
                     }
                 }
@@ -1167,9 +1169,9 @@ public class NetworkHubService
                 if (currentTry == maxRetries)
                 {
                     await App.Log($"--> [WIFI ADMIN FETCH ERROR]: Failed to retrieve administrative parameters from the vehicle node: {ex.Message}");
-                    MainThread.InvokeOnMainThreadAsync(async () =>
+                    await MainThread.InvokeOnMainThreadAsync(async () =>
                     {
-                        await App.Current.MainPage.DisplayAlertAsync("Wi-Fi Admin Fetch Error", $"Failed to retrieve administrative parameters from the vehicle node: {ex.Message}", "OK");
+                        await MainPage.CurrentInstance?.DisplayAlertAsync("Wi-Fi Admin Fetch Error", $"Failed to retrieve administrative parameters from the vehicle node: {ex.Message}", "OK");
                     });
                 }
             }
@@ -1234,10 +1236,9 @@ public class NetworkHubService
                     if (currentTry == maxRetries)
                     {
                         await App.Log($"--> [WAN ADMIN FETCH ERROR]: Failed to retrieve administrative parameters from the WAN node: {apiResponse.ReasonPhrase}");
-
-                        MainThread.InvokeOnMainThreadAsync(async () =>
+                        await MainThread.InvokeOnMainThreadAsync(async () =>
                         {
-                            await App.Current.MainPage.DisplayAlertAsync("WAN Admin Fetch Error", $"Failed to retrieve administrative parameters from the WAN node: {apiResponse.ReasonPhrase}", "OK");
+                            await MainPage.CurrentInstance?.DisplayAlertAsync("WAN Admin Fetch Error", $"Failed to retrieve administrative parameters from the WAN node: {apiResponse.ReasonPhrase}", "OK");
                         });
                     }
                 }
@@ -1247,9 +1248,9 @@ public class NetworkHubService
                 if (currentTry == maxRetries)
                 {
                     await App.Log($"--> [WAN ADMIN FETCH ERROR]: Failed to retrieve administrative parameters from the WAN node: {ex.Message}");
-                    MainThread.InvokeOnMainThreadAsync(async () =>
+                    await MainThread.InvokeOnMainThreadAsync(async () =>
                     {
-                        await App.Current.MainPage.DisplayAlertAsync("WAN Admin Fetch Error", $"Failed to retrieve administrative parameters from the WAN node: {ex.Message}", "OK");
+                        await MainPage.CurrentInstance?.DisplayAlertAsync("WAN Admin Fetch Error", $"Failed to retrieve administrative parameters from the WAN node: {ex.Message}", "OK");
                     });
                 }
             }
@@ -1869,15 +1870,15 @@ public class NetworkHubService
             return;
         }
 
-        if (!IsAuthorized && (IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode) && !MainPage.CurrentInstance.LayoutPasswordInitVisible && !IsRebootingWatchdogActive)
+        if (!IsAuthorized && (IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode) && !(MainPage.CurrentInstance?.LayoutPasswordInitVisible == true) && !IsRebootingWatchdogActive)
         {
-            await Task.Delay(1500);
+            await Task.Delay(1500, cancellationToken);
             await VerifyPasswordAgainstHardwareAsync();
 
             if (IsAuthorized)
             {
                 if (IsUsingWifiTransportMode || IsUsingLocalApMode)
-                    _ = Task.Run(async () => await ManageWifiTelemetryPollingLifecycle(true));
+                    _ = Task.Run(async () => await ManageWifiTelemetryPollingLifecycle(true), cancellationToken);
                 else if (IsUsingCloudWanMode)
                     await ManageCloudFlareTelemetryPollingLifecycle();
             }
@@ -1890,7 +1891,7 @@ public class NetworkHubService
         try
         {
             var context = Android.App.Application.Context;
-            var connectivityManager = (Android.Net.ConnectivityManager)context.GetSystemService(Android.Content.Context.ConnectivityService);
+            Android.Net.ConnectivityManager? connectivityManager = context.GetSystemService(Android.Content.Context.ConnectivityService) as Android.Net.ConnectivityManager;
             if (connectivityManager == null) return string.Empty;
 
             var activeNetwork = connectivityManager.ActiveNetwork;
@@ -1901,10 +1902,13 @@ public class NetworkHubService
             {
                 if (linkAddress?.Address is Java.Net.Inet4Address inet4Address)
                 {
-                    string ipAddressString = inet4Address.HostAddress;
-                    int prefixLength = linkAddress.PrefixLength;
+                    if (!string.IsNullOrEmpty(inet4Address.HostAddress))
+                    {
+                        string ipAddressString = inet4Address.HostAddress;
+                        int prefixLength = linkAddress.PrefixLength;
 
-                    return CalculateSubnetBase(ipAddressString, prefixLength);
+                        return CalculateSubnetBase(ipAddressString, prefixLength);
+                    }
                 }
             }
         }
@@ -1980,7 +1984,7 @@ public class NetworkHubService
                     ActiveRssi = -200;
                 }
 
-                OnRssiUpdated(ActiveRssi);
+                OnRssiUpdated?.Invoke(ActiveRssi);
 
                 if (ActiveRssi == -200)
                 {
@@ -1993,7 +1997,7 @@ public class NetworkHubService
         }
     }
 
-    private async void OnSystemWirelessHardwareStateChanged(object sender, ConnectivityChangedEventArgs e)
+    private async void OnSystemWirelessHardwareStateChanged(object? sender, ConnectivityChangedEventArgs e)
     {
         await App.Log($"--> [HARDWARE RADAR]: Phone network state shift detected. Access: {e.NetworkAccess}");
         bool hasPhysicalWifiInterface = e.ConnectionProfiles.Contains(ConnectionProfile.WiFi);

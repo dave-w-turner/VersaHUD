@@ -16,7 +16,7 @@ namespace VersaHUD
         {
             InitializeComponent();
             TelemetryModule.Initialize();
-            MainPage = new SplashPage();
+            Windows[0].Page = new SplashPage();
         }
 
         public static async Task Log(string value)

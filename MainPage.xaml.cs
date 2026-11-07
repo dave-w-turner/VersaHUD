@@ -16,7 +16,7 @@ public partial class MainPage : ContentPage
     private HashSet<string> _processedVehicleLogLinesBucket = [];
     
     public event Action<string>? OnTelemetryParsed;
-    public static MainPage CurrentInstance { get; private set; }
+    public static MainPage? CurrentInstance { get; private set; }
 
     public const string SavedDeviceNameKey = "LastConnectedBleId";
     public const string SavedDeviceMacKey = "LastConnectedDeviceMac";
@@ -125,21 +125,25 @@ public partial class MainPage : ContentPage
                 {
                     if (root.TryGetProperty("last_sync", out JsonElement ls))
                     {
-                        string timeString = ls.GetString();
-                        if (TimeSpan.TryParse(timeString, out TimeSpan parsedTime))
+                        string? timeString = ls.GetString();
+
+                        if (!string.IsNullOrEmpty(timeString))
                         {
-                            double telemetryLagInMinutes = (DateTime.UtcNow.TimeOfDay - parsedTime).TotalMinutes;
-
-                            await App.Log($"--> [LAG MONITOR]: Telemetry lag is precisely {telemetryLagInMinutes} minutes.");
-
-                            if (Math.Abs(telemetryLagInMinutes) > 12)
+                            if (TimeSpan.TryParse(timeString, out TimeSpan parsedTime))
                             {
-                                await App.Log("--> [DASHBOARD PARSER]: No telemetry being returned from WAN endpoint. Setting flag to default to next transport type.");
-                                App.NetworkService.IsWifiTelemetryDead = true;
-                                App.NetworkService.IsWANReportedOnline = false;
+                                double telemetryLagInMinutes = (DateTime.UtcNow.TimeOfDay - parsedTime).TotalMinutes;
 
-                                UpdateBluetoothStatusBadge(App.NetworkService.IsBluetoothConnected);
-                                return;
+                                await App.Log($"--> [LAG MONITOR]: Telemetry lag is precisely {telemetryLagInMinutes} minutes.");
+
+                                if (Math.Abs(telemetryLagInMinutes) > 12)
+                                {
+                                    await App.Log("--> [DASHBOARD PARSER]: No telemetry being returned from WAN endpoint. Setting flag to default to next transport type.");
+                                    App.NetworkService.IsWifiTelemetryDead = true;
+                                    App.NetworkService.IsWANReportedOnline = false;
+
+                                    UpdateBluetoothStatusBadge(App.NetworkService.IsBluetoothConnected);
+                                    return;
+                                }
                             }
                         }
                     }
@@ -753,7 +757,7 @@ public partial class MainPage : ContentPage
         });
     }
 
-    private async void OnSetupFinished(object sender, EventArgs e)
+    private async void OnSetupFinished(object? sender, EventArgs e)
     {
         await MainThread.InvokeOnMainThreadAsync(async () =>
         {
@@ -932,7 +936,7 @@ public partial class MainPage : ContentPage
         await Navigation.PushAsync(new AdminPage());
     }
 
-    private async void OnRollbackConnectionAndRescan(object sender, EventArgs e)
+    private async void OnRollbackConnectionAndRescan(object? sender, EventArgs e)
     {
         try
         {
@@ -1069,42 +1073,46 @@ public partial class MainPage : ContentPage
 
         try
         {
-            string targetedMacAddress = Preferences.Default.Get(SavedDeviceMacKey, string.Empty);
-            if (string.IsNullOrEmpty(targetedMacAddress))
+            if (!App.NetworkService?.IsMonitorActive ?? false)
             {
-                await App.Log("--> [BOOT SYNC]: Zero historical pairings found. Inflating UI elements before permissions...");
-
-                if (BTDevicePicker.CurrentInstance != null)
+                await App.Log("--> [BOOT SYNC]: Starting network service monitor...");
+                string targetedMacAddress = Preferences.Default.Get(SavedDeviceMacKey, string.Empty);
+                if (string.IsNullOrEmpty(targetedMacAddress))
                 {
-                    await App.Log("--> [HARDWARE MONITOR]: Forcing active device list reset sweep over radio waves...");
-                    LockButtonEnabled = false;
-                    UnLockButtonEnabled = false;
-                    await BTDevicePicker.CurrentInstance.InitializePickerLifecycleAsync();
+                    await App.Log("--> [BOOT SYNC]: Zero historical pairings found. Inflating UI elements before permissions...");
+
+                    if (BTDevicePicker.CurrentInstance != null)
+                    {
+                        await App.Log("--> [HARDWARE MONITOR]: Forcing active device list reset sweep over radio waves...");
+                        LockButtonEnabled = false;
+                        UnLockButtonEnabled = false;
+                        await BTDevicePicker.CurrentInstance.InitializePickerLifecycleAsync();
+                    }
                 }
-            }
-            else
-            {
-                bool isPermissionApproved = false;
-
-                do
+                else
                 {
-                    isPermissionApproved = await BTDevicePicker.GetBTPermissions();
+                    bool isPermissionApproved = false;
 
-                    if (isPermissionApproved)
+                    do
                     {
-                        await MainThread.InvokeOnMainThreadAsync(async () =>
+                        isPermissionApproved = await BTDevicePicker.GetBTPermissions();
+
+                        if (isPermissionApproved)
                         {
-                            App.NetworkService?.StartConnectionSupervisor();
-                        });
-                    }
-                    else
-                    {
-                        await MainThread.InvokeOnMainThreadAsync(async () =>
+                            await MainThread.InvokeOnMainThreadAsync(async () =>
+                            {
+                                App.NetworkService?.StartConnectionSupervisor();
+                            });
+                        }
+                        else
                         {
-                            await DisplayAlertAsync("Bluetooth Permissions", "Bluetooth permissions are required!", "OK");
-                        });
-                    }
-                } while (!isPermissionApproved);
+                            await MainThread.InvokeOnMainThreadAsync(async () =>
+                            {
+                                await DisplayAlertAsync("Bluetooth Permissions", "Bluetooth permissions are required!", "OK");
+                            });
+                        }
+                    } while (!isPermissionApproved);
+                }
             }
         }
         catch (Exception ex)

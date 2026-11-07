@@ -6,8 +6,8 @@ public partial class InitMasterPassword : ContentView
 {
     public const string MasterPasswordKey = "CachedVehicleMasterPass";
 
-    public event EventHandler OnPasswordInitialized;
-    public event EventHandler OnWrongDeviceRequested;
+    public event EventHandler? OnPasswordInitialized;
+    public event EventHandler? OnWrongDeviceRequested;
 
     public static readonly BindableProperty InitialPasswordEntryTextProperty =
     BindableProperty.Create(
@@ -22,7 +22,7 @@ public partial class InitMasterPassword : ContentView
         set => SetValue(InitialPasswordEntryTextProperty, value);
     }
 
-    public static InitMasterPassword CurrentInstance { get; private set;  }
+    public static InitMasterPassword? CurrentInstance { get; private set;  }
 
     public InitMasterPassword()
     {
@@ -38,7 +38,7 @@ public partial class InitMasterPassword : ContentView
         if (string.IsNullOrWhiteSpace(enteredPasscode) || enteredPasscode.Trim().Length < 3)
         {
             await MainThread.InvokeOnMainThreadAsync(async () => { 
-                await App.Current.MainPage.DisplayAlertAsync("INVALID REGISTER KEY",
+                await MainPage.CurrentInstance?.DisplayAlertAsync("INVALID REGISTER KEY",
                     "Your initialization master passcode must be at least 3 characters long.", "TRY AGAIN");
                 });
             return;
@@ -57,11 +57,12 @@ public partial class InitMasterPassword : ContentView
             string preferencesFileName = $"{nativeContext.PackageName}.preferences";
             var nativePreferences = nativeContext.GetSharedPreferences(preferencesFileName, Android.Content.FileCreationMode.Private);
 
-            using (var storageEditor = nativePreferences.Edit())
-            {
-                storageEditor.PutString("MasterPasswordKey", enteredPasscode);
-                storageEditor.Apply();
-            }
+            if (nativePreferences != null)
+                using (var storageEditor = nativePreferences.Edit())
+                {
+                    storageEditor?.PutString("MasterPasswordKey", enteredPasscode);
+                    storageEditor?.Apply();
+                }
 #else
             Preferences.Default.Set("MasterPasswordKey", enteredPasscode);
 #endif

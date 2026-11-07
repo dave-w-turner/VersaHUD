@@ -99,12 +99,7 @@ unsigned int currentUnlockHash = 0;
 String incomingBuffer = "";
 float globalFrontVolts = 0;
 float globalBackVolts = 0;
-int frontBatteryPercent = 100;
-int backBatteryPercent = 100;
-bool forceCrossCharge = false;
 
-bool frontIsCharging = false;
-bool backIsCharging = false;
 
 bool adminNeedsCloudSync = true;
 unsigned long lastAdminSyncMillis = 0;
@@ -114,8 +109,18 @@ unsigned long activeCloudPacingInterval = 30000;
 static unsigned long lastCloudUploadTimestamp = 0;
 static unsigned long rapidResponseWindowExpiration = 0;
 
+
+float chargingVolts = 13.1;
 float frontMaxFullChargeVolts = 12.7;
 float backMaxFullChargeVolts = 12.7;
+
+int frontBatteryPercent = 100;
+int backBatteryPercent = 100;
+
+bool frontIsCharging = false;
+bool backIsCharging = false;
+
+bool forceCrossCharge = false;
 
 double FRONT_VOLTS_CRITICAL_EMPTY = frontMaxFullChargeVolts - 1.30;
 double BACK_VOLTS_CRITICAL_EMPTY = backMaxFullChargeVolts - 1.30;
@@ -164,7 +169,7 @@ void loop() {
     BLE.poll();
     
     handleVotages();
-    CrossChargingTemp(radioSenseIsActive || forceCrossCharge);
+    CrossChargingTemp(radioSenseIsActive || forceCrossCharge || frontIsCharging || backIsCharging);
     //handleCrossCharging();
     handleRadioSense(radioSenseIsActive);
     
@@ -1609,7 +1614,7 @@ void writeLog(String txt) {
 }
 
 void CrossChargingTemp(bool enabled) {
-    if (frontBatteryPercent > CRITICAL_BATTERY_LOW && digitalRead(RELAY_AMP_REM) == HIGH && enabled) {
+    if (frontBatteryPercent > CRITICAL_BATTERY_LOW && enabled) {
         digitalWrite(RELAY_SOLENOID, LOW);
         crossChargeProtectionActiveFlag = true;
     }
@@ -1910,8 +1915,8 @@ void handleVotages() {
     globalFrontVolts = ((rawFront * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_FRONT;
     globalBackVolts = ((rawBack * ARDUINO_REF_VOLTAGE) / 16383.0) * CALIBRATION_BACK;
 
-    frontIsCharging = (globalFrontVolts > frontMaxFullChargeVolts);
-    backIsCharging = (globalBackVolts > backMaxFullChargeVolts);
+    frontIsCharging = (globalFrontVolts >= chargingVolts);
+    backIsCharging = (globalBackVolts >= chargingVolts);
 }
 
 int getFreeRam() {

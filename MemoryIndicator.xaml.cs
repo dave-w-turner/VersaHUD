@@ -4,7 +4,7 @@ namespace VersaHUD.Controls;
 
 public partial class MemoryIndicator : ContentView, INotifyPropertyChanged
 {
-    public static MemoryIndicator CurrentInstance { get; private set; }
+    public static MemoryIndicator? CurrentInstance { get; private set; }
 
     public MemoryIndicator()
     {

@@ -83,7 +83,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                 RouterPasswordText = string.Empty;
 
                 entryRouterPass.Focus();
-                await Application.Current.MainPage.DisplayAlertAsync("ROUTER LINK FAILED", "The vehicle module could not establish an active wireless handshake with your home station. Verify your network credentials and try again.", "OK");
+                await MainPage.CurrentInstance?.DisplayAlertAsync("ROUTER LINK FAILED", "The vehicle module could not establish an active wireless handshake with your home station. Verify your network credentials and try again.", "OK");
             });
             return;
         }
@@ -94,7 +94,7 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
             {
                 RouterPasswordText = string.Empty;
 
-                await Application.Current.MainPage.DisplayAlertAsync("ROUTER LINK SUCCESSFUL", "The vehicle module has successfully established a secure wireless handshake with your home station.", "OK");
+                await MainPage.CurrentInstance?.DisplayAlertAsync("ROUTER LINK SUCCESSFUL", "The vehicle module has successfully established a secure wireless handshake with your home station.", "OK");
             });
         }
 
@@ -308,11 +308,12 @@ public partial class AdminPage : ContentPage, INotifyPropertyChanged
                 string preferencesFileName = $"{nativeContext.PackageName}.preferences";
                 var nativePreferences = nativeContext.GetSharedPreferences(preferencesFileName, Android.Content.FileCreationMode.Private);
 
-                using (var storageEditor = nativePreferences.Edit())
-                {
-                    storageEditor.PutString("MasterPasswordKey", newPassInput);
-                    storageEditor.Apply();
-                }
+                if (nativePreferences != null)
+                    using (var storageEditor = nativePreferences.Edit())
+                    {
+                        storageEditor?.PutString("MasterPasswordKey", newPassInput);
+                        storageEditor?.Apply();
+                    }
 #else
                 Preferences.Default.Set("MasterPasswordKey", newPassInput);
 #endif

@@ -11,7 +11,7 @@ public class TelemetryForegroundService : Service
 {
     private const string CHANNEL_ID = "versahud_cockpit_channel";
     private const int NOTIFICATION_ID = 90210;
-    private NotificationManager _notificationManager;
+    private NotificationManager? _notificationManager;
 
     private static readonly Regex FrontRegex = new Regex(@"Front:\s*(?:\[[^\]]+\]\s*)?(?<volts>[\d.]+)\s*V\s*\((?<percent>\d+)%\)", RegexOptions.Compiled);
     private static readonly Regex BackRegex = new Regex(@"Back:\s*(?:\[[^\]]+\]\s*)?(?<volts>[\d.]+)\s*V\s*\((?<percent>\d+)%\)", RegexOptions.Compiled);
@@ -38,7 +38,7 @@ public class TelemetryForegroundService : Service
         Intent launchAppIntent = new Intent(this, typeof(MainActivity));
         launchAppIntent.SetFlags(ActivityFlags.ClearTop | ActivityFlags.SingleTop);
 
-        PendingIntent pendingContentIntent = PendingIntent.GetActivity(
+        PendingIntent? pendingContentIntent = PendingIntent.GetActivity(
             this,
             0,
             launchAppIntent,
@@ -46,7 +46,9 @@ public class TelemetryForegroundService : Service
 
         builder.SetContentIntent(pendingContentIntent);
 
-        bool isBluetoothConnected = App.NetworkService != null && App.NetworkService.IsBluetoothConnected;
+        if (App.NetworkService == null) throw new Exception("NetworkService is not initialized.");
+
+        bool isBluetoothConnected = App.NetworkService.IsBluetoothConnected;
         bool isSystemTotallyOffline = !isBluetoothConnected && !(App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode) && !App.NetworkService.IsUsingCloudWanMode;
 
         var multiLineTextStyle = new Notification.BigTextStyle();
@@ -63,7 +65,7 @@ public class TelemetryForegroundService : Service
             _isFrontCharging = false;
             _isTrunkCharging = false;
 
-            string emptyProgressIndicator = GenerateVisualProgressIndicatorMeter(0);           
+            string emptyProgressIndicator = GenerateVisualProgressIndicatorMeter(0);
 
             multiLineTextStyle.BigText(
                 $"FRONT BATTERY   ::   0.0V  ( 0% )   {emptyProgressIndicator}   🔋 [ OFFLINE ]\n" +
@@ -131,10 +133,10 @@ public class TelemetryForegroundService : Service
             builder.SetContentTitle("📡 VERSA HUD");
 
             Intent lockIntent = new Intent(this, typeof(NotificationActionReceiver)).SetAction("VERSAHUD_ACTION_LOCK");
-            PendingIntent pLock = PendingIntent.GetBroadcast(this, 1, lockIntent, PendingIntentFlags.UpdateCurrent | PendingIntentFlags.Immutable);
+            PendingIntent? pLock = PendingIntent.GetBroadcast(this, 1, lockIntent, PendingIntentFlags.UpdateCurrent | PendingIntentFlags.Immutable);
 
             Intent unlockIntent = new Intent(this, typeof(NotificationActionReceiver)).SetAction("VERSAHUD_ACTION_UNLOCK");
-            PendingIntent pUnlock = PendingIntent.GetBroadcast(this, 2, unlockIntent, PendingIntentFlags.UpdateCurrent | PendingIntentFlags.Immutable);
+            PendingIntent? pUnlock = PendingIntent.GetBroadcast(this, 2, unlockIntent, PendingIntentFlags.UpdateCurrent | PendingIntentFlags.Immutable);
 
             lockActionRow = new Notification.Action.Builder(
                 global::Android.Resource.Drawable.IcMenuInfoDetails,
@@ -147,10 +149,10 @@ public class TelemetryForegroundService : Service
                 pUnlock).Build();
         }
 
-        int customIconId = ApplicationContext.Resources.GetIdentifier("versahud_cockpit_badge", "drawable", PackageName);
-        if (customIconId == 0) customIconId = global::Android.Resource.Drawable.IcMenuManage;
+        int? customIconId = ApplicationContext?.Resources?.GetIdentifier("versahud_cockpit_badge", "drawable", PackageName);
+        if (customIconId == 0 || customIconId == null) customIconId = global::Android.Resource.Drawable.IcMenuManage;
 
-        builder.SetSmallIcon(customIconId)
+        builder.SetSmallIcon(customIconId.Value)
                .SetStyle(multiLineTextStyle)
                .AddAction(lockActionRow)
                .AddAction(unlockActionRow)
@@ -188,7 +190,7 @@ public class TelemetryForegroundService : Service
             channel.EnableVibration(false);
             channel.LockscreenVisibility = NotificationVisibility.Public;
 
-            var manager = (NotificationManager)GetSystemService(NotificationService);
+            NotificationManager? manager = GetSystemService(NotificationService) as NotificationManager;
             manager?.CreateNotificationChannel(channel);
         }
     }
@@ -245,7 +247,7 @@ public class TelemetryForegroundService : Service
             TriggerLocalEmergencyPushAlert(_frontPercent);
         }
 
-        _notificationManager.Notify(NOTIFICATION_ID, BuildTelemetryStatusNotification());
+        _notificationManager?.Notify(NOTIFICATION_ID, BuildTelemetryStatusNotification());
     }
 
     private void TriggerLocalEmergencyPushAlert(int lowPercentValue)
@@ -270,7 +272,7 @@ public class TelemetryForegroundService : Service
 
         Intent appIntent = new(this, typeof(MainActivity));
         appIntent.SetFlags(ActivityFlags.ClearTop | ActivityFlags.SingleTop);
-        PendingIntent pIntent = PendingIntent.GetActivity(this, 99, appIntent, PendingIntentFlags.UpdateCurrent | PendingIntentFlags.Immutable);
+        PendingIntent? pIntent = PendingIntent.GetActivity(this, 99, appIntent, PendingIntentFlags.UpdateCurrent | PendingIntentFlags.Immutable);
 
         alertBuilder.SetContentIntent(pIntent)
             .SetContentTitle("🚨 CRITICAL FRONT BATTERY LOW")
@@ -289,7 +291,7 @@ public class TelemetryForegroundService : Service
     public override StartCommandResult OnStartCommand(Intent intent, StartCommandFlags flags, int startId)
     {
         CreateNotificationChannel();
-        _notificationManager = (NotificationManager)GetSystemService(NotificationService);
+        _notificationManager = GetSystemService(NotificationService) as NotificationManager;
 
         Notification.Builder quickStartBuilder = (Build.VERSION.SdkInt >= BuildVersionCodes.O)
             ? new Notification.Builder(this, CHANNEL_ID)
@@ -299,48 +301,51 @@ public class TelemetryForegroundService : Service
                          .SetContentTitle("Versa HUD Cockpit")
                          .SetOngoing(true);
 
-        if (Build.VERSION.SdkInt >= BuildVersionCodes.Q)
+        if (quickStartBuilder != null && _notificationManager != null)
         {
-            StartForeground(NOTIFICATION_ID, quickStartBuilder.Build(), Android.Content.PM.ForegroundService.TypeSpecialUse);
-        }
-        else
-        {
-            StartForeground(NOTIFICATION_ID, quickStartBuilder.Build());
-        }
-
-        Notification customPanelNotification = BuildTelemetryStatusNotification();
-        _notificationManager.Notify(NOTIFICATION_ID, customPanelNotification);
-
-        try
-        {
-            if (_dynamicBluetoothStateReceiver == null)
+            if (Build.VERSION.SdkInt >= BuildVersionCodes.Q)
             {
-                _dynamicBluetoothStateReceiver = new BootReceiver();
+                StartForeground(NOTIFICATION_ID, quickStartBuilder.Build(), Android.Content.PM.ForegroundService.TypeSpecialUse);
+            }
+            else
+            {
+                StartForeground(NOTIFICATION_ID, quickStartBuilder.Build());
+            }
 
-                var bluetoothToggleFilter = new IntentFilter(Android.Bluetooth.BluetoothAdapter.ActionStateChanged);
+            Notification customPanelNotification = BuildTelemetryStatusNotification();
+            _notificationManager.Notify(NOTIFICATION_ID, customPanelNotification);
 
-                RegisterReceiver(_dynamicBluetoothStateReceiver, bluetoothToggleFilter);
+            try
+            {
+                if (_dynamicBluetoothStateReceiver == null)
+                {
+                    _dynamicBluetoothStateReceiver = new BootReceiver();
 
+                    var bluetoothToggleFilter = new IntentFilter(Android.Bluetooth.BluetoothAdapter.ActionStateChanged);
+
+                    RegisterReceiver(_dynamicBluetoothStateReceiver, bluetoothToggleFilter);
+
+                    Task.Run(async () =>
+                    {
+                        await App.Log("--> [SERVICE LAUNCH]: Programmatic Runtime Bluetooth State Receiver successfully injected into Android kernel.");
+                    });
+                }
+            }
+            catch (Exception rxEx)
+            {
                 Task.Run(async () =>
                 {
-                    await App.Log("--> [SERVICE LAUNCH]: Programmatic Runtime Bluetooth State Receiver successfully injected into Android kernel.");
+                    await App.Log($"--> [SERVICE LAUNCH WARNING]: Runtime receiver registry bypassed: {rxEx.Message}");
                 });
             }
-        }
-        catch (Exception rxEx)
-        {
-            Task.Run(async () =>
+
+            App.NetworkService.OnConnectionStateChanged += (isConnected) =>
             {
-                await App.Log($"--> [SERVICE LAUNCH WARNING]: Runtime receiver registry bypassed: {rxEx.Message}");
-            });
+                _notificationManager.Notify(NOTIFICATION_ID, BuildTelemetryStatusNotification());
+            };
+
+            App.NetworkService.OnTelemetryReceived += OnTelemetryReceivedUpdateWidget;
         }
-
-        App.NetworkService.OnConnectionStateChanged += (isConnected) =>
-        {
-            _notificationManager.Notify(NOTIFICATION_ID, BuildTelemetryStatusNotification());
-        };
-
-        App.NetworkService.OnTelemetryReceived += OnTelemetryReceivedUpdateWidget;
 
         return StartCommandResult.Sticky;
     }

@@ -8,7 +8,7 @@ public class NotificationActionReceiver : BroadcastReceiver
 {
     public override void OnReceive(Context context, Intent intent)
     {
-        string action = intent.Action;
+        string? action = intent.Action;
         if (string.IsNullOrEmpty(action)) return;
         string preferencesFileName = $"{context.PackageName}.preferences";
         var nativePreferences = context.GetSharedPreferences(preferencesFileName, FileCreationMode.Private);
@@ -28,11 +28,11 @@ public class NotificationActionReceiver : BroadcastReceiver
                 {
                     await App.Log($"--> [NOTIFICATION RECEIVER CHOKE]: {ex.Message}");
 
-                    if (App.Current?.MainPage != null)
+                    if (MainPage.CurrentInstance != null)
                     {
                         await MainThread.InvokeOnMainThreadAsync(async () =>
                         {
-                            await App.Current.MainPage.DisplayAlertAsync("COMMAND FAILURE", "Unable to deliver the LOCK command! Please check your connection.", "OK");
+                            await MainPage.CurrentInstance?.DisplayAlertAsync("COMMAND FAILURE", "Unable to deliver the LOCK command! Please check your connection.", "OK");
                         });
                     }
                 }
@@ -51,11 +51,11 @@ public class NotificationActionReceiver : BroadcastReceiver
                 {
                     await App.Log($"--> [NOTIFICATION RECEIVER CHOKE]: {ex.Message}");
 
-                    if (App.Current?.MainPage != null)
+                    if (MainPage.CurrentInstance != null)
                     {
                         await MainThread.InvokeOnMainThreadAsync(async () =>
                         {
-                            await App.Current.MainPage.DisplayAlertAsync("COMMAND FAILURE", "Unable to deliver the UNLOCK command! Please check your connection.", "OK");
+                            await MainPage.CurrentInstance?.DisplayAlertAsync("COMMAND FAILURE", "Unable to deliver the UNLOCK command! Please check your connection.", "OK");
                         });
                     }
                 }

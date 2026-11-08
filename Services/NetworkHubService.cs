@@ -135,7 +135,7 @@ public class NetworkHubService
 
         Connectivity.Current.ConnectivityChanged += OnSystemWirelessHardwareStateChanged;
 #if ANDROID
-        global::VersaHUD.BootReceiver.OnBLEStateChange += BootReceiver_OnBLEStateChange;
+        global::VersaHUD.Platforms.Android.BootReceiver.OnBLEStateChange += BootReceiver_OnBLEStateChange;
 #endif
         OnConnectionStateChanged?.Invoke(IsBluetoothConnected);
     }

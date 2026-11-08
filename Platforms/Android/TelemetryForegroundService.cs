@@ -3,6 +3,7 @@ using Android.Content;
 using Android.OS;
 using System.Text;
 using System.Text.RegularExpressions;
+using VersaHUD.Platforms.Android;
 
 namespace VersaHUD;
 

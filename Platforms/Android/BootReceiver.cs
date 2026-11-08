@@ -3,24 +3,24 @@ using Android.Bluetooth;
 using Android.Content;
 using Android.OS;
 
-namespace VersaHUD;
+namespace VersaHUD.Platforms.Android;
 
 [BroadcastReceiver(Name = "com.raddevelopment.versahub.BootReceiver", Enabled = true, Exported = true, DirectBootAware = true)]
-[IntentFilter(new[] {
+[IntentFilter([
     Intent.ActionBootCompleted,
     Intent.ActionLockedBootCompleted,
     "android.intent.action.QUICKBOOT_POWERON",
     BluetoothAdapter.ActionStateChanged
-})]
+])]
 public class BootReceiver : BroadcastReceiver
 {
     public static event Action<bool>? OnBLEStateChange;
 
-    public override async void OnReceive(Context context, Intent intent)
+    public override async void OnReceive(Context context, Intent? intent)
     {
-        await App.Log($"--> [HARDWARE MONITOR]: Intercepted native phone radio event: {intent.Action}");
+        await App.Log($"--> [HARDWARE MONITOR]: Intercepted native phone radio event: {intent?.Action}");
 
-        if (intent.Action == BluetoothAdapter.ActionStateChanged)
+        if (intent?.Action == BluetoothAdapter.ActionStateChanged)
         {
             int stateCode = intent.GetIntExtra(BluetoothAdapter.ExtraState, BluetoothAdapter.Error);
 
@@ -52,11 +52,11 @@ public class BootReceiver : BroadcastReceiver
             return;
         }
 
-        if (intent.Action == Intent.ActionBootCompleted ||
-            intent.Action == Intent.ActionLockedBootCompleted ||
-            intent.Action == "android.intent.action.QUICKBOOT_POWERON")
+        if (intent?.Action == Intent.ActionBootCompleted ||
+            intent?.Action == Intent.ActionLockedBootCompleted ||
+            intent?.Action == "android.intent.action.QUICKBOOT_POWERON")
         {
-            Intent serviceIntent = new Intent(context, typeof(TelemetryForegroundService));
+            Intent serviceIntent = new(context, typeof(TelemetryForegroundService));
 
             if (Build.VERSION.SdkInt >= BuildVersionCodes.O)
             {

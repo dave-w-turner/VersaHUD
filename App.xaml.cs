@@ -7,7 +7,7 @@ namespace VersaHUD
     {
         public static CockpitTelemetryModule TelemetryModule { get; private set; } = new();
         public static NetworkHubService NetworkService { get; private set; } = new();
-        private static readonly object _fileWriteLock = new();
+        private static readonly Lock _fileWriteLock = new();
 
         public static readonly byte[] SecretSharedKeyBytes = [0x5A, 0xA5, 0x1F, 0x2C, 0x7E, 0x9D, 0x8B, 0x34, 0x61, 0xF0, 0xE3, 0xD2, 0xC1, 0xB0, 0x09, 0x48];
         public static readonly byte[] InitializationVectorBytes = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F];
@@ -16,7 +16,6 @@ namespace VersaHUD
         {
             InitializeComponent();
             TelemetryModule.Initialize();
-            Windows[0].Page = new SplashPage();
         }
 
         public static async Task Log(string value)
@@ -39,6 +38,11 @@ namespace VersaHUD
             catch
             {
             }
+        }
+
+        protected override Window CreateWindow(IActivationState? activationState)
+        {
+            return new Window(new SplashPage());
         }
 
         protected override async void OnStart()

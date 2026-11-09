@@ -933,7 +933,7 @@ public partial class MainPage : ContentPage
 
     private async void OnAdminNavigationClicked(object sender, EventArgs e)
     {
-        await Navigation.PushAsync(new AdminPage());
+        await Shell.Current.GoToAsync(nameof(AdminPage));
     }
 
     private async void OnRollbackConnectionAndRescan(object? sender, EventArgs e)

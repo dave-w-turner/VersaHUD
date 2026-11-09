@@ -239,6 +239,7 @@ bool processSecureCommand(String rawPacket, String source) {
         triggerCloudUploadOnStart = true;
         adminNeedsCloudSync = true;
         lastAdminSyncMillis = millis() - adminSyncInterval; 
+        cloudLimitLockoutTimestampAnchor = 0;
         flushTelemetryToCloud();
         return true;
     }
@@ -1396,6 +1397,7 @@ bool flushAdminConfigurationToCloud() {
   configJsonPayload += "\"}";
 
   if (lastAdminPayload == configJsonPayload) {
+    writeLog("--> [WAN HTTPS CONFIG]: Config has not changed. Skipping upload...");
     return true; 
   }
 
@@ -1422,7 +1424,6 @@ bool flushAdminConfigurationToCloud() {
 
     globalTelemetryClient.stop();
 
-    lastCloudTransmitSuccessful = true;
     writeLog("--> [WAN HTTPS CONFIG COMPLETE]: Persistent cloud identities populated successfully.");
     return true;
   } else {

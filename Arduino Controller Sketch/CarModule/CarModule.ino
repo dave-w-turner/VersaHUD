@@ -169,7 +169,7 @@ void loop() {
     BLE.poll();
     
     handleVotages();
-    CrossChargingTemp(radioSenseIsActive || forceCrossCharge || frontIsCharging || backIsCharging);
+    CrossChargingTemp(radioSenseIsActive || forceCrossCharge || frontIsCharging || backIsCharging || frontBatteryPercent >= 80);
     //handleCrossCharging();
     handleRadioSense(radioSenseIsActive);
     

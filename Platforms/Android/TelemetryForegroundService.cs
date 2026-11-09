@@ -3,6 +3,7 @@ using Android.Content;
 using Android.OS;
 using System.Text;
 using System.Text.RegularExpressions;
+using VersaHUD.Controls;
 using VersaHUD.Platforms.Android;
 
 namespace VersaHUD;
@@ -286,10 +287,9 @@ public class TelemetryForegroundService : Service
         _notificationManager.Notify(912, alertBuilder.Build());
     }
 
+    public override IBinder? OnBind(Intent intent) => null;
 
-    public override IBinder OnBind(Intent intent) => null;
-
-    public override StartCommandResult OnStartCommand(Intent intent, StartCommandFlags flags, int startId)
+    public override StartCommandResult OnStartCommand(Intent? intent, StartCommandFlags flags, int startId)
     {
         CreateNotificationChannel();
         _notificationManager = GetSystemService(NotificationService) as NotificationManager;
@@ -340,12 +340,39 @@ public class TelemetryForegroundService : Service
                 });
             }
 
-            App.NetworkService.OnConnectionStateChanged += (isConnected) =>
+            App.NetworkService?.OnConnectionStateChanged += (isConnected) =>
             {
                 _notificationManager.Notify(NOTIFICATION_ID, BuildTelemetryStatusNotification());
             };
 
-            App.NetworkService.OnTelemetryReceived += OnTelemetryReceivedUpdateWidget;
+            App.NetworkService?.OnTelemetryReceived += OnTelemetryReceivedUpdateWidget;
+
+            Task.Run(async () =>
+            {
+                do
+                {
+                    bool isPermissionApproved = false;
+
+                    do
+                    {
+                        isPermissionApproved = await BTDevicePicker.GetBTPermissions();
+
+                        if (isPermissionApproved)
+                        {
+                            if (!App.NetworkService?.IsMonitorActive ?? false)
+                            {
+                                await MainThread.InvokeOnMainThreadAsync(async () =>
+                                {
+                                    App.NetworkService?.StartConnectionSupervisor();
+                                });
+                            }
+                        }
+                        else await Task.Delay(1500);
+                    } while (!isPermissionApproved);
+
+                    await Task.Delay(1500);
+                } while (true);
+            });
         }
 
         return StartCommandResult.Sticky;

@@ -1367,73 +1367,98 @@ void checkCloudCommandMailbox() {
 }
 
 bool flushAdminConfigurationToCloud() { 
-  String activeAP = readStringFromEEPROM(EEPROM_CUSTOM_WIFI_AP);
-  if (activeAP.length() == 0) activeAP = DEFAULT_WIFI_AP_NAME;
+    String activeAP = readStringFromEEPROM(EEPROM_CUSTOM_WIFI_AP);
+    if (activeAP.length() == 0) activeAP = DEFAULT_WIFI_AP_NAME;
 
-  String activeBLE = readStringFromEEPROM(EEPROM_CUSTOM_BLE_NAME);
-  if (activeBLE.length() == 0) activeBLE = DEFAULT_BLE_NAME;
+    String activeBLE = readStringFromEEPROM(EEPROM_CUSTOM_BLE_NAME);
+    if (activeBLE.length() == 0) activeBLE = DEFAULT_BLE_NAME;
 
-  String savedSSID = readSecureStringFromEEPROM(EEPROM_WIFI_SSID_ADDR);
-  if (savedSSID.length() == 0) {
-    savedSSID = "NONE";
-  }
+    String savedSSID = readSecureStringFromEEPROM(EEPROM_WIFI_SSID_ADDR);
+    if (savedSSID.length() == 0) {
+        savedSSID = "NONE";
+    }
 
-  uint16_t rawMasterHash = readHashFromEEPROM(EEPROM_LOCK_HASH_ADDR);
+    uint16_t rawMasterHash = readHashFromEEPROM(EEPROM_LOCK_HASH_ADDR);
 
-  if (rawMasterHash == 0xFFFF || rawMasterHash == 0) {
-    rawMasterHash = generateFletcher16Hash(DEFAULT_MASTER_PASSWORD);
-  }
+    if (rawMasterHash == 0xFFFF || rawMasterHash == 0) {
+        rawMasterHash = generateFletcher16Hash(DEFAULT_MASTER_PASSWORD);
+    }
 
-  String masterPasswordHash = String(rawMasterHash);
-  String configJsonPayload = "";
+    String masterPasswordHash = String(rawMasterHash);
+    String configJsonPayload = "";
 
-  configJsonPayload.reserve(400); 
+    configJsonPayload.reserve(400); 
 
-  configJsonPayload += "{\"wifi_ap\":\"";       configJsonPayload += activeAP;
-  configJsonPayload += "\",\"wifi_ap_pw\":\"";  configJsonPayload += currentAPPassword;
-  configJsonPayload += "\",\"ble_name\":\"";    configJsonPayload += activeBLE;
-  configJsonPayload += "\",\"master_pw_hash\":\""; configJsonPayload += masterPasswordHash;
-  configJsonPayload += "\",\"router_ssid\":\""; configJsonPayload += savedSSID;
-  configJsonPayload += "\"}";
+    configJsonPayload += "{\"wifi_ap\":\"";       configJsonPayload += activeAP;
+    configJsonPayload += "\",\"wifi_ap_pw\":\"";  configJsonPayload += currentAPPassword;
+    configJsonPayload += "\",\"ble_name\":\"";    configJsonPayload += activeBLE;
+    configJsonPayload += "\",\"master_pw_hash\":\""; configJsonPayload += masterPasswordHash;
+    configJsonPayload += "\",\"router_ssid\":\""; configJsonPayload += savedSSID;
+    configJsonPayload += "\"}";
 
-  if (lastAdminPayload == configJsonPayload) {
-    writeLog("--> [WAN HTTPS CONFIG]: Config has not changed. Skipping upload...");
-    return true; 
-  }
+    if (lastAdminPayload == configJsonPayload) {
+        writeLog("--> [WAN HTTPS CONFIG]: Config has not changed. Skipping upload...");
+        return true; 
+    }
 
-  bool hasValidCredentials = CLOUDFLARE_HOST.length() > 5 && 
-                             CF_CLIENT_ID.length() > 5 && 
-                             CF_CLIENT_SECRET.length() > 5;
+    bool hasValidCredentials = CLOUDFLARE_HOST.length() > 5 && 
+                                CF_CLIENT_ID.length() > 5 && 
+                                CF_CLIENT_SECRET.length() > 5;
 
-  if (!hasValidCredentials) return false;
+    if (!hasValidCredentials) return false;
 
-  writeLog("--> [WAN HTTPS CONFIG]: Offloading identities to persistent KV vaults...");
+    writeLog("--> [WAN HTTPS CONFIG]: Offloading identities to persistent KV vaults...");
 
-  if (globalTelemetryClient.connect(CLOUDFLARE_HOST.c_str(), 443)) {
-    globalTelemetryClient.println("POST /api/admin HTTP/1.1");
-    globalTelemetryClient.println("Host: " + CLOUDFLARE_HOST);
-    globalTelemetryClient.println("Content-Type: text/plain");
-    globalTelemetryClient.println("CF-Access-Client-Id: " + CF_CLIENT_ID);
-    globalTelemetryClient.println("CF-Access-Client-Secret: " + CF_CLIENT_SECRET);
-    globalTelemetryClient.println("Content-Length: " + String(configJsonPayload.length()));
-    globalTelemetryClient.println("Connection: close");
-    globalTelemetryClient.println();
-    globalTelemetryClient.print(configJsonPayload);
+    if (globalTelemetryClient.connect(CLOUDFLARE_HOST.c_str(), 443)) {
+        globalTelemetryClient.println("POST /api/admin HTTP/1.1");
+        globalTelemetryClient.println("Host: " + CLOUDFLARE_HOST);
+        globalTelemetryClient.println("Content-Type: text/plain");
+        globalTelemetryClient.println("CF-Access-Client-Id: " + CF_CLIENT_ID);
+        globalTelemetryClient.println("CF-Access-Client-Secret: " + CF_CLIENT_SECRET);
+        globalTelemetryClient.println("Content-Length: " + String(configJsonPayload.length()));
+        globalTelemetryClient.println("Connection: close");
+        globalTelemetryClient.println();
+        globalTelemetryClient.print(configJsonPayload);
 
-    lastAdminPayload = configJsonPayload;
+        unsigned long timeout = millis();
+        while (globalTelemetryClient.available() == 0) {
+            if (millis() - timeout > 5000) {
+            writeLog("--> [WAN HTTPS CONFIG ERROR]: HTTP Response Timeout.");
+            globalTelemetryClient.stop();
+            return false;
+            }
+        }
 
-    globalTelemetryClient.stop();
+        String statusLine = globalTelemetryClient.readStringUntil('\n');
+        statusLine.trim();
 
-    writeLog("--> [WAN HTTPS CONFIG COMPLETE]: Persistent cloud identities populated successfully.");
-    return true;
-  } else {
-    writeLog("--> [WAN HTTPS CONFIG ERROR]: Handshake aborted. Vaults un-hydrated.");
-    
-    globalTelemetryClient.flush();
-    globalTelemetryClient.stop();
-  }
+        int httpCode = 0;
+        int firstSpace = statusLine.indexOf(' ');
+        if (firstSpace > 0) {
+            httpCode = statusLine.substring(firstSpace + 1, firstSpace + 4).toInt();
+        }
 
-  return false;
+        while (globalTelemetryClient.available()) {
+            globalTelemetryClient.read();
+        }
+        globalTelemetryClient.stop();
+
+        if (httpCode >= 200 && httpCode < 300) {
+            lastAdminPayload = configJsonPayload;
+            writeLog("--> [WAN HTTPS CONFIG COMPLETE]: HTTP " + String(httpCode));
+            return true;
+        } else {
+            writeLog("--> [WAN HTTPS CONFIG ERROR]: Rejected with HTTP " + String(httpCode) + " (" + statusLine + ")");
+            return false;
+        }
+    } else {
+        writeLog("--> [WAN HTTPS CONFIG ERROR]: Handshake aborted. Vaults un-hydrated.");
+        
+        globalTelemetryClient.flush();
+        globalTelemetryClient.stop();
+    }
+
+    return false;
 }
 
 void flushTelemetryToCloud() {
@@ -1512,7 +1537,7 @@ void flushTelemetryToCloud() {
                     } 
                 } 
                 jsonLogArrayPayload += "]"; 
-
+                
                 String currentTimeStr = "";
                 RTCTime currentSystemClockTime;
 
@@ -1779,10 +1804,11 @@ void handleTelemetry(bool radioSenseIsActive) {
     telemetryString += radioSenseIsActive ? "[🔊 AMPS ON] " : "[🔇 AMPS OFF] ";
  
     if (crossChargeProtectionActiveFlag) telemetryString += "[⚡ CROSS_CHG ACTIVE] ";
-        if (globalFrontVolts < 6.50 && globalBackVolts < 6.50) { 
+
+    if (globalFrontVolts < 9.50 && globalBackVolts < 9.50) { 
             telemetryString += "BATTERIES DETECTED: [❌ BOTH DISCONNECTED]"; 
         } else { 
-            if (globalFrontVolts < 6.50) telemetryString += "Front: [❌ DISCONNECTED]"; 
+            if (globalFrontVolts < 9.50) telemetryString += "Front: [❌ DISCONNECTED]"; 
             else { 
                 telemetryString += "Front: "; 
                 if ((frontIsCharging && !backIsCharging) || crossChargeProtectionActiveFlag) telemetryString += "[🔋 CHARGING] "; 
@@ -1791,7 +1817,7 @@ void handleTelemetry(bool radioSenseIsActive) {
 
             telemetryString += " | "; 
 
-            if (globalBackVolts < 6.50) telemetryString += "Back: [❌ DISCONNECTED]"; 
+            if (globalBackVolts < 9.50) telemetryString += "Back: [❌ DISCONNECTED]"; 
             else { 
                 telemetryString += "Back: "; 
                 if ((backIsCharging && !frontIsCharging) || crossChargeProtectionActiveFlag) telemetryString += "[🔋 CHARGING] "; 

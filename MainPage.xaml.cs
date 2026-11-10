@@ -1073,7 +1073,7 @@ public partial class MainPage : ContentPage
 
         try
         {
-            if (!App.NetworkService?.IsMonitorActive ?? false)
+            if (!NetworkHubService.IsMonitorActive)
             {
                 await App.Log("--> [BOOT SYNC]: Starting network service monitor...");
                 string targetedMacAddress = Preferences.Default.Get(SavedDeviceMacKey, string.Empty);

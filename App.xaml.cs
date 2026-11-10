@@ -42,7 +42,7 @@ namespace VersaHUD
 
         protected override Window CreateWindow(IActivationState? activationState)
         {
-            if (!NetworkService?.IsMonitorActive ?? false)
+            if (!NetworkHubService.IsMonitorActive)
             {
                 return new Window(new SplashPage());
             }

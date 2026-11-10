@@ -1,4 +1,5 @@
 using Plugin.BLE;
+using VersaHUD.Services;
 
 namespace VersaHUD.Controls;
 
@@ -129,7 +130,7 @@ public partial class BTDevicePicker : ContentView
 
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
-                if (!App.NetworkService.IsMonitorActive)
+                if (!NetworkHubService.IsMonitorActive)
                     App.NetworkService.StartConnectionSupervisor();
 
                 BluetoothDeviceListSelectedItem = null;

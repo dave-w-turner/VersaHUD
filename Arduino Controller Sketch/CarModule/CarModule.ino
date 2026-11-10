@@ -253,8 +253,15 @@ bool processSecureCommand(String rawPacket, String source) {
     else if (actionPayload == "UNLOCK" && isAuthorizedUnlock) {
         displayMatrixText(" OPEN ");
         digitalWrite(RELAY_UNLOCK, LOW);
-        delay(400);
+        delay(250);
         digitalWrite(RELAY_UNLOCK, HIGH); 
+
+        delay(350);
+
+        digitalWrite(RELAY_UNLOCK, LOW);
+        delay(250);
+        digitalWrite(RELAY_UNLOCK, HIGH);
+        
         return true;
     }
     else if (actionPayload.startsWith("SETWIFINAME=")) {

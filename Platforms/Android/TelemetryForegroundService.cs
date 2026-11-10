@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using VersaHUD.Controls;
 using VersaHUD.Platforms.Android;
+using VersaHUD.Services;
 
 namespace VersaHUD;
 
@@ -359,7 +360,7 @@ public class TelemetryForegroundService : Service
 
                         if (isPermissionApproved)
                         {
-                            if (!App.NetworkService?.IsMonitorActive ?? false)
+                            if (!NetworkHubService.IsMonitorActive)
                             {
                                 await MainThread.InvokeOnMainThreadAsync(async () =>
                                 {

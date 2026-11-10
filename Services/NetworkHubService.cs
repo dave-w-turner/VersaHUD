@@ -106,7 +106,7 @@ public class NetworkHubService
     public bool WaitingForAuthorization { get; set; } = false;
     public DateTime LastTransportSwitchTimestamp = DateTime.MinValue;
     public static bool HasPhysicalWifiConnection { get; private set; } = Connectivity.Current.ConnectionProfiles.Contains(ConnectionProfile.WiFi);
-    public bool IsMonitorActive { get; private set; } = false;
+    public static bool IsMonitorActive { get; private set; } = false;
     public int ReconnectCountdown { get; private set; } = 0;
 
     public NetworkHubService()
@@ -190,13 +190,15 @@ public class NetworkHubService
 
             if (allRadiosOff)
             {
+                if (MainPage.CurrentInstance == null) return true;
+
                 if (!_hasShownNoRadioAlert)
                 {
                     _hasShownNoRadioAlert = true;
 
                     await MainThread.InvokeOnMainThreadAsync(async () =>
                     {
-                        await MainPage.CurrentInstance?.DisplayAlertAsync(
+                        await MainPage.CurrentInstance.DisplayAlertAsync(
                             "Network Error",
                             "No active network interfaces detected. Please enable Bluetooth, Wi-Fi, or Cellular data to continue.",
                             "OK");
@@ -1831,8 +1833,6 @@ public class NetworkHubService
     {
         if (!await AutoConnectAsync())
         {
-            IsMonitorActive = false;
-
             _reconnectLoopCts = new();
             var reconnectToken = _reconnectLoopCts.Token;
 

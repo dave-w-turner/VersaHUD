@@ -135,7 +135,7 @@ public partial class MainPage : ContentPage
 
                                 await App.Log($"--> [LAG MONITOR]: Telemetry lag is precisely {telemetryLagInMinutes} minutes.");
 
-                                if (Math.Abs(telemetryLagInMinutes) > 12)
+                                if (Math.Abs(telemetryLagInMinutes) > 30)
                                 {
                                     await App.Log("--> [DASHBOARD PARSER]: No telemetry being returned from WAN endpoint. Setting flag to default to next transport type.");
                                     App.NetworkService.IsWifiTelemetryDead = true;
@@ -154,11 +154,11 @@ public partial class MainPage : ContentPage
 
                         if (bytes != 0)
                         {
-                            MemoryIndicator.CurrentInstance.UpdateMemoryHardwareGauge(bytes);
+                            MemoryIndicator.CurrentInstance?.UpdateMemoryHardwareGauge(bytes);
                         }
                         else
                         {
-                            MemoryIndicator.CurrentInstance.Hide();
+                            MemoryIndicator.CurrentInstance?.Hide();
                         }
                     }
                 }
@@ -250,11 +250,11 @@ public partial class MainPage : ContentPage
                     {
                         if (availableRam.Success && int.TryParse(availableRam.Groups[1].Value, out int freeBytes))
                         {
-                            MemoryIndicator.CurrentInstance.UpdateMemoryHardwareGauge(freeBytes);
+                            MemoryIndicator.CurrentInstance?.UpdateMemoryHardwareGauge(freeBytes);
                         }
                         else
                         {
-                            MemoryIndicator.CurrentInstance.Hide();
+                            MemoryIndicator.CurrentInstance?.Hide();
                         }
                     }
 
@@ -378,11 +378,11 @@ public partial class MainPage : ContentPage
                 {
                     if (availableRam.Success && int.TryParse(availableRam.Groups[1].Value, out int freeBytes))
                     {
-                        MemoryIndicator.CurrentInstance.UpdateMemoryHardwareGauge(freeBytes);
+                        MemoryIndicator.CurrentInstance?.UpdateMemoryHardwareGauge(freeBytes);
                     }
                     else
                     {
-                        MemoryIndicator.CurrentInstance.Hide();
+                        MemoryIndicator.CurrentInstance?.Hide();
                     }
                 }
 
@@ -426,7 +426,7 @@ public partial class MainPage : ContentPage
 
         if (App.NetworkService.IsConnecting && !(isConnected || App.NetworkService.IsUsingWifiTransportMode || App.NetworkService.IsUsingLocalApMode || App.NetworkService.IsUsingWifiTransportMode))
         {
-            await App.Log("--> [BOOT SYNC]: Historical device found. Suppressing popup and launching background tracking...");
+            await App.Log("--> [BOOT SYNC]: Connecting to vehicle...");
 
             await MainThread.InvokeOnMainThreadAsync(() =>
             {

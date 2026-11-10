@@ -255,7 +255,7 @@ public class NetworkHubService
                         {
                             await App.Log($"--> [AUTOCONNECT BLE FAILURE]: Unable to connect to historic device. {ex.Message}");
                             await RecycleBluetoothAdapterStateAsync();
-                            await Task.Delay(2500);
+                            await Task.Delay(500);
                         }
 
                         connectRetry++;
@@ -329,7 +329,7 @@ public class NetworkHubService
                     }
                 }
 
-                if (IsBluetoothConnected && !IsAuthorized)
+                if (!IsAuthorized)
                 {
                     return true;
                 }
@@ -455,7 +455,11 @@ public class NetworkHubService
 
                 IsUsingWifiTransportMode = false;
                 IsUsingLocalApMode = false;
-                await ManageWifiTelemetryPollingLifecycle(false);
+
+                if (_isTelemetryActive)
+                {
+                    await ManageWifiTelemetryPollingLifecycle(false);
+                }
             }
 
             if (!IsBluetoothConnected && IsWifiTelemetryDead && hasPhysicalWifiInterface && (IsUsingWifiTransportMode || IsUsingLocalApMode) && !IsUsingCloudWanMode)
@@ -466,6 +470,7 @@ public class NetworkHubService
             else if (!(IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
             {
                 IsWifiTelemetryDead = false;
+                IsWANReportedOnline = true;
             }
 
             if (!IsUsingCloudWanMode && _telemetryBoostActive)
@@ -479,12 +484,12 @@ public class NetworkHubService
             var minutesSinceWANStatusReported = (DateTime.UtcNow - LastReportedWANLinkState).TotalMinutes;
 
             if (!(IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode) && phoneHasInternetAccess &&
-                ((IsWANReportedOnline ?? true) || minutesSinceWANStatusReported >= 20))
+                ((IsWANReportedOnline ?? true) || minutesSinceWANStatusReported >= 30))
             {
                 if (!(IsBluetoothConnected || IsUsingWifiTransportMode || IsUsingLocalApMode || IsUsingCloudWanMode))
                     await App.Log($"--> [AUTOCONNECT WAN]: BLE & WiFi disconnected. Checking route to WAN services....");
-                else if (minutesSinceWANStatusReported >= 20)
-                    await App.Log($"--> [AUTOCONNECT WAN]: 20 minute timeout expired for WAN being reported offline. Checking route to WAN services....");
+                else if (minutesSinceWANStatusReported >= 30)
+                    await App.Log($"--> [AUTOCONNECT WAN]: 30 minute timeout expired for WAN being reported offline. Checking route to WAN services....");
 
                 IsWANReportedOnline = await VerifyTrueInternetRouteToHostAsync();
 
